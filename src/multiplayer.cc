@@ -88,6 +88,11 @@ bool debug_enabled() {
     return env && *env;
 }
 
+bool force_relay_enabled() {
+    const char *env = std::getenv("ENIGMA_MP_FORCE_RELAY");
+    return env && *env;
+}
+
 void debug_log(const char *fmt, ...) {
     if (!debug_enabled())
         return;
@@ -2576,8 +2581,12 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
         return false;
     };
 
-    if (connect_and_wait(host_ip, start.host_port, false, 3000, 3000))
-        return true;
+    if (!force_relay_enabled()) {
+        if (connect_and_wait(host_ip, start.host_port, false, 3000, 3000))
+            return true;
+    } else if (debug_enabled()) {
+        debug_log("mp client: force relay enabled");
+    }
 
     if (!g_relay_server.empty()) {
         if (debug_enabled())
