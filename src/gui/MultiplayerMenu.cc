@@ -75,7 +75,7 @@ namespace {
             }
         }
         if (host.empty())
-            host = "localhost";
+            host = "91.99.142.190";
         Uint16 relay_port = static_cast<Uint16>(port + 1);
         return host + ":" + std::to_string(relay_port);
     }
@@ -205,7 +205,7 @@ MultiplayerMenu::MultiplayerMenu()
                       vminfo.width, bottom_h - 10));
 
     server_label = new Label(N_("Lobby server:"), HALIGN_LEFT);
-    server_field = new TextField("localhost:12347");
+    server_field = new TextField("91.99.142.190:12347");
     room_label = new Label(N_("Room code:"), HALIGN_LEFT);
     room_field = new TextField("");
     players_label = new Label(N_("Players:"), HALIGN_LEFT);

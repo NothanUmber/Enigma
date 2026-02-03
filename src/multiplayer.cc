@@ -1157,6 +1157,8 @@ void apply_resync_state(const protocol::ResyncState &state) {
 void send_ready_to_host() {
     if (!g_session.server_peer)
         return;
+    if (debug_enabled())
+        debug_log("mp send ready");
     ecl::Buffer buf;
     protocol::encode_ready(buf);
     ENetPacket *packet = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
@@ -1490,6 +1492,10 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer,
                     allow_ready = false;
                 }
             }
+            if (debug_enabled()) {
+                debug_log("mp host: ready player=%u via_relay=%d allow=%d",
+                          player_id, via_relay ? 1 : 0, allow_ready ? 1 : 0);
+            }
             if (allow_ready) {
                 if (via_relay)
                     g_session.relay_ready[relay_client_id] = true;
@@ -1644,6 +1650,8 @@ void process_network_events() {
                     g_session.input_epoch = epoch;
                     configure_input_session(g_session.expected_players);
                     g_session.start_allowed = true;
+                    if (debug_enabled())
+                        debug_log("mp client: start allowed");
                     debug_log("mp client: start allowed");
                     enet_packet_destroy(event.packet);
                     break;
@@ -1892,12 +1900,17 @@ unsigned ExpectedPlayers() {
 bool ShouldDeferStart() {
     if (!g_session.active)
         return false;
+    if (debug_enabled())
+        debug_log("mp should defer start: %d", ready_to_start() ? 0 : 1);
     return !ready_to_start();
 }
 
 void NotifyStartRequested() {
     if (!g_session.active)
         return;
+    if (debug_enabled())
+        debug_log("mp notify start requested (host=%d local=%u expected=%u)",
+                  g_session.host ? 1 : 0, g_session.local_player, g_session.expected_players);
     g_session.start_requested = true;
     if (!g_session.host && local_can_send_ready() && !g_session.ready_sent) {
         send_ready_to_host();
@@ -2642,6 +2655,8 @@ void Tick(double dtime) {
     if (g_session.start_requested) {
         if (g_session.host) {
             if (host_ready_to_start()) {
+                if (debug_enabled())
+                    debug_log("mp host: start allowed");
                 g_session.start_requested = false;
                 g_session.start_allowed = true;
                 g_session.input_epoch += 1;
