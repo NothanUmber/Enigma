@@ -9,7 +9,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/enigma
-COPY . .
+COPY lib-src/enet lib-src/enet
+COPY tools/internet_lobby_server.py tools/relay_server.cc tools/docker-entrypoint.sh tools/
 
 RUN cd lib-src/enet && ./configure --disable-shared --enable-static && make
 RUN g++ -std=c++14 tools/relay_server.cc -Ilib-src/enet/include lib-src/enet/libenet.a \
