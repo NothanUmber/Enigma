@@ -117,6 +117,7 @@ namespace enigma { namespace lev {
         virtual bool hasEasyMode();
         virtual bool hasSingleMode();
         virtual bool hasNetworkMode();
+        virtual unsigned getNetworkPlayers();
         virtual std::string getContact();
         virtual std::string getHomepage();
         virtual controlType getControl();
@@ -187,6 +188,7 @@ namespace enigma { namespace lev {
         bool hasEasyModeFlag;
         bool hasSingleModeFlag;
         bool hasNetworkModeFlag;
+        unsigned networkPlayers;
         scoreUnitType scoreUnit;
         std::map<std::string, std::string> externalData;
         /**
@@ -215,4 +217,3 @@ namespace enigma { namespace lev {
     };
 }} // namespace enigma::lev
 #endif
-

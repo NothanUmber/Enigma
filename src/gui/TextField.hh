@@ -61,6 +61,8 @@ namespace enigma { namespace gui {
         
         void setInvalidChars(std::string forbiddenChars); // currently limited to 1st coding page
         void setMaxChars(int max);
+        void set_locked(bool locked);
+        bool is_locked() const { return locked; }
         bool wasLastActionReturn();
         
         // Widget interface.
@@ -93,6 +95,7 @@ namespace enigma { namespace gui {
         std::string invalidChars;
         int maxChars;
         bool isLastActionReturn;
+        bool locked;
         ecl::Font *menufont;
     };
 }} // namespace enigma::gui

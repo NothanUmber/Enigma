@@ -324,12 +324,12 @@ namespace enigma { namespace gui {
                 if (!(r.overlaps(buttonarea) || r.w == 0))
                     continue;       // r.w==0 if repainting whole screen
     
-                if( (i-ifirst) >= m_areas.size()) {
-                    m_areas.push_back(buttonarea);
-                    pending_redraws.push_back(false);
-                } else {
-                    m_areas[(i-ifirst)] = buttonarea;
-                }
+                size_t index = static_cast<size_t>(i - ifirst);
+                if (index >= m_areas.size())
+                    m_areas.resize(index + 1);
+                if (index >= pending_redraws.size())
+                    pending_redraws.resize(index + 1, false);
+                m_areas[index] = buttonarea;
                 // Draw level preview
                 lev::Proxy *levelProxy = curIndex->getProxy(i);
                 int imgx = xpos + (buttonw-imgw)/2;
@@ -346,11 +346,11 @@ namespace enigma { namespace gui {
                         allowGeneration = false;
                     }
                     if (didDraw) {
-                        pending_redraws[(i-ifirst)] = false;
+                        pending_redraws[index] = false;
                     } else {
                         // the button is not drawn - mark it to be drawn on
                         // a future tick
-                        pending_redraws[(i-ifirst)] = true;
+                        pending_redraws[index] = true;
                         isInvalidateUptodate = false;
                     }
                     // Draw level name
@@ -373,7 +373,9 @@ namespace enigma { namespace gui {
             }
         }
         done_painting:
-        m_areas.resize(i-ifirst); // Remove unused areas (if any) from the list
+        size_t visible = static_cast<size_t>(i - ifirst);
+        m_areas.resize(visible); // Remove unused areas (if any) from the list
+        pending_redraws.resize(visible, false);
         return;
     }
     

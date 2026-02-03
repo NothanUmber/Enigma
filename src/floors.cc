@@ -73,10 +73,8 @@ Value Floor::message(const Message &m) {
 }
 
 ecl::V2 Floor::process_mouseforce(Actor *a, ecl::V2 force) {
-    if (a->controlled_by(player::CurrentPlayer()))
-        return getAdhesion() * force;
-    else
-        return ecl::V2();
+    (void)a;
+    return getAdhesion() * force;
 }
 
 void Floor::setAttr(const string &key, const Value &val) {

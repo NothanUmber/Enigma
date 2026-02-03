@@ -186,7 +186,14 @@ public:
     bool isSteerable() const { return adhesion != 0.0; }
     double get_mouseforce() const { return adhesion; }
 
-    bool controlled_by(int player) const { return (get_controllers() & (1 + player)) != 0; }
+    bool controlled_by(int player) const {
+        if ((get_controllers() & (1 << player)) != 0)
+            return true;
+        Value color = getAttr("color");
+        if (color.getType() != Value::NIL && static_cast<int>(color) == player)
+            return true;
+        return false;
+    }
 
     const GridPos &get_gridpos() const { return m_actorinfo.gridpos; }
     virtual double squareDistance(const Object *other) const override;

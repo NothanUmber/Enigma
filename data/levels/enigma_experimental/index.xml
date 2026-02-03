@@ -15,6 +15,8 @@
     <level _seq="7" _title="Selfsolving: Screen Flipping" _xpath="./selfsolving_screenflipping" author="Andreas Lochmann" ctrl="force" easy="false" id="selfsolving_flipping" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="8" _title="Selfsolving: Smooth Scrolling" _xpath="./selfsolving_smooth" author="Andreas Lochmann" ctrl="force" easy="false" id="selfsolving_smooth" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="9" _title="TODO" _xpath="lib/todo" author="Martin Hawlisch" ctrl="force" easy="false" id="todo" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="10" _title="Multiplayer Test (3 Players)" _xpath="./mp_test_3p" author="Enigma Team" ctrl="force" easy="false" id="mp_test_3p" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="11" _title="Multiplayer Test (4 Players)" _xpath="./mp_test_4p" author="Enigma Team" ctrl="force" easy="false" id="mp_test_4p" rel="1" rev="1" score="1" target="time" unit="duration"/>
   </levels>
 
 </index>

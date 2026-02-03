@@ -34,56 +34,12 @@
 #include "MusicManager.hh"
 #include "world.hh"
 
-#include "netgame.hh"
+#include "gui/MultiplayerMenu.hh"
 
 using namespace ecl;
 using namespace std;
 
 namespace enigma { namespace gui {
-
-    /* -------------------- NetworkMenu -------------------- */
-
-    NetworkMenu::NetworkMenu ()
-    {
-        const VMInfo *vminfo = video_engine->GetInfo();
-
-        BuildVList b(this, Rect((vminfo->width - 150)/2,150,150,40), 5);
-        startgame = b.add(new StaticTextButton(N_("Start Game"), this));
-        m_joingame = b.add(new StaticTextButton(N_("Join Game"), this));
-        m_back = b.add(new StaticTextButton(N_("Back"), this));
-    }
-
-    NetworkMenu::~NetworkMenu ()
-    {
-    }
-
-    bool NetworkMenu::on_event (const SDL_Event &e)
-    {
-        return false;
-    }
-
-    void NetworkMenu::on_action(gui::Widget *w)
-    {
-        if (w == startgame) {
-            netgame::Start();
-        }
-        else if (w == m_joingame) {
-            netgame::Join("localhost", 12345);
-        }
-        if (w == m_back)
-            Menu::quit();
-    }
-
-    void NetworkMenu::draw_background(ecl::GC &gc)
-    {
-        set_caption(_("Enigma - Network Menu"));
-        blit(gc, 0,0, enigma::GetImage("menu_bg", ".jpg"));
-    }
-
-    void NetworkMenu::tick(double dtime)
-    {
-    }
-
 
     /* -------------------- Help menu -------------------- */
     static const char *credit_text[] = {
@@ -450,9 +406,7 @@ namespace enigma { namespace gui {
         BuildVList *brp = vsmall ? &br : &b;
         startgame = b.add(new StaticTextButton(N_("Start Game"), this));
         levelpack = b.add(new StaticTextButton(N_("Level Pack"), this));
-#ifdef ENABLE_EXPERIMENTAL
         m_netgame   = b.add(new StaticTextButton(N_("Network Game"), this));
-#endif
         search      = b.add(new StaticTextButton(N_("Search"), this));
         options     = brp->add(new StaticTextButton(N_("Options"), this));
 #if 0
@@ -552,10 +506,8 @@ namespace enigma { namespace gui {
             MainHelpMenu m;
             m.manage();
 
-    #ifdef ENABLE_EXPERIMENTAL
         } else if (w == m_netgame) {
             ShowNetworkMenu();
-    #endif
         } else if (w == quit) {
             Menu::quit();
         } else if (w == languagemenu) {
@@ -579,8 +531,7 @@ namespace enigma { namespace gui {
 
     void ShowNetworkMenu()
     {
-        NetworkMenu m;
-        m.manage();
+        ShowMultiplayerMenu();
     }
 
 }} // namespace enigma::gui

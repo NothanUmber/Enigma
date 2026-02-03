@@ -30,6 +30,8 @@
 #include "options.hh"
 #include "player.hh"
 #include "player.hh"
+#include "input.hh"
+#include "multiplayer_state.hh"
 #include "StateManager.hh"
 #include "world.hh"
 #include "MusicManager.hh"
@@ -146,6 +148,29 @@ int previousLevel;
 ENetAddress network_address;
 ENetHost *network_host = 0;
 
+void apply_inputs_for_tick() {
+    unsigned players = input::IsNetworked() ? input::ExpectedPlayers() : player::PlayerCount();
+    if (players == 0)
+        players = 1;
+    uint32_t tick = input::CurrentTick();
+    for (unsigned player = 0; player < players; ++player) {
+        input::PlayerInput pi = input::ConsumeInput(tick, player);
+        if (pi.mouse_force[0] != 0.0 || pi.mouse_force[1] != 0.0)
+            Msg_MouseForce(player, pi.mouse_force);
+        if (pi.rotate_steps != 0) {
+            int dir = (pi.rotate_steps > 0) ? 1 : -1;
+            int steps = (pi.rotate_steps > 0) ? pi.rotate_steps : -pi.rotate_steps;
+            for (int i = 0; i < steps; ++i)
+                player::RotateInventory(player, dir);
+        }
+        if (pi.activate_count > 0) {
+            for (int i = 0; i < pi.activate_count; ++i)
+                Msg_ActivateItem(player);
+        }
+    }
+    input::AdvanceTick();
+}
+
 }  // namespace
 
 void load_level(lev::Proxy *levelProxy, bool isRestart) {
@@ -162,6 +187,7 @@ void load_level(lev::Proxy *levelProxy, bool isRestart) {
         player::NewGame();
 
         levelProxy->loadLevel();  // sets the compatibility mode
+        multiplayer::PrepareExtraActors();
 
         game::ResetGameTimer();
 
@@ -169,6 +195,7 @@ void load_level(lev::Proxy *levelProxy, bool isRestart) {
         if (!CreatingPreview) {
             player::LevelLoaded(isRestart);
             client::Msg_LevelLoaded(isRestart);
+            multiplayer::SetupPlacement();
         }
         double exectime = (SDL_GetTicks() - start_tick_time) / 1000.0;
         Log << ecl::strf("Server load level did take %g seconds\n", exectime);
@@ -213,9 +240,14 @@ void gametick(double dtime) {
         time_accu = 1.0;
     }
     player::Tick(time_accu);
-    for (; time_accu >= timestep; time_accu -= timestep, count++) {
+    for (; time_accu >= timestep; ) {
+        if (!input::CanAdvanceTick())
+            break;
+        time_accu -= timestep;
+        apply_inputs_for_tick();
         LevelTime += timestep;
         WorldTick(timestep);
+        count++;
     }
     display::GetStatusBar()->set_counter(server::GetMoveCounter());
     player::MessagePlayerPositionsToClient();
@@ -257,10 +289,10 @@ void PrepareLevel() {
     SurviveFinish = true;
     AddSecondsToScore = 0;
     TwoPlayerGame = false;
-    SingleComputerGame = true;
+    SingleComputerGame = !multiplayer::IsActive();
     AllowSingleOxyds = false;
     AllowSuicide = true;
-    AllowTogglePlayer = true;
+    AllowTogglePlayer = !multiplayer::IsActive();
     AutoRespawn = false;
     FollowAction = GridPos(19, 12);  // inner space of a room
     FollowGrid = true;
@@ -294,6 +326,7 @@ void PrepareLevel() {
     WormholeRange = 10;
 
     move_counter = 0;
+    multiplayer::PrimeInputQueueForNewLevel();
 
     enigma::WorldPrepareLevel();
     WorldSized = false;
@@ -321,7 +354,18 @@ void PrepareLua() {
 }
 
 void RestartLevel() {
-    if (state == sv_running || state == sv_finished || state == sv_finishing) {
+    if (multiplayer::IsActive() && !multiplayer::IsHost())
+        return;
+    if (state == sv_running || state == sv_finished || state == sv_finishing || state == sv_paused) {
+        if (multiplayer::IsActive() && multiplayer::IsHost())
+            multiplayer::NotifyRestart(true);
+        state = sv_restart_level;
+        current_state_dtime = 0;
+    }
+}
+
+void RestartLevelFromNetwork() {
+    if (state == sv_running || state == sv_finished || state == sv_finishing || state == sv_paused) {
         state = sv_restart_level;
         current_state_dtime = 0;
     }
@@ -332,7 +376,18 @@ bool IsRestartingLevel() {
 }
 
 void Msg_RestartGame() {
-    if (state == sv_running || state == sv_finished || state == sv_finishing) {
+    if (multiplayer::IsActive() && !multiplayer::IsHost())
+        return;
+    if (state == sv_running || state == sv_finished || state == sv_finishing || state == sv_paused) {
+        if (multiplayer::IsActive() && multiplayer::IsHost())
+            multiplayer::NotifyRestart(false);
+        state = sv_restart_game;
+        current_state_dtime = 0;
+    }
+}
+
+void Msg_RestartGameFromNetwork() {
+    if (state == sv_running || state == sv_finished || state == sv_finishing || state == sv_paused) {
         state = sv_restart_game;
         current_state_dtime = 0;
     }
@@ -417,6 +472,10 @@ void Msg_JumpBack() {
 
 void Msg_StartGame() {
     if (state == sv_waiting_for_clients) {
+        if (multiplayer::ShouldDeferStart()) {
+            multiplayer::NotifyStartRequested();
+            return;
+        }
         time_accu = 0;
         state = sv_running;
     } else {
@@ -605,7 +664,11 @@ void Msg_Panic(bool onoff) {
 }
 
 void Msg_MouseForce(const ecl::V2 &f) {
-    SetMouseForce(f);
+    Msg_MouseForce(player::CurrentPlayer(), f);
+}
+
+void Msg_MouseForce(unsigned player, const ecl::V2 &f) {
+    SetMouseForce(player, f);
 }
 
 void SetCompatibility(const char *version) {
@@ -657,7 +720,11 @@ int GetMoveCounter() {
 }
 
 void Msg_ActivateItem() {
-    player::ActivateFirstItem();
+    Msg_ActivateItem(player::CurrentPlayer());
+}
+
+void Msg_ActivateItem(unsigned player) {
+    player::ActivateFirstItem(player);
 }
 
 }  // namespace server

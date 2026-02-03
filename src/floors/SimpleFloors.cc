@@ -166,7 +166,7 @@ namespace enigma {
     }
     
     ecl::V2 YinyangFloor::process_mouseforce (Actor *a, ecl::V2 force) {
-        if (player::CurrentPlayer() == state)
+        if (a->controlled_by(state))
             return getAdhesion() * force;
         else
             return ecl::V2();

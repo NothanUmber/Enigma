@@ -8,6 +8,8 @@ EXTRA_DIST = \
 	enigma.ico \
 	enigma.rc
 
+AM_CPPFLAGS = -I$(top_srcdir)/lib-src/enet/include
+
 CXXFLAGS = @CXXFLAGS@\
 	-DSYSTEM_DATA_DIR=\"$(datadir)/enigma\" \
 	-DDOCDIR=\"$(docdir)\" \
@@ -65,8 +67,14 @@ enigma_SOURCES = 		\
 	Inventory.cc		\
 	Inventory.hh		\
 	ItemHolder.hh		\
+	input.cc		\
+	input.hh		\
 	items.cc 		\
 	items.hh		\
+	multiplayer.cc		\
+	multiplayer.hh		\
+	multiplayer_protocol.hh \
+	multiplayer_state.hh	\
 	KindDescriptor.cc	\
 	KindDescriptor.hh	\
 	laser.cc 		\
@@ -206,6 +214,8 @@ enigma_SOURCES = 		\
 	gui/LPGroupConfig.hh	\
 	gui/MainMenu.cc		\
 	gui/MainMenu.hh		\
+	gui/MultiplayerMenu.cc \
+	gui/MultiplayerMenu.hh \
 	gui/Menu.cc		\
 	gui/Menu.hh		\
 	gui/MonospacedLabel.cc	\
@@ -498,4 +508,3 @@ tolua:
 	else \
 		echo "$<:0: Warning: Can't update lua interface - tolua not installed "; \
 	fi
-

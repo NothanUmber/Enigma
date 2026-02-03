@@ -223,6 +223,7 @@ void Shutdown();
 void NewWorld(int w, int h);
 void ResizeGameArea(int w, int h);
 const ecl::Rect &GetGameArea();
+ecl::V2 ScreenToWorld(const ecl::V2 &pos);
 
 void DrawAll(ecl::GC &gc);
 void RedrawAll(ecl::Screen *sfc);

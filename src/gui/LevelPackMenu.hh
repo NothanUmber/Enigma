@@ -45,7 +45,7 @@ namespace enigma { namespace gui {
      */
     class LevelPackMenu : public Menu {
     public:
-        LevelPackMenu();
+        explicit LevelPackMenu(bool select_only = false);
         void manageLevelMenu();
         virtual bool manage();
 
@@ -82,6 +82,7 @@ namespace enigma { namespace gui {
         Label       *lb_index_description;
 
         bool         isLevelMenuSubmenu;
+        bool         select_only;
         
         void setupMenu();
         void updateHighlight();

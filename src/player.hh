@@ -23,8 +23,7 @@
  *
  * Player management.  Deals mostly with inventory management,
  * switching between players, respawning, etc.  Players are numbered
- * from 0..N-1, where N is the number of players in the current game
- * (currently always 1 or 2).
+ * from 0..N-1, where N is the number of players in the current game.
  */
 
 #include "items.hh"
@@ -35,7 +34,7 @@ class Inventory;
 
 namespace player {
 
-/*! Start a new game for two virtual players. */
+/*! Start a new game for the current player count. */
 void NewGame();
 
 /*! This is called whenever a new level is reached in a running
@@ -69,6 +68,7 @@ void RemoveRespawnPositions(Value color);
 int CurrentPlayer();
 void SetCurrentPlayer(unsigned iplayer);
 unsigned NumberOfRealPlayers();
+unsigned PlayerCount();
 
 Inventory *MayPickup(Actor *a, Item *it, bool allowFlying = false);
 Inventory *GetInventory(int iplayer);
@@ -89,8 +89,10 @@ void InhibitPickup(bool yesno);
 void PickupItem(Actor *a, enigma::GridPos p);
 bool PickupAsItem(Actor *a, GridObject *obj, std::string kind);
 void RotateInventory(int dir = 1);
+void RotateInventory(unsigned player, int dir);
 
 void ActivateFirstItem();
+void ActivateFirstItem(unsigned player);
 ItemAction ActivateItem(Item *it);
 
 void Tick(double dtime);

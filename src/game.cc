@@ -25,6 +25,7 @@
 #include "world.hh"
 #include "SoundEngine.hh"
 #include "lev/PersistentIndex.hh"
+#include "multiplayer.hh"
 
 #include "ecl_sdl.hh"
 #include <cassert>
@@ -79,6 +80,7 @@ void game::StartGame() {
     last_tick_time = SDL_GetTicks();
     while (!client::AbortGameP() && !app.bossKeyPressed) {
         try {
+            multiplayer::Tick(dtime);
             client::Tick(dtime);
             server::Tick(dtime);
         } catch (XLevelRuntime &err) {
@@ -110,6 +112,7 @@ void game::StartGame() {
     lev::PersistentIndex::addCurrentToHistory();
 
     video_engine->ShowMouse();
+    multiplayer::Shutdown();
 }
 
 void game::ResetGameTimer() {

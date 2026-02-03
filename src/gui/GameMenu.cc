@@ -29,6 +29,7 @@
 #include "nls.hh"
 #include "server.hh"
 #include "video.hh"
+#include "multiplayer.hh"
 #include "lev/Index.hh"
 #include "lev/Proxy.hh"
 
@@ -164,11 +165,17 @@ namespace enigma { namespace gui {
                 lev::Index *ind = lev::Index::getCurrentIndex();
                 if (keymod & KMOD_SHIFT & KMOD_CTRL) {
                     lev::Proxy::releaseCache();
-                    client::Stop ();
-                    server::Msg_LoadLevel(ind->getCurrent(), false);
+                    if (multiplayer::IsActive() && !multiplayer::IsHost()) {
+                        client::Msg_ShowText("Only host can restart the level.", true, 3.0);
+                    } else {
+                        server::RestartLevel();
+                    }
                 } else if (keymod & KMOD_SHIFT) {
-                    client::Stop ();
-                    server::Msg_LoadLevel(ind->getCurrent(), false);
+                    if (multiplayer::IsActive() && !multiplayer::IsHost()) {
+                        client::Msg_ShowText("Only host can restart the level.", true, 3.0);
+                    } else {
+                        server::RestartLevel();
+                    }
                 } else {
                     server::Msg_Command("suicide");
                 }
@@ -199,8 +206,11 @@ namespace enigma { namespace gui {
                 // force a reload from file
                 lev::Proxy::releaseCache();
             }
-            client::Stop ();
-            server::Msg_LoadLevel(ind->getCurrent(), false);
+            if (multiplayer::IsActive() && !multiplayer::IsHost()) {
+                client::Msg_ShowText("Only host can restart the level.", true, 3.0);
+            } else {
+                server::RestartLevel();
+            }
             Menu::quit();
         }
         else if (w == options) {

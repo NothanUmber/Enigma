@@ -20,6 +20,8 @@
 #include "video_effects.hh"
 #include "ecl_buffer.hh"
 #include "enet/enet.h"
+#include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace enigma {
@@ -176,7 +178,6 @@ private:
 
     std::string m_user_input;
     std::string m_error_message;
-
     std::unique_ptr<video::TransitionEffect> m_effect;
     ENetHost *m_network_host;
     ENetPeer *m_server;

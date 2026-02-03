@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<el:level xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://enigma-game.org/schema/level/1 level.xsd" xmlns:el="http://enigma-game.org/schema/level/1">
+  <el:protected>
+    <el:info el:type="level">
+      <el:identity el:title="Multiplayer Test (4 Players)" el:subtitle="" el:id="mp_test_4p"/>
+      <el:version el:score="1" el:release="1" el:revision="1" el:status="experimental"/>
+      <el:author el:name="Enigma Team"/>
+      <el:copyright>Copyright © 2026 Enigma Team</el:copyright>
+      <el:license el:type="GPL v2.0 or above" el:open="true"/>
+      <el:compatibility el:enigma="1.10"/>
+      <el:modes el:easy="false" el:single="true" el:network="true" el:players="4"/>
+      <el:score el:easy="-" el:difficult="-"/>
+    </el:info>
+    <el:luamain><![CDATA[
+local P0 = 0
+local P1 = 1
+local P2 = 2
+local P3 = 3
+local C0 = 1
+local C1 = 2
+local C2 = 4
+local C3 = 8
+
+ti[" "] = {"fl_sahara"}
+ti["#"] = {"st_rawglass"}
+ti["0"] = {"#ac_marble_black", owner = P0, controllers = C0, essential = INDISPENSABLE}
+ti["1"] = {"#ac_marble_white", owner = P1, controllers = C1, essential = INDISPENSABLE}
+ti["2"] = {"#ac_marble_black", owner = P2, controllers = C2, essential = INDISPENSABLE}
+ti["3"] = {"#ac_marble_white", owner = P3, controllers = C3, essential = INDISPENSABLE}
+
+wo(ti, " ", {
+    "###################",
+    "#0             1  #",
+    "#                 #",
+    "#                 #",
+    "#        2        #",
+    "#                 #",
+    "#                 #",
+    "#3                #",
+    "###################",
+})
+    ]]></el:luamain>
+    <el:i18n>
+      <el:string el:key="title">
+        <el:english el:translate="false"/>
+      </el:string>
+    </el:i18n>
+  </el:protected>
+</el:level>

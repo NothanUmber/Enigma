@@ -169,6 +169,7 @@ void PrepareLua();
 
 void Tick(double dtime);
 void RestartLevel();
+void RestartLevelFromNetwork();
 bool IsRestartingLevel();
 void FinishLevel();
 
@@ -198,6 +199,7 @@ void Msg_JumpBack();
 void Msg_StartGame();
 
 void Msg_RestartGame();
+void Msg_RestartGameFromNetwork();
 
 void Msg_Command(const std::string &command);
 
@@ -208,8 +210,10 @@ void Msg_Teatime(bool onoff);
 void Msg_Panic(bool onoff);
 
 void Msg_MouseForce(const ecl::V2 &f);
+void Msg_MouseForce(unsigned player, const ecl::V2 &f);
 
 void Msg_ActivateItem();
+void Msg_ActivateItem(unsigned player);
 
 }  // namespace server
 }  // namespace enigma

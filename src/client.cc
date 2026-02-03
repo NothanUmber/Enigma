@@ -22,12 +22,14 @@
 #include "display.hh"
 #include "options.hh"
 #include "server.hh"
+#include "input.hh"
 #include "gui/HelpMenu.hh"
 #include "main.hh"
 #include "gui/GameMenu.hh"
 #include "SoundEngine.hh"
 #include "SoundEffectManager.hh"
 #include "MusicManager.hh"
+#include "multiplayer_state.hh"
 #include "player.hh"
 #include "resource_cache.hh"
 #include "video.hh"
@@ -36,6 +38,7 @@
 #include "StateManager.hh"
 #include "lev/Index.hh"
 #include "lev/PersistentIndex.hh"
+
 #include "lev/Proxy.hh"
 #include "lev/RatingManager.hh"
 #include "lev/ScoreManager.hh"
@@ -198,6 +201,47 @@ void Client::network_stop() {
 void Client::handle_events() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        if (multiplayer::PlacementActive()) {
+            ecl::Screen *screen = video_engine->GetScreen();
+            ecl::Rect screen_size = screen ? screen->size() : ecl::Rect(0, 0, 0, 0);
+            ecl::Rect window_size = screen ? screen->window_size() : ecl::Rect(0, 0, 0, 0);
+            if (e.type == SDL_FINGERDOWN) {
+                int x = static_cast<int>(e.tfinger.x * screen_size.w + 0.5);
+                int y = static_cast<int>(e.tfinger.y * screen_size.h + 0.5);
+                multiplayer::UpdatePlacementCursor(x, y);
+                multiplayer::HandlePlacementClick(x, y);
+                update_mouse_button_state();
+                continue;
+            }
+            if (e.type == SDL_FINGERMOTION) {
+                int x = static_cast<int>(e.tfinger.x * screen_size.w + 0.5);
+                int y = static_cast<int>(e.tfinger.y * screen_size.h + 0.5);
+                multiplayer::UpdatePlacementCursor(x, y);
+                update_mouse_button_state();
+                continue;
+            }
+            if (e.type == SDL_MOUSEMOTION && window_size.w > 0 && window_size.h > 0) {
+                int x = (int)((double) (e.motion.x * screen_size.w) / window_size.w + 0.5);
+                int y = (int)((double) (e.motion.y * screen_size.h) / window_size.h + 0.5);
+                multiplayer::UpdatePlacementCursor(x, y);
+                update_mouse_button_state();
+                continue;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT &&
+                window_size.w > 0 && window_size.h > 0) {
+                int x = (int)((double) (e.button.x * screen_size.w) / window_size.w + 0.5);
+                int y = (int)((double) (e.button.y * screen_size.h) / window_size.h + 0.5);
+                multiplayer::UpdatePlacementCursor(x, y);
+                multiplayer::HandlePlacementClick(x, y);
+                update_mouse_button_state();
+                continue;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP ||
+                e.type == SDL_MOUSEWHEEL || e.type == SDL_FINGERUP) {
+                update_mouse_button_state();
+                continue;
+            }
+        }
         switch (e.type) {
         // TODO: If we want umlauts and other special characters ingame,
         //       we need to add SDL_TEXTINPUT and SDL_TEXTEDITING here.
@@ -208,11 +252,13 @@ void Client::handle_events() {
             if (abs(e.motion.xrel) > 300 || abs(e.motion.yrel) > 300) {
                 fprintf(stderr, "mouse event with %i, %i\n", e.motion.xrel, e.motion.yrel);
             } else
-                server::Msg_MouseForce(options::GetDouble("MouseSpeed") *
-                        ecl::V2(e.motion.xrel, e.motion.yrel));
+                input::SubmitMouseForce(player::CurrentPlayer(),
+                        options::GetDouble("MouseSpeed") * ecl::V2(e.motion.xrel, e.motion.yrel));
             break;
         case SDL_MOUSEBUTTONDOWN:
-        case SDL_MOUSEBUTTONUP: on_mousebutton(e); break;
+        case SDL_MOUSEBUTTONUP:
+            on_mousebutton(e);
+            break;
         case SDL_MOUSEWHEEL:
             if (e.wheel.y < 0) // mousewheel down: rotate inventory
                 rotate_inventory(-1);
@@ -224,7 +270,8 @@ void Client::handle_events() {
             if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 // TODO(SDL2): is this sthe right event? The old code had
                 // !video::IsFullScreen() as an additional check - necessary?
-                show_menu(false);
+                if (!multiplayer::IsActive())
+                    show_menu(false);
             } else if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
                 display::RedrawAll(video_engine->GetScreen());
             }
@@ -278,10 +325,10 @@ void Client::on_mousebutton(SDL_Event &e) {
     if (e.button.state == SDL_PRESSED) {
         if (e.button.button == SDL_BUTTON_LEFT) {
             // left mousebutton -> activate first item in inventory
-            server::Msg_ActivateItem();
+            input::SubmitActivateItem(player::CurrentPlayer());
         } else if (e.button.button == SDL_BUTTON_RIGHT) {
             // right mousebutton -> rotate inventory
-            rotate_inventory(+1);
+            input::SubmitRotateInventory(player::CurrentPlayer(), +1);
         } else if (e.button.button == SDL_BUTTON_MIDDLE) {
             switch (options::GetInt("MiddleMouseButtonMode")) {
             case options::MIDDLEMOUSEBUTTON_NoOp: {
@@ -323,7 +370,7 @@ void Client::on_mousebutton(SDL_Event &e) {
 void Client::rotate_inventory(int direction) {
     m_user_input = "";
     display::GetStatusBar()->hide_text();
-    player::RotateInventory(direction);
+    input::SubmitRotateInventory(player::CurrentPlayer(), direction);
 }
 
 /* -------------------- Console related -------------------- */
@@ -740,7 +787,10 @@ void Client::tick(double dtime) {
             }
         }
 
-        m_total_game_time += dtime;
+        if (multiplayer::IsActive())
+            m_total_game_time = server::LevelTime;
+        else
+            m_total_game_time += dtime;
         display::GetStatusBar()->set_time(m_total_game_time);
     // fall through
     case cls_finished: {
@@ -909,6 +959,8 @@ void Client::level_loaded(bool isRestart) {
     m_effect = video::CreateEffect((isRestart ? video::TM_NONE : video::TM_PUSH_RANDOM),
                                    video_engine->BackBuffer());
     m_cheater = false;
+    if (multiplayer::IsActive())
+        player::SetCurrentPlayer(multiplayer::LocalPlayer());
     m_state = cls_preparing_game;
 }
 

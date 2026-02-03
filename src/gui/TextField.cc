@@ -40,7 +40,7 @@ using namespace std;
 
 TextField::TextField(const std::string &t, ActionListener *al) : cursorTime(0),
         showCursor(true), isLimitedToValidChars(false), invalidChars(""), 
-        maxChars(-1), isLastActionReturn (false) {
+        maxChars(-1), isLastActionReturn (false), locked(false) {
     menufont = enigma::GetFont("menufont");
     
     SDL_StartTextInput();
@@ -80,6 +80,11 @@ void TextField::setInvalidChars(std::string forbiddenChars) {
 
 void TextField::setMaxChars(int max) {
     maxChars = max;
+}
+
+void TextField::set_locked(bool value) {
+    locked = value;
+    showCursor = false;
 }
 
 bool TextField::wasLastActionReturn() {
@@ -130,6 +135,8 @@ void TextField::draw(ecl::GC &gc, const ecl::Rect &r) {
 }
 
 bool TextField::on_event(const SDL_Event &e) {
+    if (locked)
+        return false;
     bool handled = false;
     bool modified = false;
     
@@ -272,4 +279,3 @@ bool TextField::on_event(const SDL_Event &e) {
     }
     return handled;
 }
-

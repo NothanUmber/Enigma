@@ -27,6 +27,7 @@
 #include "world.hh"
 #include "main.hh"
 #include "items/GlassesItem.hh"
+#include "input.hh"
 
 #include "ecl_util.hh"
 
@@ -137,20 +138,32 @@ void player::PlayerShutdown() {
 /* -------------------- Functions -------------------- */
 
 void player::NewGame() {
-    int nplayers = 2;  // Always prepare for two players
-    std::vector<int> extralives(2);
+    unsigned nplayers = 2;  // Always prepare for two players unless networked.
+    if (input::IsNetworked()) {
+        nplayers = input::ExpectedPlayers();
+        if (nplayers < 1)
+            nplayers = 1;
+        if (nplayers > input::kMaxPlayers)
+            nplayers = input::kMaxPlayers;
+    }
+    std::vector<int> extralives(nplayers);
+    unsigned existing_players = players.size();
 
     // calculate number of extralives
-    for (int i = 0; i < nplayers; ++i) {
+    for (unsigned i = 0; i < nplayers; ++i) {
         if (server::IsLevelRestart) {
             if (server::ProvideExtralifes) {
                 // count existing number of extralives
-                int idxLife = -1;
-                extralives[i] = -1;
-                do {
-                    ++extralives[i];
-                    idxLife = players[i].inventory.find("it_extralife", ++idxLife);
-                } while (idxLife != -1);
+                if (i < existing_players) {
+                    int idxLife = -1;
+                    extralives[i] = -1;
+                    do {
+                        ++extralives[i];
+                        idxLife = players[i].inventory.find("it_extralife", ++idxLife);
+                    } while (idxLife != -1);
+                } else {
+                    extralives[i] = 0;
+                }
             } else
                 extralives[i] = 0;
         } else {
@@ -162,7 +175,7 @@ void player::NewGame() {
     players.clear();
     players.resize(nplayers);
 
-    for (int i = 0; i < nplayers; ++i) {
+    for (unsigned i = 0; i < nplayers; ++i) {
         Inventory *inv = GetInventory(i);
         inv->assignOwner(i);
         for (int j = 0; j < extralives[i]; j++)
@@ -171,6 +184,10 @@ void player::NewGame() {
 
     unassignedActors.clear();
     leveldat.reset();
+}
+
+unsigned player::PlayerCount() {
+    return static_cast<unsigned>(players.size());
 }
 
 void player::AddYinYang() {
@@ -333,6 +350,8 @@ bool player::HasActor(unsigned iplayer, Actor *a) {
 }
 
 void player::SwapPlayers() {
+    if (!server::AllowTogglePlayer)
+        return;
     if (NumberOfRealPlayers() >= 2) {
         SetCurrentPlayer(1 - icurrent_player);
     }
@@ -540,7 +559,13 @@ bool player::PickupAsItem(Actor *a, GridObject *obj, std::string kind) {
 }
 
 void player::ActivateFirstItem() {
-    Inventory &inv = players[icurrent_player].inventory;
+    ActivateFirstItem(icurrent_player);
+}
+
+void player::ActivateFirstItem(unsigned iplayer) {
+    if (iplayer >= players.size())
+        return;
+    Inventory &inv = players[iplayer].inventory;
 
     if (inv.size() > 0) {
         Item *it = inv.get_item(0);
@@ -548,8 +573,8 @@ void player::ActivateFirstItem() {
         GridPos p;
         bool can_drop_item = false;
         std::vector<Actor *>::iterator itr;
-        for (itr = players[icurrent_player].actors.begin();
-             itr != players[icurrent_player].actors.end() && ac == nullptr; itr++) {
+        for (itr = players[iplayer].actors.begin();
+             itr != players[iplayer].actors.end() && ac == nullptr; itr++) {
             if (!(*itr)->is_dead()) {
                 ac = *itr;
                 p = GridPos(ac->get_pos());
@@ -578,8 +603,14 @@ void player::ActivateFirstItem() {
 }
 
 void player::RotateInventory(int dir) {
+    RotateInventory(icurrent_player, dir);
+}
+
+void player::RotateInventory(unsigned iplayer, int dir) {
+    if (iplayer >= players.size())
+        return;
     sound::EmitSoundEvent("invrotate", ecl::V2());
-    Inventory &inv = players[icurrent_player].inventory;
+    Inventory &inv = players[iplayer].inventory;
     if (dir == 1)
         inv.rotate_left();
     else

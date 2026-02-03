@@ -21,7 +21,9 @@
 #include "ecl_array2.hh"
 #include "ecl_dict.hh"
 #include "SoundEngine.hh"
+#include "input.hh"
 #include "world.hh"
+#include <array>
 #include <list>
 #include <memory>
 #include <vector>
@@ -47,20 +49,38 @@ typedef std::vector<Signal> SignalList;
   by this force field. */
 class MouseForce {
 public:
-    void set_force(ecl::V2 f) { force = f; }
-    void add_force(ecl::V2 f) { force += f; }
+    void set_force(unsigned player, ecl::V2 f) {
+        if (player < input::kMaxPlayers)
+            force[player] = f;
+    }
+    void add_force(unsigned player, ecl::V2 f) {
+        if (player < input::kMaxPlayers)
+            force[player] += f;
+    }
+
+    ecl::V2 get_force_for_controllers(int controllers, double adhesion) const {
+        ecl::V2 total;
+        for (unsigned player = 0; player < input::kMaxPlayers; ++player) {
+            if ((controllers & (1 << player)) != 0)
+                total += force[player];
+        }
+        return total * adhesion;
+    }
 
     ecl::V2 get_force(Actor *a) {
         if (a->is_flying() || a->is_dead())
             return ecl::V2();
         else
-            return force * a->get_mouseforce();
+            return get_force_for_controllers(a->get_controllers(), a->get_mouseforce());
     }
 
-    void tick(double /*dtime*/) { force = ecl::V2(); }
+    void tick(double /*dtime*/) {
+        for (auto &f : force)
+            f = ecl::V2();
+    }
 
 private:
-    ecl::V2 force;
+    std::array<ecl::V2, input::kMaxPlayers> force;
 };
 
 /* -------------------- Scramble -------------------- */

@@ -31,6 +31,9 @@
 #include "others/Other.hh"
 #include "others/Rubberband.hh"
 
+#include <cstdint>
+#include <vector>
+
 namespace enigma {
 
 /* -------------------- Types -------------------- */
@@ -149,6 +152,9 @@ int Height();
 /* Initialize the world after loading it.  Call this after loading
    the world to force laser beams to be recalculated etc. */
 bool WorldInitLevel();
+uint64_t WorldChecksum();
+uint64_t ActorChecksum();
+void GetActors(std::vector<Actor *> &out);
 
 void WorldTick(double dtime);
 void TickFinished(double dtime);
@@ -179,6 +185,7 @@ PositionList GetNamedPositionList(const std::string &templ, Object *reference = 
 void AddForceField(ForceField *ff);
 void RemoveForceField(ForceField *ff);
 void SetMouseForce(ecl::V2 f);
+void SetMouseForce(unsigned player, ecl::V2 f);
 
 void SetGlobalForce(ecl::V2 force);
 ecl::V2 GetGlobalForce();

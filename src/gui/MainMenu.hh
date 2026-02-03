@@ -87,28 +87,6 @@ namespace enigma { namespace gui {
         gui::Widget *back;
     };
 
-/* -------------------- NetworkMenu -------------------- */
-        
-    class NetworkMenu : public gui::Menu {
-    public:
-        NetworkMenu ();
-        ~NetworkMenu ();
-    private:
-        // ActionListener interface.
-        bool on_event (const SDL_Event &e);
-        void on_action(gui::Widget *w);
-
-        // Menu interface.
-        void draw_background(ecl::GC &gc);
-        void tick(double dtime);
-
-        // Variables.
-        gui::Widget *startgame;
-        gui::Widget *m_joingame;
-        gui::Widget *m_back;
-    };
-
-    
 /* -------------------- Functions -------------------- */
     void ShowMainMenu();
     void ShowNetworkMenu();

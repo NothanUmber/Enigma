@@ -1988,6 +1988,12 @@ const Rect &display::GetGameArea() {
     return gamedpy->get_engine()->get_area();
 }
 
+ecl::V2 display::ScreenToWorld(const ecl::V2 &pos) {
+    if (!gamedpy)
+        return pos;
+    return gamedpy->get_engine()->to_world(pos);
+}
+
 RubberHandle display::AddRubber(const V2 &p1, const V2 &p2, unsigned short rc, unsigned short gc,
                                 unsigned short bc, bool isThick) {
     return gamedpy->add_line(p1, p2, rc, gc, bc, isThick);

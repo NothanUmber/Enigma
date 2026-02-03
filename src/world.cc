@@ -36,9 +36,11 @@
 
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <numeric>
+#include <vector>
 
 // remove comment from define below to switch on verbose messaging
 // note: VERBOSE_MESSAGES is defined in multiple source files!
@@ -1744,7 +1746,11 @@ bool WorldInitLevel() {
 }
 
 void SetMouseForce(V2 f) {
-    level->m_mouseforce.add_force(f);
+    SetMouseForce(player::CurrentPlayer(), f);
+}
+
+void SetMouseForce(unsigned player, V2 f) {
+    level->m_mouseforce.add_force(player, f);
 }
 
 void NameObject(Object *obj, const std::string &name) {
@@ -2269,6 +2275,126 @@ unsigned CountActorsOfKind(ActorID id) {
             ++count;
     }
     return count;
+}
+
+namespace {
+
+constexpr uint64_t kChecksumOffset = 1469598103934665603ull;
+constexpr uint64_t kChecksumPrime = 1099511628211ull;
+
+void hash_bytes(uint64_t &h, const void *data, size_t len) {
+    const unsigned char *ptr = static_cast<const unsigned char *>(data);
+    for (size_t i = 0; i < len; ++i) {
+        h ^= static_cast<uint64_t>(ptr[i]);
+        h *= kChecksumPrime;
+    }
+}
+
+void hash_u64(uint64_t &h, uint64_t v) {
+    hash_bytes(h, &v, sizeof(v));
+}
+
+void hash_i64(uint64_t &h, int64_t v) {
+    hash_bytes(h, &v, sizeof(v));
+}
+
+void hash_string(uint64_t &h, const std::string &s) {
+    if (!s.empty())
+        hash_bytes(h, s.data(), s.size());
+    unsigned char sep = 0;
+    hash_bytes(h, &sep, 1);
+}
+
+int64_t quantize(double v) {
+    return static_cast<int64_t>(std::llround(v * 1000.0));
+}
+
+void hash_object_state(uint64_t &h, Object *obj) {
+    if (!obj) {
+        hash_u64(h, 0);
+        return;
+    }
+    hash_string(h, obj->getKind());
+    Value state = obj->getAttr("state");
+    if (!state.isDefault()) {
+        int state_value = static_cast<int>(state);
+        hash_i64(h, static_cast<int64_t>(state_value));
+    } else {
+        hash_u64(h, 0);
+    }
+}
+
+}  // namespace
+
+uint64_t WorldChecksum() {
+    if (!level)
+        return 0;
+    uint64_t h = kChecksumOffset;
+    hash_u64(h, static_cast<uint64_t>(level->w));
+    hash_u64(h, static_cast<uint64_t>(level->h));
+
+    for (int y = 0; y < level->h; ++y) {
+        for (int x = 0; x < level->w; ++x) {
+            GridPos p(x, y);
+            hash_object_state(h, level->fl_layer.get(p));
+            hash_object_state(h, level->st_layer.get(p));
+            hash_object_state(h, level->it_layer.get(p));
+        }
+    }
+
+    std::vector<Actor *> actors(level->actorlist.begin(), level->actorlist.end());
+    std::sort(actors.begin(), actors.end(),
+              [](const Actor *a, const Actor *b) { return a->getId() < b->getId(); });
+    hash_u64(h, static_cast<uint64_t>(actors.size()));
+    for (Actor *actor : actors) {
+        hash_u64(h, static_cast<uint64_t>(actor->getId()));
+        hash_u64(h, static_cast<uint64_t>(get_id(actor)));
+        const ecl::V2 &pos = actor->get_pos();
+        const ecl::V2 &vel = actor->get_vel();
+        hash_i64(h, quantize(pos[0]));
+        hash_i64(h, quantize(pos[1]));
+        hash_i64(h, quantize(vel[0]));
+        hash_i64(h, quantize(vel[1]));
+    }
+
+    std::vector<Other *> others(level->others.begin(), level->others.end());
+    std::sort(others.begin(), others.end(),
+              [](const Other *a, const Other *b) { return a->getId() < b->getId(); });
+    hash_u64(h, static_cast<uint64_t>(others.size()));
+    for (Other *other : others) {
+        hash_u64(h, static_cast<uint64_t>(other->getId()));
+        hash_string(h, other->getKind());
+    }
+
+    return h;
+}
+
+uint64_t ActorChecksum() {
+    if (!level)
+        return 0;
+    uint64_t h = kChecksumOffset;
+    std::vector<Actor *> actors(level->actorlist.begin(), level->actorlist.end());
+    std::sort(actors.begin(), actors.end(),
+              [](const Actor *a, const Actor *b) { return a->getId() < b->getId(); });
+    hash_u64(h, static_cast<uint64_t>(actors.size()));
+    for (Actor *actor : actors) {
+        hash_u64(h, static_cast<uint64_t>(actor->getId()));
+        hash_u64(h, static_cast<uint64_t>(get_id(actor)));
+        const ecl::V2 &pos = actor->get_pos();
+        const ecl::V2 &vel = actor->get_vel();
+        hash_i64(h, quantize(pos[0]));
+        hash_i64(h, quantize(pos[1]));
+        hash_i64(h, quantize(vel[0]));
+        hash_i64(h, quantize(vel[1]));
+    }
+    return h;
+}
+
+void GetActors(std::vector<Actor *> &out) {
+    out.clear();
+    if (!level)
+        return;
+    out.insert(out.end(), level->actorlist.begin(), level->actorlist.end());
 }
 
 Actor *FindOtherMarble(Actor *thisMarble) {

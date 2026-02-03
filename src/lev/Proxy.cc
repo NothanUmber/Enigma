@@ -36,6 +36,7 @@
 
 
 #include <cassert>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -344,6 +345,7 @@ namespace enigma { namespace lev {
             quantity (1), id(levelId), title(levelTitle), author(levelAuthor),
             scoreVersion(levelScoreVersion), releaseVersion(levelRelease),
             revisionNumber(levelRevision), hasEasyModeFlag(levelHasEasymode),
+            hasSingleModeFlag(false), hasNetworkModeFlag(false), networkPlayers(2),
             engineCompatibility(levelCompatibilty), levelStatus (status),
             scoreUnit (duration), doc(NULL), loadtime (0) {
     }
@@ -1279,6 +1281,25 @@ namespace enigma { namespace lev {
                         Utf8ToXML("network").x_str()));
         }
         return hasNetworkModeFlag;
+    }
+
+    unsigned Proxy::getNetworkPlayers() {
+        if (doc != NULL) {
+            DOMElement *modesElem =
+                    dynamic_cast<DOMElement *>(infoElem->getElementsByTagNameNS(
+                    levelNS, Utf8ToXML("modes").x_str())->item(0));
+            std::string txt = XMLtoUtf8(modesElem->getAttributeNS(levelNS,
+                        Utf8ToXML("players").x_str())).c_str();
+            unsigned parsed = 2;
+            if (!txt.empty()) {
+                char *end = nullptr;
+                long value = std::strtol(txt.c_str(), &end, 10);
+                if (end != txt.c_str() && value > 0)
+                    parsed = static_cast<unsigned>(value);
+            }
+            networkPlayers = parsed;
+        }
+        return networkPlayers;
     }
 
     std::string Proxy::getContact() {

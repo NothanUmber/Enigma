@@ -112,6 +112,7 @@
                         <xs:attribute name="easy" type="xs:boolean" use="required"/>
                         <xs:attribute name="single" type="xs:boolean" use="required"/>
                         <xs:attribute name="network" type="xs:boolean" use="required"/>
+                        <xs:attribute name="players" type="xs:unsignedByte" use="optional" default="2"/>
                         <xs:attribute name="control" type="el:controlType" use="optional" default="force"/>
                         <xs:attribute name="scoreunit" type="el:scoreunitType" use="optional" default="duration"/>
                         <xs:attribute name="scoretarget" type="xs:string" use="optional" default="time"/>

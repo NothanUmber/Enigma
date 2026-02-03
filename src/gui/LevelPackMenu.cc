@@ -50,9 +50,15 @@ namespace enigma { namespace gui {
         0
     };
     
-    LevelPackMenu::LevelPackMenu() : packsHList (NULL), scrollLeft (NULL), 
-            scrollRight (NULL), scrollUp (NULL), scrollDown (NULL), 
-            groupsVList (NULL), isLevelMenuSubmenu (false) {
+    LevelPackMenu::LevelPackMenu(bool select_only_)
+        : packsHList(nullptr),
+          scrollLeft(nullptr),
+          scrollRight(nullptr),
+          scrollUp(nullptr),
+          scrollDown(nullptr),
+          groupsVList(nullptr),
+          isLevelMenuSubmenu(false),
+          select_only(select_only_) {
         const VMInfo &vminfo = *video_engine->GetInfo();
         const int vshrink = vminfo.width < 640 ? 1 : 0;
         vtt = vminfo.tt;
@@ -488,12 +494,18 @@ namespace enigma { namespace gui {
         if (w == but_main) {
             Menu::quit();
         } else if (w == but_new) {
+            if (select_only)
+                return;
             LPGroupConfig m("");
             m.manage();
             setupMenu();
             updateHighlight();
             invalidate_all();
         } else if (w == but_level) {
+            if (select_only) {
+                Menu::quit();
+                return;
+            }
             LevelMenu m;
             if ((!m.manage() && isLevelMenuSubmenu) || m.isMainQuit()) {
                 // ESC in LevelMenu in case we are a submenu of LevelMenu or
@@ -504,6 +516,8 @@ namespace enigma { namespace gui {
             updateHighlight();
             invalidate_all();            
         } else if (w == but_search) {
+            if (select_only)
+                return;
             SearchMenu ml;
             ml.manage();
             if (ml.isSearchQuit()) {
@@ -555,6 +569,10 @@ namespace enigma { namespace gui {
                 LevelPackConfig m(dynamic_cast<TextButton *>(w)->get_text());
                 m.manage();
             } else {
+                if (select_only) {
+                    Menu::quit();
+                    return;
+                }
                 LevelMenu m;
                 if ((!m.manage() && isLevelMenuSubmenu) || m.isMainQuit()) {
                     // ESC in LevelMenu in case we are a submenu of LevelMenu or

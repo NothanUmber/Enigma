@@ -20,6 +20,7 @@
 
 #include "actors/Rotors.hh"
 #include "errors.hh"
+#include "input.hh"
 #include "player.hh"
 #include "world.hh"
 
@@ -72,9 +73,9 @@ namespace enigma {
         while((a = air_it.next()) != NULL) {
             if (a->is_movable() && !a->is_invisible()) {
                 ecl::V2 v = a->get_pos() - get_pos();
+                int focus_player = input::IsNetworked() ? 0 : player::CurrentPlayer();
                 if ((attacknearest && !attackCurrentOnly) ||
-                    (attackCurrentOnly && a == player::GetMainActor(
-                     player::CurrentPlayer()))) {
+                    (attackCurrentOnly && a == player::GetMainActor(focus_player))) {
                     if (!target || (length(v) < length(target_vec))) {
                         target = a;
                         target_vec = v;
@@ -138,5 +139,4 @@ namespace enigma {
     BOOT_REGISTER_END
 
 } // namespace enigma
-
 
