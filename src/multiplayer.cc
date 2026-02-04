@@ -174,15 +174,7 @@ struct SessionState {
     double resync_cooldown = 0.0;
     unsigned resync_attempts = 0;
     unsigned level_players = 0;
-    bool placement_required = false;
-    bool placement_sent = false;
-    bool placement_confirmed = false;
-    bool placement_prompted = false;
     std::vector<bool> placement_received;
-    display::SpriteHandle placement_cursor;
-    bool placement_cursor_visible = false;
-    bool placement_cursor_valid = false;
-    std::string placement_cursor_model;
 };
 
 LobbyState g_lobby;
@@ -219,32 +211,6 @@ bool placement_required_for_player(unsigned player) {
     if (g_session.level_players == 0)
         return false;
     return player >= g_session.level_players;
-}
-
-void clear_placement_cursor() {
-    if (g_session.placement_cursor_visible)
-        g_session.placement_cursor.kill();
-    g_session.placement_cursor_visible = false;
-    g_session.placement_cursor_valid = false;
-    g_session.placement_cursor_model.clear();
-}
-
-std::string placement_base_model(unsigned player) {
-    unsigned base_player = player;
-    if (g_session.level_players > 0)
-        base_player = player % g_session.level_players;
-    if (Actor *actor = player::GetMainActor(base_player))
-        return actor->getKind();
-    return "ac_marble_black";
-}
-
-std::string placement_model_for_state(unsigned player, bool valid) {
-    std::string base = placement_base_model(player);
-    if (valid)
-        return base;
-    if (base.rfind("ac_marble", 0) == 0)
-        return "ac_marble_glass";
-    return base;
 }
 
 bool screen_tiles(int &out_x, int &out_y) {
@@ -488,18 +454,6 @@ void apply_placement(unsigned player, const GridPos &pos) {
     ecl::V2 center = pos.center();
     WarpActor(actor, center[0], center[1], false);
     actor->set_respawnpos(center);
-    if (player == g_session.local_player) {
-        g_session.placement_sent = true;
-        g_session.placement_confirmed = true;
-        if (g_session.placement_prompted)
-            client::Msg_ShowText("", false, 0.1);
-        clear_placement_cursor();
-        if (g_session.start_requested && !g_session.ready_sent && local_can_send_ready()) {
-            send_ready_to_host();
-            g_session.ready_sent = true;
-            g_session.ready_timer = 0.0;
-        }
-    }
 }
 
 void broadcast_placement(const protocol::PlacementPacket &msg) {
@@ -666,11 +620,7 @@ bool local_can_send_ready() {
         return false;
     if (!g_session.local_player_known)
         return false;
-    if (!g_session.placement_required)
-        return true;
-    if (!placement_required_for_player(g_session.local_player))
-        return true;
-    return g_session.placement_sent;
+    return true;
 }
 
 bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
@@ -1490,24 +1440,13 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer,
             }
         }
         if (found) {
-            bool allow_ready = true;
-            if (placement_required_for_player(player_id)) {
-                if (g_session.placement_received.size() <= player_id ||
-                    !g_session.placement_received[player_id]) {
-                    allow_ready = false;
-                }
-            }
-            if (debug_enabled()) {
-                debug_log("mp host: ready player=%u via_relay=%d allow=%d",
-                          player_id, via_relay ? 1 : 0, allow_ready ? 1 : 0);
-            }
-            if (allow_ready) {
-                if (via_relay)
-                    g_session.relay_ready[relay_client_id] = true;
-                else
-                    g_session.peer_ready[peer] = true;
-                debug_log("mp host: peer ready");
-            }
+            if (debug_enabled())
+                debug_log("mp host: ready player=%u via_relay=%d", player_id, via_relay ? 1 : 0);
+            if (via_relay)
+                g_session.relay_ready[relay_client_id] = true;
+            else
+                g_session.peer_ready[peer] = true;
+            debug_log("mp host: peer ready");
         }
         return true;
     }
@@ -1941,18 +1880,13 @@ void PrepareExtraActors() {
     add_extra_actors(g_session.level_players, g_session.expected_players);
 }
 
-void SetupPlacement() {
+void SetupExtraPlayerStartPositions() {
     if (!g_session.active)
         return;
     if (g_session.level_players == 0)
         g_session.level_players = compute_level_players();
     if (g_session.level_players < 1)
         g_session.level_players = 1;
-    clear_placement_cursor();
-    g_session.placement_sent = false;
-    g_session.placement_confirmed = false;
-    g_session.placement_required = false;
-    g_session.placement_prompted = false;
     g_session.placement_received.clear();
     if (g_session.expected_players > 0) {
         g_session.placement_received.resize(g_session.expected_players, false);
@@ -1962,68 +1896,6 @@ void SetupPlacement() {
         }
     }
     auto_place_extra_players();
-}
-
-bool PlacementActive() {
-    if (!g_session.active)
-        return false;
-    if (!g_session.local_player_known)
-        return false;
-    if (!g_session.placement_required)
-        return false;
-    if (g_session.local_player_known && !g_session.placement_prompted) {
-        client::Msg_ShowText("Click a free floor tile to place your marble.", false,
-                             kPlacementPromptSeconds);
-        g_session.placement_prompted = true;
-    }
-    return !g_session.placement_sent;
-}
-
-bool HandlePlacementClick(int x, int y) {
-    if (!PlacementActive())
-        return false;
-    if (!g_session.local_player_known)
-        return true;
-    ecl::V2 world = display::ScreenToWorld(ecl::V2(x, y));
-    GridPos pos(world);
-    if (!is_valid_placement(pos, g_session.local_player)) {
-        client::Msg_ShowText("Select a free floor square on the correct screen.", true, 2.0);
-        return true;
-    }
-    send_placement_to_host(pos);
-    if (g_session.start_requested && !g_session.ready_sent && local_can_send_ready()) {
-        send_ready_to_host();
-        g_session.ready_sent = true;
-        g_session.ready_timer = 0.0;
-    }
-    return true;
-}
-
-void UpdatePlacementCursor(int x, int y) {
-    if (!PlacementActive()) {
-        clear_placement_cursor();
-        return;
-    }
-    if (!g_session.local_player_known)
-        return;
-    ecl::V2 world = display::ScreenToWorld(ecl::V2(x, y));
-    GridPos pos(world);
-    bool valid = is_valid_placement(pos, g_session.local_player);
-    std::string model = placement_model_for_state(g_session.local_player, valid);
-    ecl::V2 center = pos.center();
-    if (!g_session.placement_cursor_visible) {
-        g_session.placement_cursor = display::AddSprite(center, model.c_str());
-        g_session.placement_cursor_visible = true;
-        g_session.placement_cursor_valid = valid;
-        g_session.placement_cursor_model = model;
-        return;
-    }
-    g_session.placement_cursor.move(center);
-    if (model != g_session.placement_cursor_model) {
-        g_session.placement_cursor.replace_model(display::MakeModel(model));
-        g_session.placement_cursor_model = model;
-    }
-    g_session.placement_cursor_valid = valid;
 }
 
 void PrimeInputQueueForNewLevel() {
@@ -2044,12 +1916,7 @@ void PrimeInputQueueForNewLevel() {
     g_session.resync_attempts = 0;
     g_session.ready_timer = 0.0;
     g_session.level_players = 0;
-    g_session.placement_required = false;
-    g_session.placement_sent = false;
-    g_session.placement_confirmed = false;
-    g_session.placement_prompted = false;
     g_session.placement_received.clear();
-    clear_placement_cursor();
     if (g_session.host) {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;
@@ -2691,7 +2558,6 @@ void Tick(double dtime) {
 void Shutdown() {
     if (!g_session.active)
         return;
-    clear_placement_cursor();
     if (g_session.relay_peer) {
         enet_peer_disconnect(g_session.relay_peer, 0);
         g_session.relay_peer = nullptr;

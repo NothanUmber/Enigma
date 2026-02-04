@@ -195,7 +195,7 @@ void load_level(lev::Proxy *levelProxy, bool isRestart) {
         if (!CreatingPreview) {
             player::LevelLoaded(isRestart);
             client::Msg_LevelLoaded(isRestart);
-            multiplayer::SetupPlacement();
+            multiplayer::SetupExtraPlayerStartPositions();
         }
         double exectime = (SDL_GetTicks() - start_tick_time) / 1000.0;
         Log << ecl::strf("Server load level did take %g seconds\n", exectime);

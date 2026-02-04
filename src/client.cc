@@ -201,47 +201,6 @@ void Client::network_stop() {
 void Client::handle_events() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-        if (multiplayer::PlacementActive()) {
-            ecl::Screen *screen = video_engine->GetScreen();
-            ecl::Rect screen_size = screen ? screen->size() : ecl::Rect(0, 0, 0, 0);
-            ecl::Rect window_size = screen ? screen->window_size() : ecl::Rect(0, 0, 0, 0);
-            if (e.type == SDL_FINGERDOWN) {
-                int x = static_cast<int>(e.tfinger.x * screen_size.w + 0.5);
-                int y = static_cast<int>(e.tfinger.y * screen_size.h + 0.5);
-                multiplayer::UpdatePlacementCursor(x, y);
-                multiplayer::HandlePlacementClick(x, y);
-                update_mouse_button_state();
-                continue;
-            }
-            if (e.type == SDL_FINGERMOTION) {
-                int x = static_cast<int>(e.tfinger.x * screen_size.w + 0.5);
-                int y = static_cast<int>(e.tfinger.y * screen_size.h + 0.5);
-                multiplayer::UpdatePlacementCursor(x, y);
-                update_mouse_button_state();
-                continue;
-            }
-            if (e.type == SDL_MOUSEMOTION && window_size.w > 0 && window_size.h > 0) {
-                int x = (int)((double) (e.motion.x * screen_size.w) / window_size.w + 0.5);
-                int y = (int)((double) (e.motion.y * screen_size.h) / window_size.h + 0.5);
-                multiplayer::UpdatePlacementCursor(x, y);
-                update_mouse_button_state();
-                continue;
-            }
-            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT &&
-                window_size.w > 0 && window_size.h > 0) {
-                int x = (int)((double) (e.button.x * screen_size.w) / window_size.w + 0.5);
-                int y = (int)((double) (e.button.y * screen_size.h) / window_size.h + 0.5);
-                multiplayer::UpdatePlacementCursor(x, y);
-                multiplayer::HandlePlacementClick(x, y);
-                update_mouse_button_state();
-                continue;
-            }
-            if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP ||
-                e.type == SDL_MOUSEWHEEL || e.type == SDL_FINGERUP) {
-                update_mouse_button_state();
-                continue;
-            }
-        }
         switch (e.type) {
         // TODO: If we want umlauts and other special characters ingame,
         //       we need to add SDL_TEXTINPUT and SDL_TEXTEDITING here.
