@@ -102,6 +102,32 @@ enum class HostSource {
     TCP_RELAY = 2
 };
 
+const char *transport_name(TransportKind t) {
+    switch (t) {
+    case TransportKind::DIRECT:
+        return "direct";
+    case TransportKind::UDP_RELAY:
+        return "udp-relay";
+    case TransportKind::TCP_RELAY:
+        return "tcp-relay";
+    default:
+        return "none";
+    }
+}
+
+const char *host_source_name(HostSource s) {
+    switch (s) {
+    case HostSource::DIRECT:
+        return "direct";
+    case HostSource::UDP_RELAY:
+        return "udp-relay";
+    case HostSource::TCP_RELAY:
+        return "tcp-relay";
+    default:
+        return "unknown";
+    }
+}
+
 bool debug_enabled() {
     const char *env = std::getenv("ENIGMA_MP_DEBUG");
     return env && *env;
@@ -1478,8 +1504,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
 }
 
 void send_ready_to_host() {
-    if (debug_enabled())
-        debug_log("mp send ready");
+    debug_log("mp send ready via=%s", transport_name(g_session.active_transport));
     ecl::Buffer buf;
     protocol::encode_ready(buf);
     client_send_payload(buf);
@@ -1833,9 +1858,8 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer,
             }
         }
         if (found) {
-            if (debug_enabled())
-                debug_log("mp host: ready player=%u source=%d", player_id,
-                          source == HostSource::DIRECT ? 0 : (source == HostSource::UDP_RELAY ? 1 : 2));
+            debug_log("mp host: ready player=%u source=%s",
+                      player_id, host_source_name(source));
             if (source == HostSource::UDP_RELAY)
                 g_session.relay_ready[relay_client_id] = true;
             else if (source == HostSource::TCP_RELAY)
@@ -1905,6 +1929,8 @@ void handle_client_payload(const char *data, size_t len) {
         input::SetExpectedPlayers(expected_players);
         debug_log("mp client: welcome player=%u expected=%u seed=%u",
                   player_id, expected_players, seed);
+        if (debug_enabled())
+            debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
         if (g_session.start_requested && !g_session.ready_sent) {
             send_ready_to_host();
             g_session.ready_sent = true;
@@ -1947,8 +1973,6 @@ void handle_client_payload(const char *data, size_t len) {
         g_session.input_epoch = epoch;
         configure_input_session(g_session.expected_players);
         g_session.start_allowed = true;
-        if (debug_enabled())
-            debug_log("mp client: start allowed");
         debug_log("mp client: start allowed");
         return;
     }
@@ -1980,68 +2004,75 @@ void handle_client_payload(const char *data, size_t len) {
 }
 
 void process_network_events() {
-    if (!g_session.active || g_session.host_handle == nullptr)
+    if (!g_session.active)
         return;
-    ENetEvent event;
-    while (enet_host_service(g_session.host_handle, &event, 0) > 0) {
-        switch (event.type) {
-        case ENET_EVENT_TYPE_CONNECT:
-            if (g_session.host) {
-                if (g_session.next_player_id >= g_session.expected_players) {
-                    enet_peer_disconnect(event.peer, 0);
+
+    // Direct ENet sessions (host or client). TCP-relay-only clients don't have a host_handle.
+    if (g_session.host_handle != nullptr) {
+        ENetEvent event;
+        while (enet_host_service(g_session.host_handle, &event, 0) > 0) {
+            switch (event.type) {
+            case ENET_EVENT_TYPE_CONNECT:
+                if (g_session.host) {
+                    if (g_session.next_player_id >= g_session.expected_players) {
+                        enet_peer_disconnect(event.peer, 0);
+                        break;
+                    }
+                    unsigned player_id = g_session.next_player_id++;
+                    g_session.peer_players[event.peer] = player_id;
+                    g_session.peer_ready[event.peer] = false;
+                    event.peer->data = reinterpret_cast<void *>(static_cast<uintptr_t>(player_id));
+                    debug_log("mp host: peer connected -> player %u", player_id);
+                    ecl::Buffer buf;
+                    protocol::encode_welcome(buf, static_cast<Uint8>(player_id),
+                                             static_cast<Uint8>(g_session.expected_players),
+                                             g_session.seed);
+                    ENetPacket *packet =
+                        enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
+                    enet_peer_send(event.peer, 0, packet);
+                    send_existing_placements_to_peer(event.peer);
+                }
+                break;
+            case ENET_EVENT_TYPE_RECEIVE: {
+                const char *data = reinterpret_cast<const char *>(event.packet->data);
+                if (g_session.host) {
+                    handle_host_packet(data, event.packet->dataLength, event.peer,
+                                       HostSource::DIRECT, 0);
+                    enet_packet_destroy(event.packet);
                     break;
                 }
-                unsigned player_id = g_session.next_player_id++;
-                g_session.peer_players[event.peer] = player_id;
-                g_session.peer_ready[event.peer] = false;
-                event.peer->data = reinterpret_cast<void *>(static_cast<uintptr_t>(player_id));
-                debug_log("mp host: peer connected -> player %u", player_id);
-                ecl::Buffer buf;
-                protocol::encode_welcome(buf, static_cast<Uint8>(player_id),
-                                         static_cast<Uint8>(g_session.expected_players),
-                                         g_session.seed);
-                ENetPacket *packet = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
-                enet_peer_send(event.peer, 0, packet);
-                send_existing_placements_to_peer(event.peer);
-            }
-            break;
-        case ENET_EVENT_TYPE_RECEIVE: {
-            const char *data = reinterpret_cast<const char *>(event.packet->data);
-            if (g_session.host) {
-                handle_host_packet(data, event.packet->dataLength, event.peer, HostSource::DIRECT, 0);
+
+                handle_client_payload(data, event.packet->dataLength);
                 enet_packet_destroy(event.packet);
                 break;
             }
-
-            handle_client_payload(data, event.packet->dataLength);
-            enet_packet_destroy(event.packet);
-            break;
-        }
-        case ENET_EVENT_TYPE_DISCONNECT:
-            if (g_session.host) {
-                g_session.peer_players.erase(event.peer);
-                g_session.peer_ready.erase(event.peer);
-                if (g_session.active) {
+            case ENET_EVENT_TYPE_DISCONNECT:
+                if (g_session.host) {
+                    g_session.peer_players.erase(event.peer);
+                    g_session.peer_ready.erase(event.peer);
+                    if (g_session.active) {
+                        if (!client::AbortGameP())
+                            client::Msg_ShowText("Player disconnected. Ending session.", true, 3.0);
+                        client::Msg_Command("abort");
+                        Shutdown();
+                        return;
+                    }
+                } else {
                     if (!client::AbortGameP())
-                        client::Msg_ShowText("Player disconnected. Ending session.", true, 3.0);
+                        client::Msg_ShowText("Disconnected from host.", true, 3.0);
                     client::Msg_Command("abort");
                     Shutdown();
                     return;
                 }
-            } else {
-                if (!client::AbortGameP())
-                    client::Msg_ShowText("Disconnected from host.", true, 3.0);
-                client::Msg_Command("abort");
-                Shutdown();
-                return;
+                break;
+            default:
+                break;
             }
-            break;
-        default:
-            break;
         }
     }
 
     if (g_session.host && g_session.relay_handle) {
+        ENetEvent event;
         while (enet_host_service(g_session.relay_handle, &event, 0) > 0) {
             switch (event.type) {
             case ENET_EVENT_TYPE_RECEIVE: {
@@ -2948,6 +2979,8 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
                     input::SetExpectedPlayers(expected_players);
                     g_session.active_transport = relay_connect ? TransportKind::UDP_RELAY
                                                               : TransportKind::DIRECT;
+                    if (debug_enabled())
+                        debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
                     enet_packet_destroy(event.packet);
                     return true;
                 }
@@ -3040,6 +3073,8 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
                                 g_session.seed = seed;
                                 input::SetExpectedPlayers(expected);
                                 g_session.active_transport = TransportKind::TCP_RELAY;
+                                if (debug_enabled())
+                                    debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
                                 return true;
                             }
                         }

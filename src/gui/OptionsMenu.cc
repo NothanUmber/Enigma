@@ -237,6 +237,14 @@ private:
 
 /* -------------------- Buttons for Options -------------------- */
 
+class ToggleOptionButton : public BoolOptionButton {
+public:
+    ToggleOptionButton(const char *option_name,
+                       const std::string &true_text,
+                       const std::string &false_text)
+        : BoolOptionButton(option_name, true_text, false_text, this) {}
+};
+
     class MouseSpeedButton : public ValueButton {
         int get_value() const     {
             return ecl::round_nearest<int>(options::GetMouseSpeed());
@@ -942,11 +950,11 @@ private:
 
                 // Transport toggles (order is still direct > UDP relay > TCP relay).
                 OPTIONS_NEW_LB(N_("Direct connect: "),
-                              new BoolOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
+                              new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
                 OPTIONS_NEW_LB(N_("UDP relay: "),
-                              new BoolOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
+                              new ToggleOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
                 OPTIONS_NEW_LB(N_("TCP relay: "),
-                              new BoolOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
+                              new ToggleOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
 
                 // Port overrides. These are primarily for Internet mode hosting/debugging and
                 // should match the lobby/relay server deployment.
