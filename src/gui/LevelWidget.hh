@@ -37,10 +37,6 @@ namespace enigma { namespace gui {
     public:
         LevelWidget(bool withScoreIcons = true, bool withEditBorder = false);
 
-        // Preview generation can be expensive (it loads and renders levels).
-        // Some menus may prefer to only use existing bundled/cached previews.
-        void set_preview_generation_enabled(bool enabled) { preview_generation_enabled = enabled; }
-
         //---------- Widget interface ----------//
         void draw(ecl::GC &gc, const ecl::Rect &r);
         void tick (double time);
@@ -96,7 +92,6 @@ namespace enigma { namespace gui {
         std::vector<bool> pending_redraws;
         bool isInvalidateUptodate;
         double lastUpdate;
-        bool preview_generation_enabled;
 
         // some image pointers for efficiency
         ecl::Surface *img_link;

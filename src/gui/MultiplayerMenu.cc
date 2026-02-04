@@ -186,14 +186,6 @@ MultiplayerMenu::MultiplayerMenu()
     level_area = Rect(right_x, top_y, vminfo.width - right_x - margin,
                       vminfo.height - top_y - bottom_h);
     levelwidget = new LevelWidget();
-    // Generating missing thumbnails loads and renders levels, which can stall the
-    // UI for a long time on fresh installs (notably in app bundles).
-    // Keep the lobby responsive by default; existing bundled/cached previews
-    // are still shown.
-    const char *allow_thumb_gen = std::getenv("ENIGMA_MP_ALLOW_THUMB_GEN");
-    if (!(allow_thumb_gen && std::string(allow_thumb_gen) == "1")) {
-        levelwidget->set_preview_generation_enabled(false);
-    }
     levelwidget->set_listener(this);
     levelwidget->realize(level_area);
     levelwidget->set_area(level_area);

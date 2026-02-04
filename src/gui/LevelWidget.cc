@@ -43,9 +43,8 @@ namespace enigma { namespace gui {
 
     LevelWidget::LevelWidget(bool withScoreIcons, bool withEditBorder) : 
             displayScoreIcons (withScoreIcons), displayEditBorder (withEditBorder),
-            listener(0), width (0), height (0), m_areas(), 
-            isInvalidateUptodate (true), lastUpdate (0),
-            preview_generation_enabled(true)
+            listener(0), width (0), height (0), m_areas(),
+            isInvalidateUptodate (true), lastUpdate (0)
     {
         const VMInfo &vminfo = *video_engine->GetInfo();
         const int vshrink = vminfo.width < 640 ? 1 : 0;
@@ -311,7 +310,7 @@ namespace enigma { namespace gui {
         const int vgap = Max(0, (get_h() - height*buttonh)/ (height-1));
     
         unsigned i=ifirst;          // level index
-        bool allowGeneration = preview_generation_enabled;
+        bool allowGeneration = true;
     
         for (int y=0; y<height; y++) {
             for (int x=0; x<width; x++, i++) {
