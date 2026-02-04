@@ -8,6 +8,13 @@
 #include <vector>
 
 namespace {
+
+#ifdef ENET_VERSION
+#if ENET_VERSION >= ENET_VERSION_CREATE(1, 3, 0)
+#define ENET_VER_EQ_GT_13
+#endif
+#endif
+
 constexpr uint32_t kRelayMagic = 0x4C524E45;  // "ENRL"
 constexpr uint8_t kRelayVersion = 1;
 constexpr size_t kRelayHeaderSize = 4 + 1 + 1 + 4 + 4;
@@ -130,7 +137,11 @@ int main(int argc, char **argv) {
     ENetAddress address;
     enet_address_set_host(&address, host_str);
     address.port = port;
-    ENetHost *server = enet_host_create(&address, 64, 0, 0);
+    ENetHost *server = enet_host_create(&address, 64,
+#ifdef ENET_VER_EQ_GT_13
+                                        2 /* channels */,
+#endif
+                                        0, 0);
     if (!server) {
         std::fprintf(stderr, "Failed to create relay server on %s:%u\n", host_str, port);
         return 1;

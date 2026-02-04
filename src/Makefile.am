@@ -8,7 +8,13 @@ EXTRA_DIST = \
 	enigma.ico \
 	enigma.rc
 
+if SYSTEM_ENET
+# When using system ENet, do not include the vendored headers: its API differs
+# (channelLimit/data parameters), and mixing headers+library breaks at runtime.
+AM_CPPFLAGS = $(LIBENET_CFLAGS)
+else
 AM_CPPFLAGS = -I$(top_srcdir)/lib-src/enet/include
+endif
 
 CXXFLAGS = @CXXFLAGS@\
 	-DSYSTEM_DATA_DIR=\"$(datadir)/enigma\" \
@@ -16,12 +22,6 @@ CXXFLAGS = @CXXFLAGS@\
 	-I$(top_srcdir)/lib-src/lua \
 	-I$(top_srcdir)/lib-src/tinygettext \
 	-I$(top_srcdir)/lib-src/enigma-core
-
-if SYSTEM_ENET
-CXXFLAGS += $(LIBENET_CFLAGS)
-else
-CXXFLAGS += -I$(top_srcdir)/lib-src/enet/include
-endif
 
 if MINGW32
 CXXFLAGS += -I/opt/mxe/usr/i686-w64-mingw32.static/include -static -static-libgcc -static-libstdc++ -DWIN32

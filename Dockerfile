@@ -5,16 +5,14 @@ RUN apt-get update && \
       bash \
       build-essential \
       ca-certificates \
+      libenet-dev \
       python3 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/enigma
-COPY lib-src/enet lib-src/enet
 COPY tools/internet_lobby_server.py tools/relay_server.cc tools/tcp_relay_server.cc tools/docker-entrypoint.sh tools/
 
-RUN cd lib-src/enet && ./configure --disable-shared --enable-static && make
-RUN g++ -std=c++14 tools/relay_server.cc -Ilib-src/enet/include lib-src/enet/libenet.a \
-    -o /usr/local/bin/enigma-relay
+RUN g++ -std=c++14 tools/relay_server.cc -lenet -o /usr/local/bin/enigma-relay
 RUN g++ -std=c++14 tools/tcp_relay_server.cc -o /usr/local/bin/enigma-tcp-relay
 
 COPY tools/docker-entrypoint.sh /usr/local/bin/enigma-entrypoint

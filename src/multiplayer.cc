@@ -12,7 +12,7 @@
 #include "world.hh"
 #include "lev/Proxy.hh"
 
-#include "enet/enet.h"
+#include "enet_ver.hh"
 #include "SDL.h"
 
 #include <algorithm>
@@ -702,6 +702,16 @@ bool local_can_send_ready() {
     return true;
 }
 
+void tune_enet_socket(ENetSocket socket, bool broadcast);
+
+ENetSocket enet_socket_create_compat(ENetSocketType type) {
+#ifdef ENET_VER_EQ_GT_13
+    return enet_socket_create(type);
+#else
+    return enet_socket_create(type, nullptr);
+#endif
+}
+
 bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
     int opt = 1;
 #ifdef WIN32
@@ -709,11 +719,22 @@ bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
 #ifdef SO_REUSEPORT
     setsockopt(socket, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&opt), sizeof(opt));
 #endif
+    setsockopt(socket, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&opt), sizeof(opt));
+    u_long mode = 1;
+    ioctlsocket(socket, FIONBIO, &mode);
 #else
     setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #ifdef SO_REUSEPORT
     setsockopt(socket, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 #endif
+    setsockopt(socket, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
+
+    // Make the lobby socket non-blocking. Some ENet builds do not set this by
+    // default, and a blocking recvfrom() would stall the UI loop.
+    int flags = fcntl(socket, F_GETFL, 0);
+    if (flags != -1) {
+        (void)fcntl(socket, F_SETFL, flags | O_NONBLOCK);
+    }
 #endif
 
     sockaddr_in sin;
@@ -721,7 +742,46 @@ bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
     sin.sin_family = AF_INET;
     sin.sin_port = ENET_HOST_TO_NET_16(port);
     sin.sin_addr.s_addr = ENET_HOST_ANY;
-    return bind(socket, reinterpret_cast<sockaddr *>(&sin), sizeof(sin)) == 0;
+    bool ok = bind(socket, reinterpret_cast<sockaddr *>(&sin), sizeof(sin)) == 0;
+    if (ok) {
+        // Make sure socket behaves consistently across ENet builds.
+        tune_enet_socket(socket, true);
+    }
+    return ok;
+}
+
+void tune_enet_socket(ENetSocket socket, bool broadcast) {
+    if (socket == ENET_SOCKET_NULL)
+        return;
+
+    int opt = 1;
+#ifdef WIN32
+    setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&opt), sizeof(opt));
+    if (broadcast)
+        setsockopt(socket, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&opt), sizeof(opt));
+    u_long mode = 1;
+    ioctlsocket(socket, FIONBIO, &mode);
+#else
+    setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (broadcast)
+        setsockopt(socket, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
+
+    // Force non-blocking behavior across ENet variants. We never want UI/game
+    // loops to block on a recvfrom()/sendto().
+    int flags = fcntl(socket, F_GETFL, 0);
+    if (flags != -1)
+        (void)fcntl(socket, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+    // Increase buffers a bit to reduce packet loss under load.
+    int buf_sz = 1 << 20;  // 1 MiB
+#ifdef WIN32
+    setsockopt(socket, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char *>(&buf_sz), sizeof(buf_sz));
+    setsockopt(socket, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char *>(&buf_sz), sizeof(buf_sz));
+#else
+    setsockopt(socket, SOL_SOCKET, SO_RCVBUF, &buf_sz, sizeof(buf_sz));
+    setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &buf_sz, sizeof(buf_sz));
+#endif
 }
 
 std::string make_id() {
@@ -801,10 +861,17 @@ bool tcp_send_all(TcpSocket s, const void *data, size_t len) {
 #ifdef WIN32
             int err = WSAGetLastError();
             if (err != WSAEWOULDBLOCK)
+            {
+                if (debug_enabled())
+                    debug_log("mp tcp send failed err=%d", err);
                 return false;
+            }
 #else
-            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                if (debug_enabled())
+                    debug_log("mp tcp send failed errno=%d (%s)", errno, strerror(errno));
                 return false;
+            }
 #endif
             fd_set wfds;
             FD_ZERO(&wfds);
@@ -818,7 +885,11 @@ bool tcp_send_all(TcpSocket s, const void *data, size_t len) {
             int sel = ::select(s + 1, nullptr, &wfds, nullptr, &tv);
 #endif
             if (sel <= 0)
+            {
+                if (debug_enabled())
+                    debug_log("mp tcp send wait timeout/err sel=%d", sel);
                 return false;
+            }
             continue;
         }
         sent += static_cast<size_t>(n);
@@ -1012,7 +1083,7 @@ bool internet_exchange(const std::string &server, const ecl::Buffer &request,
     }
     addr.port = port;
 
-    ENetSocket socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM, nullptr);
+    ENetSocket socket = enet_socket_create_compat(ENET_SOCKET_TYPE_DATAGRAM);
     if (socket == ENET_SOCKET_NULL) {
         error = "Failed to open socket.";
         return false;
@@ -1288,7 +1359,10 @@ bool client_send_payload(const ecl::Buffer &payload) {
     }
     if (g_session.active_transport == TransportKind::TCP_RELAY &&
         tcp_socket_valid(g_session.tcp_relay_socket)) {
-        return tcp_send_frame(g_session.tcp_relay_socket, payload.data(), payload.size());
+        bool ok = tcp_send_frame(g_session.tcp_relay_socket, payload.data(), payload.size());
+        if (!ok && debug_enabled())
+            debug_log("mp client: tcp relay send failed (len=%u)", (unsigned)payload.size());
+        return ok;
     }
     return false;
 }
@@ -2437,17 +2511,23 @@ void LobbyStart() {
     g_lobby.pending_host_ip.clear();
     g_lobby.last_session_id = 0;
 
-    g_lobby.socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM, nullptr);
+    g_lobby.socket = enet_socket_create_compat(ENET_SOCKET_TYPE_DATAGRAM);
     if (g_lobby.socket == ENET_SOCKET_NULL) {
+        debug_log("mp lobby: socket create failed");
         g_lobby.active = false;
         return;
     }
     if (!bind_lobby_socket(g_lobby.socket, kLobbyPort)) {
+        debug_log("mp lobby: bind failed port=%u", static_cast<unsigned>(kLobbyPort));
         enet_socket_destroy(g_lobby.socket);
         g_lobby.socket = ENET_SOCKET_NULL;
         g_lobby.active = false;
         return;
     }
+    debug_log("mp lobby: started port=%u id=%s name=%s",
+              static_cast<unsigned>(kLobbyPort),
+              g_lobby.local_id.c_str(),
+              g_lobby.local_name.c_str());
     send_lobby_announce();
 }
 
@@ -2797,11 +2877,18 @@ bool StartHostSession(const protocol::LobbyStart &start) {
     ENetAddress address;
     address.host = ENET_HOST_ANY;
     address.port = start.host_port;
-    g_session.host_handle = enet_host_create(&address, expected_players - 1, 0, 0);
+    g_session.host_handle = enet_host_create(&address, expected_players - 1,
+#ifdef ENET_VER_EQ_GT_13
+                                             2 /* channels */,
+#endif
+                                             0, 0);
     if (g_session.host_handle == nullptr) {
         Shutdown();
         return false;
     }
+    // Do not tweak ENet-managed sockets. ENet already configures non-blocking
+    // mode and buffering; overriding this can break connect/handshake on some
+    // platform builds.
     if (options::GetBool("MultiplayerEnableUdpRelay") && !g_relay_server.empty()) {
         if (debug_enabled())
             debug_log("mp host: relay server=%s", g_relay_server.c_str());
@@ -2810,12 +2897,22 @@ bool StartHostSession(const protocol::LobbyStart &start) {
         if (parse_host_port(g_relay_server, relay_host, relay_port)) {
             if (g_session.relay_handle)
                 enet_host_destroy(g_session.relay_handle);
-            g_session.relay_handle = enet_host_create(nullptr, 1, 0, 0);
+            g_session.relay_handle = enet_host_create(nullptr, 1,
+#ifdef ENET_VER_EQ_GT_13
+                                                      2 /* channels */,
+#endif
+                                                      0, 0);
             if (g_session.relay_handle) {
+                // Do not tweak ENet-managed sockets; see note above.
                 ENetAddress relay_addr;
                 enet_address_set_host(&relay_addr, relay_host.c_str());
                 relay_addr.port = relay_port;
-                g_session.relay_peer = enet_host_connect(g_session.relay_handle, &relay_addr, 2);
+                g_session.relay_peer = enet_host_connect(g_session.relay_handle, &relay_addr, 2
+#ifdef ENET_VER_EQ_GT_13
+                                                         ,
+                                                         0 /* data */
+#endif
+                );
                 if (g_session.relay_peer) {
                     ENetEvent event;
                     if (enet_host_service(g_session.relay_handle, &event, 3000) > 0 &&
@@ -2925,14 +3022,24 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
             g_session.host_handle = nullptr;
         }
         g_session.server_peer = nullptr;
-        g_session.host_handle = enet_host_create(nullptr, 1, 0, 0);
+        g_session.host_handle = enet_host_create(nullptr, 1,
+#ifdef ENET_VER_EQ_GT_13
+                                                 2 /* channels */,
+#endif
+                                                 0, 0);
         if (g_session.host_handle == nullptr)
             return false;
+        // Do not tweak ENet-managed sockets; see note above.
 
         ENetAddress addr;
         enet_address_set_host(&addr, target_host.c_str());
         addr.port = target_port;
-        g_session.server_peer = enet_host_connect(g_session.host_handle, &addr, 2);
+        g_session.server_peer = enet_host_connect(g_session.host_handle, &addr, 2
+#ifdef ENET_VER_EQ_GT_13
+                                                  ,
+                                                  0 /* data */
+#endif
+        );
         if (g_session.server_peer == nullptr)
             return false;
 
@@ -2942,6 +3049,9 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
             if (debug_enabled())
                 debug_log("mp client: connect failed %s:%u", target_host.c_str(),
                           static_cast<unsigned>(target_port));
+            enet_host_destroy(g_session.host_handle);
+            g_session.host_handle = nullptr;
+            g_session.server_peer = nullptr;
             return false;
         }
         g_session.server_peer = event.peer;
@@ -2992,6 +3102,14 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
         if (debug_enabled())
             debug_log("mp client: welcome timeout %s:%u", target_host.c_str(),
                       static_cast<unsigned>(target_port));
+        if (g_session.server_peer) {
+            enet_peer_reset(g_session.server_peer);
+            g_session.server_peer = nullptr;
+        }
+        if (g_session.host_handle) {
+            enet_host_destroy(g_session.host_handle);
+            g_session.host_handle = nullptr;
+        }
         return false;
     };
 
@@ -3019,6 +3137,15 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
     }
 
     if (enable_tcp_relay && !g_tcp_relay_server.empty()) {
+        // Ensure stale ENet state from previous attempts (direct/udp-relay) does
+        // not interfere with TCP relay operation (client_send_payload prefers
+        // server_peer if set).
+        if (g_session.host_handle) {
+            enet_host_destroy(g_session.host_handle);
+            g_session.host_handle = nullptr;
+        }
+        g_session.server_peer = nullptr;
+
         if (debug_enabled())
             debug_log("mp client: tcp relay server=%s", g_tcp_relay_server.c_str());
         std::string relay_host;

@@ -29,7 +29,6 @@
 #include <cassert>
 #include <algorithm>
 #include <iostream>
-
 using namespace ecl;
 using namespace std;
 
