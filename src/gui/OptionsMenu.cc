@@ -100,6 +100,11 @@ namespace enigma { namespace gui {
         N_("Location of translations to all languages Enigma uses."),
         0
     };
+    static const char *helptext_options_multiplayer[] = {
+        N_("Lobby server:"),
+        N_("Default lobby server address for Internet multiplayer. This value is used to prefill the lobby field."),
+        0
+    };
 
 /* -------------------- Options Buttons -------------------- */
 
@@ -705,6 +710,7 @@ private:
       but_video_options(NULL),
       but_audio_options(NULL),
       but_config_options(NULL),
+      but_multiplayer_options(NULL),
       fullscreen(NULL),
       fullscreenmode(NULL),
       windowsize(NULL),
@@ -717,6 +723,7 @@ private:
       userPathTF(NULL),
       userImagePathTF(NULL),
       localizationPathTF(NULL),
+      multiplayerLobbyTF(NULL),
       menuMusicTF(NULL),
       background(background_),
       gameIsOngoing(gameIsOngoing_),
@@ -785,6 +792,8 @@ private:
             but_audio_options->setHighlight(new_page == OPTIONS_AUDIO);
             but_config_options = new StaticTextButton(N_("Config"), this);
             but_config_options->setHighlight(new_page == OPTIONS_CONFIG);
+            but_multiplayer_options = new StaticTextButton(N_("Multiplayer"), this);
+            but_multiplayer_options->setHighlight(new_page == OPTIONS_MULTIPLAYER);
             but_paths_options = new StaticTextButton(N_("Paths"), this);
             but_paths_options->setHighlight(new_page == OPTIONS_PATHS);
             back = new StaticTextButton(N_("Ok"), this);
@@ -793,8 +802,9 @@ private:
             pagesVList->add_back(but_video_options);
             pagesVList->add_back(but_audio_options);
             pagesVList->add_back(but_config_options);
+            pagesVList->add_back(but_multiplayer_options);
             pagesVList->add_back(but_paths_options);
-            for (int j = 7; j < param[vtt].rows; j++)
+            for (int j = 8; j < param[vtt].rows; j++)
                 pagesVList->add_back(new Label(""));
             pagesVList->add_back(back);
             this->add(pagesVList, Rect(0, 0, param[vtt].pageb_width,
@@ -914,6 +924,16 @@ private:
                 OPTIONS_NEW_L(N_("User name: "))
                 OPTIONS_NEW_T(userNameTF)
                 break;
+            case OPTIONS_MULTIPLAYER: {
+                std::string lobby_server = options::GetString("MultiplayerLobbyServer");
+                if (lobby_server.empty())
+                    lobby_server = "CHANGEME";
+                multiplayerLobbyTF = new TextField(lobby_server);
+                multiplayerLobbyTF->setMaxChars(128);
+                OPTIONS_NEW_L(N_("Lobby server: "))
+                OPTIONS_NEW_T(multiplayerLobbyTF)
+                break;
+            }
             case OPTIONS_PATHS:
                 userPathTF = new TextField(XMLtoUtf8(LocalToXML(app.userPath.c_str()).x_str()).c_str());
                 OPTIONS_NEW_L(N_("User path: "))
@@ -995,6 +1015,18 @@ private:
                 app.prefs->setProperty("LocalizationPath", app.l10nPath);
             }
         }
+        if (multiplayerLobbyTF) {
+            std::string lobbyServer = multiplayerLobbyTF->getText();
+            std::string::size_type firstChar = lobbyServer.find_first_not_of(" ");
+            std::string::size_type lastChar = lobbyServer.find_last_not_of(" ");
+            if (firstChar != std::string::npos)
+                lobbyServer = lobbyServer.substr(firstChar, lastChar - firstChar + 1);
+            else
+                lobbyServer = "CHANGEME";
+            if (lobbyServer.empty())
+                lobbyServer = "CHANGEME";
+            app.prefs->setProperty("MultiplayerLobbyServer", lobbyServer);
+        }
         // Delete widgets.
         if (pagesVList != NULL) {
             pagesVList->clear();
@@ -1006,6 +1038,7 @@ private:
         but_video_options = NULL;
         but_audio_options = NULL;
         but_config_options = NULL;
+        but_multiplayer_options = NULL;
         but_paths_options = NULL;
         if (commandHList != NULL) {
             commandHList->clear();
@@ -1034,6 +1067,7 @@ private:
         userPathTF = NULL;
         userImagePathTF = NULL;
         localizationPathTF = NULL;
+        multiplayerLobbyTF = NULL;
         pageAfterVideoCheck = OPTIONS_MAIN;
         currentPage = OPTIONS_MAIN;
         showVideoCheck = false;
@@ -1088,6 +1122,10 @@ private:
                     displayInfo(helptext_options_paths);
                     draw_all();
                     break; }
+                case OPTIONS_MULTIPLAYER: {
+                    displayInfo(helptext_options_multiplayer);
+                    draw_all();
+                    break; }
                 case OPTIONS_VIDEOCHECK:
                     // no op
                     break;
@@ -1132,6 +1170,9 @@ private:
         } else if (w == but_config_options) {
             close_page();
             open_page(OPTIONS_CONFIG);
+        } else if (w == but_multiplayer_options) {
+            close_page();
+            open_page(OPTIONS_MULTIPLAYER);
         } else if (w == but_paths_options) {
             close_page();
             open_page(OPTIONS_PATHS);
@@ -1180,4 +1221,3 @@ private:
     }
 
 }} // namespace enigma::gui
-

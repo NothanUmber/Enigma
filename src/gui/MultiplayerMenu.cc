@@ -15,6 +15,7 @@
 #include "main.hh"
 #include "multiplayer.hh"
 #include "nls.hh"
+#include "options.hh"
 #include "errors.hh"
 #include "resource_cache.hh"
 #include "lev/Proxy.hh"
@@ -205,7 +206,10 @@ MultiplayerMenu::MultiplayerMenu()
                       vminfo.width, bottom_h - 10));
 
     server_label = new Label(N_("Lobby server:"), HALIGN_LEFT);
-    server_field = new TextField("91.99.142.190:12347");
+    std::string lobby_server = options::GetString("MultiplayerLobbyServer");
+    if (lobby_server.empty())
+        lobby_server = "CHANGEME";
+    server_field = new TextField(lobby_server);
     room_label = new Label(N_("Room code:"), HALIGN_LEFT);
     room_field = new TextField("");
     players_label = new Label(N_("Players:"), HALIGN_LEFT);
