@@ -53,7 +53,6 @@ constexpr double kResyncCooldown = 1.0;
 constexpr unsigned kResyncMaxAttempts = 3;
 constexpr size_t kChecksumHistory = 512;
 constexpr float kSyncPosEpsilon = 0.05f;
-constexpr double kPlacementPromptSeconds = 3600.0;
 
 constexpr Uint32 kInternetMagic = 0x52494E45;  // "ENIR"
 constexpr Uint8 kInternetVersion = 1;
