@@ -75,6 +75,9 @@ namespace enigma { namespace gui {
         gui::TextField *userImagePathTF;
         gui::TextField *localizationPathTF;
         gui::TextField *multiplayerLobbyTF;
+        gui::TextField *multiplayerLobbyPortTF;
+        gui::TextField *multiplayerUdpRelayPortTF;
+        gui::TextField *multiplayerTcpRelayPortTF;
         gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;

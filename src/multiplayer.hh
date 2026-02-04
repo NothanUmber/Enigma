@@ -44,6 +44,18 @@ bool InternetPollRoom(const std::string &server, const std::string &room_code,
 bool InternetLeaveRoom(const std::string &server, const std::string &room_code,
                        std::string &error);
 void SetRelayServer(const std::string &server);
+void SetTcpRelayServer(const std::string &server);
+
+enum class TransportKind {
+    NONE = 0,
+    DIRECT = 1,
+    UDP_RELAY = 2,
+    TCP_RELAY = 3
+};
+
+// For clients: which transport is currently used to talk to the host.
+// For hosts: returns NONE.
+TransportKind ActiveTransport();
 
 bool StartHostSession(const protocol::LobbyStart &start);
 bool StartClientSession(const protocol::LobbyStart &start, const std::string &host_ip);

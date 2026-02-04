@@ -724,6 +724,9 @@ private:
       userImagePathTF(NULL),
       localizationPathTF(NULL),
       multiplayerLobbyTF(NULL),
+      multiplayerLobbyPortTF(NULL),
+      multiplayerUdpRelayPortTF(NULL),
+      multiplayerTcpRelayPortTF(NULL),
       menuMusicTF(NULL),
       background(background_),
       gameIsOngoing(gameIsOngoing_),
@@ -928,10 +931,39 @@ private:
                 std::string lobby_server = options::GetString("MultiplayerLobbyServer");
                 if (lobby_server.empty())
                     lobby_server = "CHANGEME";
+                // Backwards-compat: if the saved config still contains host:port, strip the port.
+                std::string::size_type port_sep = lobby_server.rfind(':');
+                if (port_sep != std::string::npos)
+                    lobby_server = lobby_server.substr(0, port_sep);
                 multiplayerLobbyTF = new TextField(lobby_server);
                 multiplayerLobbyTF->setMaxChars(128);
-                OPTIONS_NEW_L(N_("Lobby server: "))
+                OPTIONS_NEW_L(N_("Lobby/Relay server: "))
                 OPTIONS_NEW_T(multiplayerLobbyTF)
+
+                // Transport toggles (order is still direct > UDP relay > TCP relay).
+                OPTIONS_NEW_LB(N_("Direct connect: "),
+                              new BoolOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
+                OPTIONS_NEW_LB(N_("UDP relay: "),
+                              new BoolOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
+                OPTIONS_NEW_LB(N_("TCP relay: "),
+                              new BoolOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
+
+                // Port overrides. These are primarily for Internet mode hosting/debugging and
+                // should match the lobby/relay server deployment.
+                auto make_port_field = [](int value) -> TextField * {
+                    TextField *tf = new TextField(std::to_string(value));
+                    tf->setMaxChars(5);
+                    return tf;
+                };
+                multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
+                multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
+                multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
+                OPTIONS_NEW_L(N_("Lobby port: "))
+                OPTIONS_NEW_T(multiplayerLobbyPortTF)
+                OPTIONS_NEW_L(N_("UDP relay port: "))
+                OPTIONS_NEW_T(multiplayerUdpRelayPortTF)
+                OPTIONS_NEW_L(N_("TCP relay port: "))
+                OPTIONS_NEW_T(multiplayerTcpRelayPortTF)
                 break;
             }
             case OPTIONS_PATHS:
@@ -1025,7 +1057,37 @@ private:
                 lobbyServer = "CHANGEME";
             if (lobbyServer.empty())
                 lobbyServer = "CHANGEME";
+            // Store host only, ports are configured separately.
+            std::string::size_type port_sep = lobbyServer.rfind(':');
+            if (port_sep != std::string::npos)
+                lobbyServer = lobbyServer.substr(0, port_sep);
             app.prefs->setProperty("MultiplayerLobbyServer", lobbyServer);
+        }
+        auto parse_port = [](const std::string &s, int fallback) -> int {
+            if (s.empty())
+                return fallback;
+            char *end = nullptr;
+            long v = std::strtol(s.c_str(), &end, 10);
+            if (!end || *end != '\0')
+                return fallback;
+            if (v <= 0 || v > 65535)
+                return fallback;
+            return static_cast<int>(v);
+        };
+        if (multiplayerLobbyPortTF) {
+            int port = parse_port(multiplayerLobbyPortTF->getText(),
+                                  options::GetInt("MultiplayerInternetLobbyPort"));
+            app.prefs->setProperty("MultiplayerInternetLobbyPort", static_cast<double>(port));
+        }
+        if (multiplayerUdpRelayPortTF) {
+            int port = parse_port(multiplayerUdpRelayPortTF->getText(),
+                                  options::GetInt("MultiplayerInternetUdpRelayPort"));
+            app.prefs->setProperty("MultiplayerInternetUdpRelayPort", static_cast<double>(port));
+        }
+        if (multiplayerTcpRelayPortTF) {
+            int port = parse_port(multiplayerTcpRelayPortTF->getText(),
+                                  options::GetInt("MultiplayerInternetTcpRelayPort"));
+            app.prefs->setProperty("MultiplayerInternetTcpRelayPort", static_cast<double>(port));
         }
         // Delete widgets.
         if (pagesVList != NULL) {
@@ -1068,6 +1130,9 @@ private:
         userImagePathTF = NULL;
         localizationPathTF = NULL;
         multiplayerLobbyTF = NULL;
+        multiplayerLobbyPortTF = NULL;
+        multiplayerUdpRelayPortTF = NULL;
+        multiplayerTcpRelayPortTF = NULL;
         pageAfterVideoCheck = OPTIONS_MAIN;
         currentPage = OPTIONS_MAIN;
         showVideoCheck = false;

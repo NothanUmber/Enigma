@@ -61,24 +61,50 @@ namespace {
         return nullptr;
     }
 
-    std::string relay_address_from_lobby(const std::string &server) {
+    struct InternetServers {
+        std::string lobby;
+        std::string udp_relay;
+        std::string tcp_relay;
+    };
+
+    static Uint16 clamp_port(int value, Uint16 fallback) {
+        if (value > 0 && value <= 65535)
+            return static_cast<Uint16>(value);
+        return fallback;
+    }
+
+    InternetServers resolve_internet_servers(const std::string &server) {
+        InternetServers out;
+        if (server == "CHANGEME")
+            return out;
         std::string host = server;
-        Uint16 port = 12347;
-        std::string::size_type pos = server.rfind(':');
-        if (pos != std::string::npos) {
-            host = server.substr(0, pos);
-            std::string port_str = server.substr(pos + 1);
-            if (!port_str.empty()) {
-                char *end = nullptr;
-                long parsed = std::strtol(port_str.c_str(), &end, 10);
-                if (end && *end == '\0' && parsed > 0 && parsed <= 65535)
-                    port = static_cast<Uint16>(parsed);
-            }
-        }
+        // Backwards-compat: if the saved config still contains host:port, strip the port.
+        std::string::size_type pos = host.rfind(':');
+        if (pos != std::string::npos)
+            host = host.substr(0, pos);
+
+        if (host == "localhost" || host == "::1")
+            host = "127.0.0.1";
         if (host.empty())
-            host = "91.99.142.190";
-        Uint16 relay_port = static_cast<Uint16>(port + 1);
-        return host + ":" + std::to_string(relay_port);
+            return out;
+
+        Uint16 lobby_port = clamp_port(options::GetInt("MultiplayerInternetLobbyPort"), 12347);
+        out.lobby = host + ":" + std::to_string(lobby_port);
+        Uint16 udp_port = clamp_port(options::GetInt("MultiplayerInternetUdpRelayPort"), 12348);
+        Uint16 tcp_port = clamp_port(options::GetInt("MultiplayerInternetTcpRelayPort"), 12349);
+        out.udp_relay = host + ":" + std::to_string(udp_port);
+        out.tcp_relay = host + ":" + std::to_string(tcp_port);
+        return out;
+    }
+
+    std::string multiplayer_server_host_from_options() {
+        std::string host = options::GetString("MultiplayerLobbyServer");
+        if (host.empty())
+            host = "CHANGEME";
+        std::string::size_type port_sep = host.rfind(':');
+        if (port_sep != std::string::npos)
+            host = host.substr(0, port_sep);
+        return host;
     }
 
     bool proxy_player_info(lev::Proxy *proxy, unsigned &players, bool &optimized) {
@@ -114,10 +140,8 @@ MultiplayerMenu::MultiplayerMenu()
       waiting_label(nullptr),
       internet_buttons(nullptr),
       internet_leave_buttons(nullptr),
-      server_label(nullptr),
       room_label(nullptr),
       players_label(nullptr),
-      server_field(nullptr),
       room_field(nullptr),
       players_field(nullptr),
       previous_index_pos(0),
@@ -205,11 +229,6 @@ MultiplayerMenu::MultiplayerMenu()
     add(buttons, Rect(0, vminfo.height - bottom_h + 5,
                       vminfo.width, bottom_h - 10));
 
-    server_label = new Label(N_("Lobby server:"), HALIGN_LEFT);
-    std::string lobby_server = options::GetString("MultiplayerLobbyServer");
-    if (lobby_server.empty())
-        lobby_server = "CHANGEME";
-    server_field = new TextField(lobby_server);
     room_label = new Label(N_("Room code:"), HALIGN_LEFT);
     room_field = new TextField("");
     players_label = new Label(N_("Players:"), HALIGN_LEFT);
@@ -235,10 +254,6 @@ MultiplayerMenu::MultiplayerMenu()
     add(info_label, Rect(margin, info_y, left_w, info_h));
 
     int y = form_y;
-    add(server_label, Rect(form_x, y, left_w, line_h));
-    y += line_h;
-    add(server_field, Rect(form_x, y, field_w, field_h));
-    y += field_h + 6;
     add(room_label, Rect(form_x, y, left_w, line_h));
     y += line_h;
     add(room_field, Rect(form_x, y, field_w, field_h));
@@ -272,10 +287,11 @@ MultiplayerMenu::MultiplayerMenu()
 
 MultiplayerMenu::~MultiplayerMenu() {
     if (internet_in_room) {
-        std::string server = server_field ? server_field->getText() : "";
+        std::string server = multiplayer_server_host_from_options();
         std::string room = room_field ? room_field->getText() : "";
+        InternetServers servers = resolve_internet_servers(server);
         std::string error;
-        multiplayer::InternetLeaveRoom(server, room, error);
+        multiplayer::InternetLeaveRoom(servers.lobby.empty() ? server : servers.lobby, room, error);
     }
     multiplayer::LobbyStop();
     if (!previous_index_name.empty()) {
@@ -302,9 +318,11 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
             multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
                 selected_level_id, desired_players(), filter_min_players);
             std::string error;
-            std::string server = server_field ? server_field->getText() : "";
+            std::string server = multiplayer_server_host_from_options();
             std::string room = room_field ? room_field->getText() : "";
-            if (!multiplayer::InternetStartRoom(server, room, start, error)) {
+            InternetServers servers = resolve_internet_servers(server);
+            if (!multiplayer::InternetStartRoom(servers.lobby.empty() ? server : servers.lobby,
+                                                room, start, error)) {
                 show_info(error.empty() ? _("Failed to start room.") : error);
                 return;
             }
@@ -390,13 +408,19 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
             return;
         }
         unsigned players = desired_players();
-        std::string server = server_field ? server_field->getText() : "";
+        std::string server = multiplayer_server_host_from_options();
         std::string room_code = room_field ? room_field->getText() : "";
-        multiplayer::SetRelayServer(relay_address_from_lobby(server));
+        InternetServers servers = resolve_internet_servers(server);
+        if (servers.lobby.empty()) {
+            show_info(_("Invalid server address."));
+            return;
+        }
+        multiplayer::SetRelayServer(servers.udp_relay);
+        multiplayer::SetTcpRelayServer(servers.tcp_relay);
         multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
             selected_level_id, players, filter_min_players);
         std::string error;
-        if (!multiplayer::InternetCreateRoom(server, room_code, start, error)) {
+        if (!multiplayer::InternetCreateRoom(servers.lobby, room_code, start, error)) {
             show_info(error.empty() ? _("Failed to create room.") : error);
             return;
         }
@@ -412,18 +436,24 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
         return;
     }
     if (w == join_room_button) {
-        std::string server = server_field ? server_field->getText() : "";
+        std::string server = multiplayer_server_host_from_options();
         std::string room = room_field ? room_field->getText() : "";
         if (room.empty()) {
             show_info(_("please choose room code"));
             return;
         }
-        multiplayer::SetRelayServer(relay_address_from_lobby(server));
+        InternetServers servers = resolve_internet_servers(server);
+        if (servers.lobby.empty()) {
+            show_info(_("Invalid server address."));
+            return;
+        }
+        multiplayer::SetRelayServer(servers.udp_relay);
+        multiplayer::SetTcpRelayServer(servers.tcp_relay);
         multiplayer::protocol::LobbyStart start;
         std::string host_ip;
         std::string error;
         unsigned player_count = 0;
-        if (!multiplayer::InternetJoinRoom(server, room, start, host_ip, player_count, error)) {
+        if (!multiplayer::InternetJoinRoom(servers.lobby, room, start, host_ip, player_count, error)) {
             show_info(error.empty() ? _("Failed to join room.") : error);
             return;
         }
@@ -438,10 +468,11 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
         return;
     }
     if (w == leave_room_button) {
-        std::string server = server_field ? server_field->getText() : "";
+        std::string server = multiplayer_server_host_from_options();
         std::string room = room_field ? room_field->getText() : "";
+        InternetServers servers = resolve_internet_servers(server);
         std::string error;
-        multiplayer::InternetLeaveRoom(server, room, error);
+        multiplayer::InternetLeaveRoom(servers.lobby.empty() ? server : servers.lobby, room, error);
         internet_in_room = false;
         internet_start_valid = false;
         internet_room_code.clear();
@@ -488,6 +519,19 @@ void MultiplayerMenu::tick(double dtime) {
             } else if (!multiplayer::StartClientSession(start, host_ip)) {
                 show_info(_("Failed to join host."));
             } else {
+                switch (multiplayer::ActiveTransport()) {
+                case multiplayer::TransportKind::TCP_RELAY:
+                    show_info(_("Using TCP relay (higher latency)."));
+                    break;
+                case multiplayer::TransportKind::UDP_RELAY:
+                    show_info(_("Using UDP relay."));
+                    break;
+                case multiplayer::TransportKind::DIRECT:
+                    show_info(_("Using direct connection."));
+                    break;
+                default:
+                    break;
+                }
                 multiplayer::LobbyStop();
                 game::StartGame();
                 multiplayer::LobbyStart();
@@ -501,14 +545,16 @@ void MultiplayerMenu::tick(double dtime) {
             internet_poll_timer += dtime;
             if (internet_poll_timer >= 0.2) {
                 internet_poll_timer = 0.0;
-                std::string server = server_field ? server_field->getText() : "";
+                std::string server = multiplayer_server_host_from_options();
                 std::string room = room_field ? room_field->getText() : "";
+                InternetServers servers = resolve_internet_servers(server);
                 multiplayer::protocol::LobbyStart start;
                 std::string host_ip;
                 std::string error;
                 bool started = false;
                 unsigned player_count = 0;
-                if (multiplayer::InternetPollRoom(server, room, start, host_ip,
+                if (multiplayer::InternetPollRoom(servers.lobby.empty() ? server : servers.lobby,
+                                                  room, start, host_ip,
                                                   started, player_count, error)) {
                     if (player_count > 0 && player_count != internet_player_count) {
                         internet_player_count = player_count;
@@ -532,6 +578,19 @@ void MultiplayerMenu::tick(double dtime) {
                             internet_connecting = false;
                             update_internet_layout();
                         } else {
+                            switch (multiplayer::ActiveTransport()) {
+                            case multiplayer::TransportKind::TCP_RELAY:
+                                show_info(_("Using TCP relay (higher latency)."));
+                                break;
+                            case multiplayer::TransportKind::UDP_RELAY:
+                                show_info(_("Using UDP relay."));
+                                break;
+                            case multiplayer::TransportKind::DIRECT:
+                                show_info(_("Using direct connection."));
+                                break;
+                            default:
+                                break;
+                            }
                             internet_connecting = false;
                             multiplayer::LobbyStop();
                             game::StartGame();
@@ -693,10 +752,11 @@ void MultiplayerMenu::update_mode_button() {
 
 void MultiplayerMenu::set_internet_mode(bool enabled) {
     if (!enabled && internet_in_room) {
-        std::string server = server_field ? server_field->getText() : "";
+        std::string server = multiplayer_server_host_from_options();
         std::string room = room_field ? room_field->getText() : "";
+        InternetServers servers = resolve_internet_servers(server);
         std::string error;
-        multiplayer::InternetLeaveRoom(server, room, error);
+        multiplayer::InternetLeaveRoom(servers.lobby.empty() ? server : servers.lobby, room, error);
         internet_in_room = false;
         internet_start_valid = false;
         internet_room_code.clear();
@@ -720,8 +780,6 @@ void MultiplayerMenu::update_internet_layout() {
     bool show_levels = internet_mode && internet_in_room && internet_is_host;
     bool show_wait = internet_mode && !show_levels;
     if (!internet_mode) {
-        server_label->move(offscreen, offscreen);
-        server_field->move(offscreen, offscreen);
         room_label->move(offscreen, offscreen);
         room_field->move(offscreen, offscreen);
         players_label->move(offscreen, offscreen);
@@ -750,10 +808,8 @@ void MultiplayerMenu::update_internet_layout() {
             waiting_label->set_text(_("Waiting for host..."));
         waiting_label->move(level_area.x, level_area.y + level_area.h / 2 - 10);
     }
-    server_label->move(x, y);
-    server_field->move(x, y + server_label->get_h());
-    room_label->move(x, y + server_label->get_h() + server_field->get_h() + 4);
-    room_field->move(x, room_label->get_y() + room_label->get_h());
+    room_label->move(x, y);
+    room_field->move(x, y + room_label->get_h());
     players_label->move(offscreen, offscreen);
     players_field->move(offscreen, offscreen);
     int buttons_w = internet_buttons->get_w();
@@ -767,7 +823,6 @@ void MultiplayerMenu::update_internet_layout() {
                                           internet_in_room ? internet_buttons_y : offscreen,
                                           leave_w, leave_h));
     bool lock_fields = internet_in_room;
-    server_field->set_locked(lock_fields);
     room_field->set_locked(lock_fields);
     create_room_button->set_text(N_("Create Room"));
     invalidate_all();

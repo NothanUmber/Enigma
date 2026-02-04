@@ -51,10 +51,8 @@ private:
     gui::Label *waiting_label;
     gui::HList *internet_buttons;
     gui::HList *internet_leave_buttons;
-    gui::Label *server_label;
     gui::Label *room_label;
     gui::Label *players_label;
-    gui::TextField *server_field;
     gui::TextField *room_field;
     gui::TextField *players_field;
 

@@ -13,6 +13,12 @@
     <property key="StereoSeparation" value="10.0"/>
     <property key="RatingsAutoUpdate" value="0"/>
     <property key="MultiplayerLobbyServer" value="CHANGEME"/>
+    <property key="MultiplayerEnableDirect" value="1"/>
+    <property key="MultiplayerEnableUdpRelay" value="1"/>
+    <property key="MultiplayerEnableTcpRelay" value="1"/>
+    <property key="MultiplayerInternetLobbyPort" value="12347"/>
+    <property key="MultiplayerInternetUdpRelayPort" value="12348"/>
+    <property key="MultiplayerInternetTcpRelayPort" value="12349"/>
     <property key="_MacUpdate1.00" value="1"/>
   </properties>
 </preferences>
