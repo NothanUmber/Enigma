@@ -1117,6 +1117,10 @@ void send_ready_to_host() {
     protocol::encode_ready(buf);
     ENetPacket *packet = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
     enet_peer_send(g_session.server_peer, 0, packet);
+    // Ensure the READY gets on the wire quickly. This matters on lossy/restrictive networks
+    // where a single lost control packet would otherwise stall start.
+    if (g_session.host_handle)
+        enet_host_flush(g_session.host_handle);
 }
 
 void send_start_to_peers() {
@@ -2505,7 +2509,7 @@ void Tick(double dtime) {
     if (!g_session.host && g_session.start_requested && !g_session.start_allowed) {
         g_session.ready_timer += dtime;
         if (g_session.ready_timer >= 0.5) {
-            if (!g_session.ready_sent && local_can_send_ready()) {
+            if (local_can_send_ready()) {
                 send_ready_to_host();
                 g_session.ready_sent = true;
             }
