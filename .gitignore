@@ -8,7 +8,6 @@ Makefile
 Makefile.in
 .dirstamp
 *.o
-*.o.tmp
 *~
 doc/reference/images/*.png
 lib-src/enet/compile
