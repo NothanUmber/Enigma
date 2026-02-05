@@ -160,22 +160,34 @@ Clients attempt direct ENet connection to the host IP:port.
 
 If direct connect fails:
 
-- Host connects to the relay and registers the session id.
+- Host connects to the relay and registers the session id (and keeps a per-client mapping).
 - Clients connect to the relay with the same session id.
 - Relay assigns a client id, notifies the host, and forwards packets.
-- Host sends data back using a relay envelope (client id + payload).
+- Host sends packets back using a relay envelope (client id + payload).
 
 Relay server:
 
 - `tools/relay_server.cc`
-- Default: lobby port + 1 (e.g., 12347 → 12348)
+- Default: 12348/udp (configurable)
 - This mode works for typical home NAT setups because both host and clients
   initiate outbound connections to the relay.
 
-Lobby UI:
+Important: The UDP relay uses ENet itself (clients connect to the relay using
+`enet_host_connect`). That means the relay must be built against an ENet
+version compatible with the clients. In practice this is easiest if everything
+uses ENet 1.3.x (Ubuntu/Debian `libenet-dev`, Homebrew `enet`, etc.).
 
-- Uses lobby server field as base; relay is auto‑derived.
-- `multiplayer::SetRelayServer()` stores relay address used by client connect.
+### TCP relay fallback (UDP blocked)
+
+Some networks (guest WiFi, corporate networks, certain VPNs) block UDP. For
+those cases there is a TCP relay fallback:
+
+- Relay server: `tools/tcp_relay_server.cc` (default 12349/tcp, configurable)
+- Transport is selectable via config toggles:
+  `Direct` > `UDP relay` > `TCP relay` (in that order, skipping disabled ones).
+
+TCP is expected to have worse latency/jitter than direct UDP/ENet, but provides
+a “works almost anywhere” fallback.
 
 ## Deployment (simple single container)
 
@@ -183,9 +195,11 @@ For Internet play, both services can be run in one container:
 
 - `Dockerfile` builds `tools/relay_server.cc` and bundles
   `tools/internet_lobby_server.py`.
-- The relay is built against the bundled ENet sources to match the game.
+- The UDP relay is built against the distro-provided ENet (`libenet-dev`) to
+  match typical client builds that use system ENet (Ubuntu/Debian packages,
+  Homebrew builds, etc.).
 - `tools/docker-entrypoint.sh` starts both processes.
-- Expose UDP 12347 (lobby) and 12348 (relay).
+- Expose UDP 12347 (lobby), UDP 12348 (ENet relay), and TCP 12349 (TCP relay).
 
 This is intentionally a single container setup; docker‑compose is not required
 unless you want to split services or add extra tooling.
@@ -194,10 +208,45 @@ Build and run:
 
 ```
 docker build -t enigma-mp .
-docker run --rm -p 12347:12347/udp -p 12348:12348/udp enigma-mp
+docker run --rm \
+  -p 12347:12347/udp \
+  -p 12348:12348/udp \
+  -p 12349:12349/tcp \
+  enigma-mp
 ```
 
 Optional overrides:
+
+## Configuration knobs (developer-facing)
+
+Multiplayer configuration is stored in the local Enigma config and includes:
+
+- Internet server host (single host used for lobby + relays)
+- Ports: lobby / UDP relay / TCP relay
+- Enable/disable: direct connect / UDP relay / TCP relay
+
+Runtime debug toggles (environment variables):
+
+- `ENIGMA_MP_DEBUG=1`: enable verbose multiplayer logs
+- `ENIGMA_MP_FORCE_RELAY=1`: skip direct connect and force relay use (useful for
+  local testing or to compare latency)
+
+## Running the small regression tests (ad-hoc)
+
+These tests are intentionally tiny and do not use a framework. They can be
+built directly against the already-built core library:
+
+```
+g++ -std=c++14 -D_THREAD_SAFE \
+  -Isrc -Ilib-src/enigma-core -Ilib-src -I/opt/homebrew/include -I/opt/homebrew/include/SDL2 \
+  tests/test_multiplayer_protocol.cc lib-src/enigma-core/libecl.a \
+  -o /tmp/test_multiplayer_protocol && /tmp/test_multiplayer_protocol
+
+g++ -std=c++14 -D_THREAD_SAFE \
+  -Isrc -Ilib-src/enigma-core -Ilib-src -I/opt/homebrew/include -I/opt/homebrew/include/SDL2 \
+  tests/test_input.cc src/input.cc lib-src/enigma-core/libecl.a \
+  -o /tmp/test_input && /tmp/test_input
+```
 
 ```
 docker run --rm \
