@@ -343,11 +343,13 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
         }
         multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
             selected_level_id, desired_players(), filter_min_players);
-        multiplayer::LobbyBroadcastStart(start);
         if (!multiplayer::StartHostSession(start)) {
             show_info(_("Failed to start multiplayer session."));
             return;
         }
+        // Start listening before broadcasting the start message to avoid a race
+        // where clients attempt to connect before the host socket is bound.
+        multiplayer::LobbyBroadcastStart(start);
         multiplayer::LobbyStop();
         game::StartGame();
         multiplayer::LobbyStart();

@@ -30,6 +30,7 @@
 #include <vector>
 
 #ifdef WIN32
+#include <process.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -141,11 +142,59 @@ bool force_relay_enabled() {
 void debug_log(const char *fmt, ...) {
     if (!debug_enabled())
         return;
+
+#ifdef WIN32
+    // GUI-subsystem binaries often have no attached console, so stderr can be
+    // discarded. When ENIGMA_MP_DEBUG is enabled, also write to a temp log file
+    // so Windows builds remain debuggable.
+    static FILE *log_file = nullptr;
+    static bool log_file_init = false;
+    if (!log_file_init) {
+        log_file_init = true;
+        const char *tmp = std::getenv("TEMP");
+        if (!tmp || !*tmp)
+            tmp = std::getenv("TMP");
+        if (!tmp || !*tmp)
+            tmp = ".";
+        char path[1024] = {0};
+        std::snprintf(path, sizeof(path), "%s/enigma-mp-%d.log", tmp, _getpid());
+        log_file = std::fopen(path, "a");
+    }
+#endif
+
     va_list args;
     va_start(args, fmt);
     std::vfprintf(stderr, fmt, args);
     std::fprintf(stderr, "\n");
+    std::fflush(stderr);
+#ifdef WIN32
+    if (log_file) {
+        va_list args2;
+        va_start(args2, fmt);
+        std::vfprintf(log_file, fmt, args2);
+        std::fprintf(log_file, "\n");
+        std::fflush(log_file);
+        va_end(args2);
+    }
+#endif
     va_end(args);
+}
+
+static std::string address_to_ip_string(const ENetAddress &addr) {
+    // Always prefer a numeric IPv4 address here. LAN multiplayer uses this
+    // address for direct connects; reverse DNS / hostnames can fail to resolve
+    // (notably on Windows).
+    in_addr ia;
+    ia.s_addr = addr.host;  // ENet stores host in network byte order.
+#ifdef WIN32
+    const char *s = inet_ntoa(ia);
+    return s ? std::string(s) : std::string();
+#else
+    char buf[INET_ADDRSTRLEN] = {0};
+    if (!inet_ntop(AF_INET, &ia, buf, sizeof(buf)))
+        return std::string();
+    return std::string(buf);
+#endif
 }
 
 struct LobbyPeerEntry {
@@ -1235,8 +1284,9 @@ void poll_lobby_socket() {
         if (received <= 0)
             break;
 
-        char ip[64] = "";
-        enet_address_get_host(&src, ip, sizeof(ip));
+        std::string ip = address_to_ip_string(src);
+        if (ip.empty())
+            continue;
 
         ecl::Buffer buf;
         buf.assign(data, static_cast<ecl::Buffer::size_t>(received));
@@ -3113,8 +3163,15 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
         return false;
     };
 
+    // The host may take several seconds to load the level before it services ENet,
+    // especially on slower machines/VMs. Use a generous timeout for the initial
+    // connect/welcome handshake to avoid spurious join failures.
+    constexpr Uint32 kJoinTimeoutMs = 15000;
+
     if (enable_direct && !force_relay_enabled()) {
-        if (connect_and_wait(host_ip, start.host_port, false, 3000, 3000))
+        // Keep the actual connect timeout short, but allow a longer welcome window
+        // in case the host is still loading/binding when the client attempts to join.
+        if (connect_and_wait(host_ip, start.host_port, false, 3000, kJoinTimeoutMs))
             return true;
     } else if (debug_enabled()) {
         if (!enable_direct)
@@ -3129,7 +3186,7 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
         std::string relay_host;
         Uint16 relay_port = 0;
         if (parse_host_port(g_relay_server, relay_host, relay_port)) {
-            if (connect_and_wait(relay_host, relay_port, true, 2000, 2000))
+            if (connect_and_wait(relay_host, relay_port, true, 2000, kJoinTimeoutMs))
                 return true;
         }
     } else if (debug_enabled() && !enable_udp_relay) {
@@ -3161,7 +3218,7 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
                 } else {
                     Uint32 start_wait = SDL_GetTicks();
                     std::vector<uint8_t> frame;
-                    while (SDL_GetTicks() - start_wait < 5000) {
+                    while (SDL_GetTicks() - start_wait < kJoinTimeoutMs) {
                         fd_set rfds;
                         FD_ZERO(&rfds);
                         FD_SET(g_session.tcp_relay_socket, &rfds);
@@ -3207,8 +3264,8 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
                         }
                     }
                     if (debug_enabled())
-                        debug_log("mp client: welcome timeout %s:%u (tcp relay)",
-                                  relay_host.c_str(), static_cast<unsigned>(relay_port));
+                    debug_log("mp client: welcome timeout %s:%u (tcp relay)",
+                              relay_host.c_str(), static_cast<unsigned>(relay_port));
                     tcp_close(g_session.tcp_relay_socket);
                 }
             } else if (debug_enabled()) {
