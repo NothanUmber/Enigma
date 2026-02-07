@@ -1,5 +1,6 @@
 #include "multiplayer_extra_players.hh"
 
+#include "multiplayer_ball_assignment.hh"
 #include "multiplayer_transport.hh"
 
 #include "display.hh"
@@ -38,14 +39,27 @@ unsigned compute_level_players() {
 }
 
 bool placement_required_for_player(unsigned player) {
-    if (g_session.expected_players <= g_session.level_players)
+    if (player >= g_session.needs_placement.size())
         return false;
-    if (g_session.level_players == 0)
-        return false;
-    return player >= g_session.level_players;
+    return g_session.needs_placement[player];
 }
 
 namespace {
+
+bool controller_single_bit_index(int controllers, unsigned &out_index) {
+    if (controllers <= 0)
+        return false;
+    unsigned mask = static_cast<unsigned>(controllers);
+    if ((mask & (mask - 1)) != 0)
+        return false;
+    unsigned idx = 0;
+    while ((mask & 1u) == 0u) {
+        mask >>= 1u;
+        idx += 1u;
+    }
+    out_index = idx;
+    return true;
+}
 
 bool screen_tiles(int &out_x, int &out_y) {
     const ecl::Rect &area = display::GetGameArea();
@@ -379,10 +393,33 @@ void auto_place_extra_players() {
 }
 
 void add_extra_actors(unsigned level_players, unsigned expected_players) {
+    g_session.needs_placement.clear();
+    if (expected_players > 0)
+        g_session.needs_placement.assign(expected_players, false);
     if (level_players == 0 || expected_players <= level_players)
         return;
     std::vector<Actor *> actors;
     GetActors(actors);
+    if (debug_enabled())
+        debug_log("mp extra actors: level_players=%u expected=%u actors=%zu", level_players,
+                  expected_players, actors.size());
+
+    rebalance_authored_multi_ball_levels(level_players, expected_players);
+
+    // Track which session players already control a steerable actor after
+    // redistribution, to avoid spawning unnecessary duplicates.
+    std::vector<bool> has_actor(expected_players, false);
+    for (auto *actor : actors) {
+        if (!actor || !actor->isSteerable())
+            continue;
+        int controllers = actor->get_controllers();
+        unsigned owner = 0;
+        if (!controller_single_bit_index(controllers, owner))
+            continue;
+        if (owner >= expected_players)
+            continue;
+        has_actor[owner] = true;
+    }
 
     std::vector<Actor *> base(level_players, nullptr);
     std::vector<Actor *> fallback(level_players, nullptr);
@@ -391,11 +428,24 @@ void add_extra_actors(unsigned level_players, unsigned expected_players) {
     for (auto *actor : actors) {
         if (!any_actor && actor->isSteerable())
             any_actor = actor;
-        Value owner_val = actor->getAttr("owner");
-        if (owner_val.getType() == Value::NIL)
-            continue;
-        int owner = owner_val;
-        if (owner < 0 || owner >= static_cast<int>(level_players))
+        unsigned owner = 0;
+        bool has_owner = false;
+        if (Value owner_val = actor->getAttr("owner")) {
+            int owner_int = owner_val;
+            if (owner_int >= 0 && owner_int < static_cast<int>(level_players)) {
+                owner = static_cast<unsigned>(owner_int);
+                has_owner = true;
+            }
+        }
+        if (!has_owner) {
+            unsigned ctrl_owner = 0;
+            if (controller_single_bit_index(actor->get_controllers(), ctrl_owner) &&
+                ctrl_owner < level_players) {
+                owner = ctrl_owner;
+                has_owner = true;
+            }
+        }
+        if (!has_owner)
             continue;
         if (!fallback[owner])
             fallback[owner] = actor;
@@ -421,6 +471,8 @@ void add_extra_actors(unsigned level_players, unsigned expected_players) {
     }
 
     for (unsigned player = level_players; player < expected_players; ++player) {
+        if (player < has_actor.size() && has_actor[player])
+            continue;
         unsigned base_index = (level_players > 0) ? (player % level_players) : 0;
         Actor *base_actor = base_index < base.size() ? base[base_index] : nullptr;
         if (!base_actor)
@@ -438,6 +490,113 @@ void add_extra_actors(unsigned level_players, unsigned expected_players) {
             extra->setAttr("color", color);
         ecl::V2 pos = base_actor->get_pos();
         AddActor(pos[0], pos[1], extra);
+        if (player < g_session.needs_placement.size())
+            g_session.needs_placement[player] = true;
+    }
+
+    if (debug_enabled()) {
+        unsigned have = 0;
+        for (bool v : has_actor)
+            if (v)
+                have += 1;
+        unsigned need_place = 0;
+        for (bool v : g_session.needs_placement)
+            if (v)
+                need_place += 1;
+        debug_log("mp extra actors: assigned=%u spawned=%u needs_placement=%u", have,
+                  (expected_players > have) ? (expected_players - have) : 0, need_place);
+    }
+}
+
+void rebalance_authored_multi_ball_levels(unsigned level_players, unsigned expected_players) {
+    if (level_players == 0 || expected_players <= level_players)
+        return;
+    std::vector<Actor *> actors;
+    GetActors(actors);
+
+    // Redistribution pass: some authored levels (e.g. meditation) give one player
+    // multiple steerable actors. If there are enough such actors, distribute them
+    // evenly across all session players that share the same color group
+    // (player % level_players), instead of spawning new duplicates.
+    std::vector<std::vector<Actor *>> candidates(level_players);
+    for (auto *actor : actors) {
+        if (!actor || !actor->isSteerable())
+            continue;
+
+        // For singleplayer-authored levels, treat all steerable, player-controlled
+        // actors as belonging to the single base group. Some compatibility modes
+        // and conversions (notably Per.Oxyd meditation pearls) may leave "owner"
+        // unset or set to a non-zero value, but the level intent is still
+        // "controlled by the (single) current player".
+        if (level_players == 1) {
+            if (actor->get_controllers() == 0) {
+                Value owner_val = actor->getAttr("owner");
+                Value color_val = actor->getAttr("color");
+                if (!owner_val && !color_val)
+                    continue;
+            }
+            candidates[0].push_back(actor);
+            continue;
+        }
+
+        bool found_base = false;
+        unsigned base = 0;
+
+        // Prefer the authored owner if present. This covers many singleplayer
+        // multi-ball levels where the engine default sets controllers=CTRL_YINYANG
+        // (e.g. pearls), but the level intent is still "owned by player 0".
+        if (Value owner_val = actor->getAttr("owner")) {
+            int owner_int = owner_val;
+            if (owner_int >= 0 && owner_int < static_cast<int>(level_players)) {
+                base = static_cast<unsigned>(owner_int);
+                found_base = true;
+            }
+        }
+
+        // Fallback: single-controller actors that don't declare an owner.
+        if (!found_base) {
+            unsigned ctrl_base = 0;
+            if (controller_single_bit_index(actor->get_controllers(), ctrl_base) &&
+                ctrl_base < level_players) {
+                base = ctrl_base;
+                found_base = true;
+            }
+        }
+
+        // Legacy singleplayer actors sometimes leave owner unset but still default to
+        // controllers=CTRL_YINYANG (e.g. pearls created via old API mappings). In
+        // singleplayer metadata those are still effectively "owned by player 0".
+        if (!found_base && level_players == 1) {
+            if ((actor->get_controllers() & 1) != 0) {
+                base = 0;
+                found_base = true;
+            }
+        }
+
+        if (!found_base)
+            continue;
+        candidates[base].push_back(actor);
+    }
+
+    for (unsigned base = 0; base < level_players; ++base) {
+        std::vector<unsigned> group;
+        for (unsigned p = base; p < expected_players; p += level_players)
+            group.push_back(p);
+        if (group.size() <= 1)
+            continue;
+        if (candidates[base].size() < group.size())
+            continue;  // Not enough authored balls; keep legacy duplication behavior.
+        if (debug_enabled())
+            debug_log("mp rebalance: base=%u candidates=%zu group=%zu", base, candidates[base].size(),
+                      group.size());
+        std::vector<unsigned> assignment =
+            distribute_balls_round_robin(candidates[base].size(), group);
+        for (size_t i = 0; i < candidates[base].size(); ++i) {
+            Actor *a = candidates[base][i];
+            unsigned target = assignment[i];
+            a->setAttr("owner", Value(static_cast<int>(target)));
+            a->setAttr("controllers", Value(static_cast<int>(1 << target)));
+        }
     }
 }
 

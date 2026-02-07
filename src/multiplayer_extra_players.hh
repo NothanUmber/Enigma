@@ -22,6 +22,12 @@ void send_existing_placements_to_relay(Uint32 client_id);
 void send_existing_placements_to_tcp_relay(Uint32 client_id);
 void send_placement_to_host(const GridPos &pos);
 
+// Re-assign authored steerable actors ("multi-ball" levels) across session
+// players when there are enough such actors to distribute (e.g. meditation).
+// This is safe to call after a level has been initialized; it only changes
+// ownership/controller masks and does not spawn or remove actors.
+void rebalance_authored_multi_ball_levels(unsigned level_players, unsigned expected_players);
+
 void add_extra_actors(unsigned level_players, unsigned expected_players);
 void auto_place_extra_players();
 
@@ -30,4 +36,3 @@ void auto_place_extra_players();
 }  // namespace enigma
 
 #endif
-

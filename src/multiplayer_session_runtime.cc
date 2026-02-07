@@ -5,6 +5,7 @@
 
 #include "input.hh"
 #include "server.hh"
+#include "world.hh"
 
 #include <algorithm>
 #include <cstdint>
@@ -98,6 +99,31 @@ void SessionRequestPause(bool paused) {
 
 namespace {
 
+void debug_dump_steerable_actors(const char *tag) {
+    if (!debug_enabled())
+        return;
+    std::vector<Actor *> actors;
+    GetActors(actors);
+    unsigned dumped = 0;
+    for (auto *a : actors) {
+        if (!a || !a->isSteerable())
+            continue;
+        if (dumped >= 32) {
+            debug_log("mp actors(%s): ... (truncated)", tag);
+            return;
+        }
+        Value owner = a->getAttr("owner");
+        Value color = a->getAttr("color");
+        debug_log("mp actor(%s): kind=%s pos=(%.2f,%.2f) ctrl=%d owner=%s color=%s", tag,
+                  a->getKind().c_str(), a->get_pos()[0], a->get_pos()[1], a->get_controllers(),
+                  owner ? owner.to_string().c_str() : "nil",
+                  color ? color.to_string().c_str() : "nil");
+        dumped += 1;
+    }
+    if (dumped == 0)
+        debug_log("mp actors(%s): none steerable", tag);
+}
+
 bool any_menu_open() {
     for (bool open : g_session.menu_open) {
         if (open)
@@ -161,6 +187,13 @@ void SessionSetupExtraPlayerStartPositions() {
         g_session.level_players = compute_level_players();
     if (g_session.level_players < 1)
         g_session.level_players = 1;
+
+    // Some levels run Lua/setup logic during WorldInitLevel that can overwrite
+    // controllers/owner for steerable actors (notably meditation pearls). Run a
+    // post-init rebalance to ensure authored multi-ball levels are distributed
+    // across session players as intended.
+    rebalance_authored_multi_ball_levels(g_session.level_players, g_session.expected_players);
+
     g_session.placement_received.clear();
     if (g_session.expected_players > 0) {
         g_session.placement_received.resize(g_session.expected_players, false);
@@ -170,6 +203,7 @@ void SessionSetupExtraPlayerStartPositions() {
         }
     }
     auto_place_extra_players();
+    debug_dump_steerable_actors("post-place");
 }
 
 void SessionPrimeInputQueueForNewLevel() {
@@ -199,6 +233,7 @@ void SessionPrimeInputQueueForNewLevel() {
     g_session.ready_timer = 0.0;
     g_session.level_players = 0;
     g_session.placement_received.clear();
+    g_session.needs_placement.clear();
     if (g_session.host) {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;

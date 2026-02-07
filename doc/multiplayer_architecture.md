@@ -217,11 +217,28 @@ implemented as a replicated state derived from menu-open state:
 If more players join than the map was authored for:
 
 - The first N players use authored start positions.
-- Additional players are auto-placed by the host:
-  - choose the closest safe, free floor tile with clear sight to the base player start
-  - fall back to a random free tile if needed
+- If the authored level provides fewer steerable actors (balls) than session players, additional
+  players are handled by *duplication + placement*:
+  - duplicate a "base" actor (usually the base player's main marble/ball)
+  - auto-place that duplicate on a safe, free floor tile near the base start position:
+    - prefer the closest safe, free floor tile with clear sight to the base start
+    - fall back to a random free tile if needed
+- If the authored level provides more steerable actors (balls) than session players (common for
+  Per.Oxyd "Meditation" levels), players are handled by *redistribution* instead:
+  - do not spawn new balls
+  - distribute the authored steerable actors as evenly as possible across the session players
+    (for 2 players and 4 balls: 2+2; for 3 players and 4 balls: 2+1+1)
+  - existing relationships between balls (e.g. rubberbands) remain exactly as authored; only
+    which player controls which ball changes
 
 The host broadcasts placements so all instances spawn identically.
+
+Notes:
+
+- Redistribution is performed both before and after `WorldInitLevel()`. Some compatibility
+  modes and Lua init code can overwrite `controllers` during initialization (notably meditation
+  pearls created via old API mappings). The post-init pass ensures the final runtime controller
+  masks match the intended distribution.
 
 ### Restarts / next level
 
@@ -308,6 +325,11 @@ g++ -std=c++14 -D_THREAD_SAFE \
   -Isrc -Ilib-src/enigma-core -Ilib-src -I/opt/homebrew/include -I/opt/homebrew/include/SDL2 \
   tests/test_input.cc src/input.cc lib-src/enigma-core/libecl.a \
   -o /tmp/test_input && /tmp/test_input
+
+g++ -std=c++14 -D_THREAD_SAFE \
+  -Isrc -Ilib-src/enigma-core -Ilib-src -I/opt/homebrew/include -I/opt/homebrew/include/SDL2 \
+  tests/test_multiplayer_ball_assignment.cc \
+  -o /tmp/test_multiplayer_ball_assignment && /tmp/test_multiplayer_ball_assignment
 ```
 
 ## Key files

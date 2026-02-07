@@ -168,6 +168,10 @@ struct SessionState {
     unsigned resync_attempts = 0;
     unsigned level_players = 0;
     std::vector<bool> placement_received;
+    // Tracks whether a given session player needs an additional start position
+    // placement (only for extra actors we spawned). Extra players that take
+    // over an existing authored actor do not need placement.
+    std::vector<bool> needs_placement;
 };
 
 extern LobbyState g_lobby;
