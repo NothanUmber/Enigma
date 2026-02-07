@@ -158,6 +158,28 @@ void apply_resync_state(const protocol::ResyncState &state) {
     for (Actor *actor : actors)
         by_id[static_cast<Uint32>(actor->getId())] = actor;
 
+    // Applying a resync snapshot must not trigger gameplay side-effects like
+    // floor/item enter/leave callbacks (which can diverge further across peers).
+    // We only update physics state and the spatial index via DidMoveActor().
+    auto resync_teleport = [](Actor *actor, float x, float y, float vx, float vy) {
+        ActorInfo *ai = actor->get_actorinfo();
+        ai->pos = ecl::V2(x, y);
+        DidMoveActor(actor);
+        ai->last_gridpos = ai->gridpos;
+        ai->vel = ecl::V2(vx, vy);
+        ai->pos_force = ai->pos;
+        ai->forceacc = ecl::V2();
+        ai->force = ecl::V2();
+        ai->collforce = ecl::V2();
+        ai->friction = 0.0;
+        ai->contacts = ai->contacts_a;
+        ai->last_contacts = ai->contacts_b;
+        ai->contacts_count = 0;
+        ai->last_contacts_count = 0;
+    };
+
+    unsigned applied = 0;
+    float max_pos_delta = 0.0f;
     for (const auto &entry : state.actors) {
         Actor *actor = nullptr;
         auto it = by_id.find(entry.object_id);
@@ -187,9 +209,18 @@ void apply_resync_state(const protocol::ResyncState &state) {
         }
         if (!actor)
             continue;
-        WarpActor(actor, entry.x, entry.y, true);
-        actor->get_actorinfo()->vel = ecl::V2(entry.vx, entry.vy);
+        ActorInfo *ai = actor->get_actorinfo();
+        float dx = static_cast<float>(ai->pos[0]) - entry.x;
+        float dy = static_cast<float>(ai->pos[1]) - entry.y;
+        float d = std::sqrt(dx * dx + dy * dy);
+        if (d > max_pos_delta)
+            max_pos_delta = d;
+        resync_teleport(actor, entry.x, entry.y, entry.vx, entry.vy);
+        applied += 1;
     }
+    if (debug_enabled())
+        debug_log("mp resync applied: actors=%u max_pos_delta=%.3f", applied,
+                  static_cast<double>(max_pos_delta));
 
     g_session.resync_inflight = false;
     g_session.resync_cooldown = 0.0;
