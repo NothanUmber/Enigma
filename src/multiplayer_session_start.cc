@@ -15,8 +15,12 @@
 
 #ifdef WIN32
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #else
+#include <netdb.h>
+#include <sys/socket.h>
 #include <sys/select.h>
+#include <cerrno>
 #endif
 
 namespace enigma {
@@ -50,7 +54,9 @@ struct ConnectStrategy {
 enum class JoinPhase {
     IDLE = 0,
     CONNECTING = 1,
-    WAIT_WELCOME = 2
+    WAIT_WELCOME = 2,
+    TCP_CONNECTING = 3,
+    TCP_WAIT_WELCOME = 4
 };
 
 struct ClientJoinState {
@@ -71,6 +77,10 @@ struct ClientJoinState {
     JoinPhase phase = JoinPhase::IDLE;
     Uint32 connect_deadline = 0;
     Uint32 welcome_deadline = 0;
+
+    // TCP relay connect attempt state.
+    addrinfo *tcp_addrs = nullptr;
+    addrinfo *tcp_next = nullptr;
 };
 
 ClientJoinState g_join;
@@ -90,6 +100,12 @@ void join_clear_network_state() {
     tcp_close(g_session.tcp_relay_socket);
     g_session.tcp_relay_rx.clear();
     g_session.tcp_relay_frame_len = 0;
+
+    if (g_join.tcp_addrs) {
+        freeaddrinfo(g_join.tcp_addrs);
+        g_join.tcp_addrs = nullptr;
+    }
+    g_join.tcp_next = nullptr;
 }
 
 void join_fail_current_attempt() {
@@ -136,6 +152,88 @@ bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_co
     return true;
 }
 
+bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
+    join_clear_network_state();
+    g_join.relay_connect = false;
+    g_join.target_host = host;
+    g_join.target_port = port;
+
+    if (host.empty() || port == 0)
+        return false;
+
+    addrinfo hints;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+
+    addrinfo *res = nullptr;
+    std::string port_str = std::to_string(static_cast<unsigned>(port));
+    if (getaddrinfo(host.c_str(), port_str.c_str(), &hints, &res) != 0)
+        return false;
+    g_join.tcp_addrs = res;
+    g_join.tcp_next = res;
+
+    Uint32 now = SDL_GetTicks();
+    g_join.phase = JoinPhase::TCP_CONNECTING;
+    g_join.connect_deadline = now + 3000;
+    g_join.welcome_deadline = now + kJoinTimeoutMs;
+
+    // Start the first address attempt.
+    while (g_join.tcp_next) {
+        addrinfo *ai = g_join.tcp_next;
+        g_join.tcp_next = g_join.tcp_next->ai_next;
+
+        TcpSocket s = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (!tcp_socket_valid(s))
+            continue;
+        if (!tcp_set_nonblocking(s)) {
+            tcp_close(s);
+            continue;
+        }
+        int rc = ::connect(s, ai->ai_addr, static_cast<int>(ai->ai_addrlen));
+#ifdef WIN32
+        if (rc == 0) {
+            g_session.tcp_relay_socket = s;
+            g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
+        } else {
+            int err = WSAGetLastError();
+            if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
+                tcp_close(s);
+                continue;
+            }
+            g_session.tcp_relay_socket = s;
+            g_join.phase = JoinPhase::TCP_CONNECTING;
+        }
+#else
+        if (rc == 0) {
+            g_session.tcp_relay_socket = s;
+            g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
+        } else {
+            if (errno != EINPROGRESS) {
+                tcp_close(s);
+                continue;
+            }
+            g_session.tcp_relay_socket = s;
+            g_join.phase = JoinPhase::TCP_CONNECTING;
+        }
+#endif
+
+        // If we're already connected, send the HELLO immediately.
+        if (g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
+            ecl::Buffer hello;
+            encode_relay_header(hello, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
+            if (!tcp_send_frame(g_session.tcp_relay_socket, hello.data(), hello.size())) {
+                tcp_close(g_session.tcp_relay_socket);
+                continue;
+            }
+        }
+        return true;
+    }
+
+    join_clear_network_state();
+    return false;
+}
+
 bool join_begin_next_attempt() {
     while (g_join.strategy_index < g_join.strategies.size()) {
         TransportKind kind = g_join.strategies[g_join.strategy_index++];
@@ -166,8 +264,17 @@ bool join_begin_next_attempt() {
             continue;
         }
         if (kind == TransportKind::TCP_RELAY) {
-            // TCP relay join is still handled by the blocking path for now.
-            // Keep the strategy in the list only for SessionStartClient().
+            if (g_tcp_relay_server.empty())
+                continue;
+            if (debug_enabled())
+                debug_log("mp client: tcp relay server=%s", g_tcp_relay_server.c_str());
+            std::string relay_host;
+            Uint16 relay_port = 0;
+            if (!parse_host_port(g_tcp_relay_server, relay_host, relay_port))
+                continue;
+            if (join_begin_tcp_relay_attempt(relay_host, relay_port)) {
+                return true;
+            }
             continue;
         }
     }
@@ -668,6 +775,115 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
         return multiplayer::ClientJoinStatus::IDLE;
 
     Uint32 now = SDL_GetTicks();
+
+    if (g_join.phase == JoinPhase::TCP_CONNECTING || g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
+        if (tcp_socket_valid(g_session.tcp_relay_socket)) {
+            if (g_join.phase == JoinPhase::TCP_CONNECTING) {
+                fd_set wfds;
+                FD_ZERO(&wfds);
+                FD_SET(g_session.tcp_relay_socket, &wfds);
+                timeval tv;
+                tv.tv_sec = 0;
+                tv.tv_usec = 0;
+#ifdef WIN32
+                int sel = ::select(0, nullptr, &wfds, nullptr, &tv);
+#else
+                int sel = ::select(g_session.tcp_relay_socket + 1, nullptr, &wfds, nullptr, &tv);
+#endif
+                if (sel > 0) {
+                    int err = 0;
+#ifdef WIN32
+                    int errlen = sizeof(err);
+#else
+                    socklen_t errlen = sizeof(err);
+#endif
+                    if (::getsockopt(g_session.tcp_relay_socket, SOL_SOCKET, SO_ERROR,
+                                     reinterpret_cast<char *>(&err), &errlen) == 0 &&
+                        err == 0) {
+                        ecl::Buffer hello;
+                        encode_relay_header(hello, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
+                        if (tcp_send_frame(g_session.tcp_relay_socket, hello.data(), hello.size()))
+                            g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
+                        else
+                            join_fail_current_attempt();
+                    } else {
+                        join_fail_current_attempt();
+                    }
+                }
+            }
+
+            if (g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
+                fd_set rfds;
+                FD_ZERO(&rfds);
+                FD_SET(g_session.tcp_relay_socket, &rfds);
+                timeval tv;
+                tv.tv_sec = 0;
+                tv.tv_usec = 0;
+#ifdef WIN32
+                int sel = ::select(0, &rfds, nullptr, nullptr, &tv);
+#else
+                int sel = ::select(g_session.tcp_relay_socket + 1, &rfds, nullptr, nullptr, &tv);
+#endif
+                if (sel > 0) {
+                    if (!tcp_pump_recv(g_session.tcp_relay_socket, g_session.tcp_relay_rx)) {
+                        join_fail_current_attempt();
+                    } else {
+                        std::vector<uint8_t> frame;
+                        while (tcp_try_extract_frame(g_session.tcp_relay_rx,
+                                                     g_session.tcp_relay_frame_len, frame)) {
+                            const char *data = reinterpret_cast<const char *>(frame.data());
+                            ecl::Buffer buf;
+                            buf.assign(const_cast<char *>(data), frame.size());
+                            Uint8 player_id = 0;
+                            Uint8 expected_players = 0;
+                            Uint32 seed = 0;
+                            if (protocol::decode_welcome(buf, player_id, expected_players, seed)) {
+                                if (debug_enabled())
+                                    debug_log("mp client: welcome (tcp relay) player=%u expected=%u seed=%u",
+                                              static_cast<unsigned>(player_id),
+                                              static_cast<unsigned>(expected_players),
+                                              static_cast<unsigned>(seed));
+                                g_session.local_player = player_id;
+                                g_session.local_player_known = true;
+                                g_session.expected_players = expected_players;
+                                g_session.seed = seed;
+                                input::SetExpectedPlayers(expected_players);
+                                g_session.active_transport = TransportKind::TCP_RELAY;
+                                if (debug_enabled())
+                                    debug_log("mp client: transport=%s",
+                                              transport_name(g_session.active_transport));
+                                g_join.active = false;
+                                return multiplayer::ClientJoinStatus::JOINED;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (g_join.phase == JoinPhase::TCP_CONNECTING && now > g_join.connect_deadline) {
+            if (debug_enabled())
+                debug_log("mp client: connect failed %s:%u (tcp relay)", g_join.target_host.c_str(),
+                          static_cast<unsigned>(g_join.target_port));
+            join_fail_current_attempt();
+        } else if (g_join.phase == JoinPhase::TCP_WAIT_WELCOME && now > g_join.welcome_deadline) {
+            if (debug_enabled())
+                debug_log("mp client: welcome timeout %s:%u (tcp relay)", g_join.target_host.c_str(),
+                          static_cast<unsigned>(g_join.target_port));
+            join_fail_current_attempt();
+        }
+
+        if (g_join.phase == JoinPhase::IDLE) {
+            if (join_begin_next_attempt())
+                return multiplayer::ClientJoinStatus::CONNECTING;
+            SessionShutdown();
+            g_join = ClientJoinState();
+            return multiplayer::ClientJoinStatus::FAILED;
+        }
+
+        return multiplayer::ClientJoinStatus::CONNECTING;
+    }
+
     ENetEvent event;
     while (g_session.host_handle && enet_host_service(g_session.host_handle, &event, 0) > 0) {
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
