@@ -10,6 +10,7 @@
 #include "SDL.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
