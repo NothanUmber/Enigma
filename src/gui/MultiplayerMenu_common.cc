@@ -1,0 +1,92 @@
+#include "gui/MultiplayerMenu_internal.hh"
+
+#include "errors.hh"
+#include "multiplayer_config.hh"
+#include "nls.hh"
+
+#include "lev/Index.hh"
+#include "lev/VolatileIndex.hh"
+
+#include <string>
+#include <vector>
+#include <cstdint>
+
+namespace enigma {
+namespace gui {
+namespace mp_menu {
+
+namespace {
+lev::VolatileIndex *s_lobby_index = nullptr;
+}  // namespace
+
+lev::VolatileIndex *ensure_lobby_index() {
+    if (s_lobby_index != nullptr)
+        return s_lobby_index;
+    std::vector<std::string> empty;
+    s_lobby_index = new lev::VolatileIndex("Multiplayer Lobby", "Network Levels", "Multiplayer",
+                                           empty, INDEX_DEFAULT_PACK_LOCATION);
+    lev::Index::registerIndex(s_lobby_index);
+    return s_lobby_index;
+}
+
+lev::Index *find_pack_for_level_id(const std::string &level_id, lev::Index *lobby_index) {
+    std::vector<std::string> groups = lev::Index::getGroupNames();
+    for (const auto &group : groups) {
+        std::vector<lev::Index *> *indices = lev::Index::getGroup(group);
+        if (!indices)
+            continue;
+        for (auto *index : *indices) {
+            if (!index || index == lobby_index)
+                continue;
+            if (index->hasNormLevelPath(level_id))
+                return index;
+        }
+    }
+    return nullptr;
+}
+
+InternetServers resolve_internet_servers(const std::string &server) {
+    static_cast<void>(server);
+    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+    return multiplayer::ResolveInternetServers(cfg);
+}
+
+std::string multiplayer_server_host_from_options() {
+    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+    return cfg.server_host.empty() ? std::string("CHANGEME") : cfg.server_host;
+}
+
+bool proxy_player_info(lev::Proxy *proxy, unsigned &players, bool &optimized) {
+    if (!proxy)
+        return false;
+    try {
+        proxy->loadMetadata(true);
+    } catch (XLevelLoading &) {
+        return false;
+    }
+    bool network = proxy->hasNetworkMode();
+    bool single = proxy->hasSingleMode();
+    if (!network && !single)
+        return false;
+    optimized = network;
+    players = network ? proxy->getNetworkPlayers() : 1;
+    if (players < 1)
+        players = 1;
+    return true;
+}
+
+std::string no_level_message(unsigned min_players, unsigned desired_players) {
+    if (min_players == desired_players) {
+        return ecl::strf(_("No %u player levels are in this level pack"), desired_players);
+    }
+    return ecl::strf(_("No %u-%u player levels are in this level pack"), min_players,
+                     desired_players);
+}
+
+std::string resolved_lobby_server(const std::string &server, const InternetServers &servers) {
+    return servers.lobby.empty() ? server : servers.lobby;
+}
+
+}  // namespace mp_menu
+}  // namespace gui
+}  // namespace enigma

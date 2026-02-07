@@ -68,6 +68,7 @@ public:
     void set_time(double time) override;
     void set_inventory(enigma::Player activePlayer, const std::vector<std::string> &modelnames) override;
     void show_text(const std::string &str, bool scrolling, double duration) override;
+    bool try_show_text(const std::string &str, bool scrolling, double duration) override;
     void hide_text() override;
 
     void show_move_counter(bool active) override;

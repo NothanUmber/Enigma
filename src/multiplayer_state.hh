@@ -14,6 +14,10 @@ void SetupExtraPlayerStartPositions();
 bool ShouldDeferStart();
 void NotifyStartRequested();
 void NotifyRestart(bool level_restart);
+bool IsPaused();
+void RequestPause(bool paused);
+void SetMenuOpen(bool open);
+void RequestAbort();
 
 }  // namespace multiplayer
 }  // namespace enigma

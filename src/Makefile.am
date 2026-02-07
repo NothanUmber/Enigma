@@ -67,16 +67,38 @@ enigma_SOURCES = 		\
 	Inventory.cc		\
 	Inventory.hh		\
 	ItemHolder.hh		\
-	input.cc		\
-	input.hh		\
-	items.cc 		\
-	items.hh		\
-	multiplayer.cc		\
-	multiplayer.hh		\
-	multiplayer_protocol.hh \
-	multiplayer_state.hh	\
-	KindDescriptor.cc	\
-	KindDescriptor.hh	\
+		input.cc		\
+		input.hh		\
+		items.cc 		\
+		items.hh		\
+			multiplayer.cc		\
+			multiplayer_config.cc \
+			multiplayer_debug.cc	\
+			multiplayer_enet_socket.cc \
+			multiplayer_globals.cc	\
+			multiplayer.hh		\
+			multiplayer_config.hh \
+			multiplayer_extra_players.cc \
+			multiplayer_extra_players.hh \
+			multiplayer_identity.cc \
+		multiplayer_internal.hh \
+		multiplayer_internet_lobby.cc \
+		multiplayer_lan_lobby.cc \
+		multiplayer_protocol.hh \
+		multiplayer_relay_codec.cc \
+		multiplayer_session.hh \
+		multiplayer_session_impl.hh \
+		multiplayer_session_runtime.cc \
+			multiplayer_session_start.cc \
+			multiplayer_session_sync.cc \
+			multiplayer_session_transport.cc \
+			multiplayer_state.hh	\
+			multiplayer_transport.cc \
+			multiplayer_transport.hh \
+			multiplayer_tcp_socket.cc \
+			multiplayer_util.cc	\
+			KindDescriptor.cc	\
+		KindDescriptor.hh	\
 	laser.cc 		\
 	laser.hh		\
 	LocalToXML.cc		\
@@ -215,7 +237,12 @@ enigma_SOURCES = 		\
 	gui/MainMenu.cc		\
 	gui/MainMenu.hh		\
 	gui/MultiplayerMenu.cc \
+	gui/MultiplayerMenu_actions.cc \
+	gui/MultiplayerMenu_common.cc \
+	gui/MultiplayerMenu_levels.cc \
+	gui/MultiplayerMenu_tick.cc \
 	gui/MultiplayerMenu.hh \
+	gui/MultiplayerMenu_internal.hh \
 	gui/Menu.cc		\
 	gui/Menu.hh		\
 	gui/MonospacedLabel.cc	\

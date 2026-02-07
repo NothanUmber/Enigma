@@ -13,6 +13,17 @@ It is not a changelog.
 
 From the main menu, choose **Network Game** to open the multiplayer lobby.
 
+### In-game controls (multiplayer)
+
+- `ESC`: open the in-game menu (local) and pause the session (global)
+- `SHIFT+ESC`: abort the current level immediately
+
+In multiplayer, the in-game menu is still shown, but it is stepped from the main loop (non-blocking).
+That keeps the multiplayer network pump alive while a menu is open.
+
+While at least one player has the menu open, all instances show the global pause screen. Other players
+may press `ESC` to open their own menu as well. The session resumes once all menus are closed.
+
 ### Internet server configuration (once)
 
 Open **Options -> Multiplayer** and set:
@@ -98,6 +109,15 @@ Internet discovery (room codes):
 - `host_id`
 - map filter settings (minimum intended player count)
 
+### "Other players connecting..." start barrier
+
+At level start, the host may need to wait for clients to connect and send `READY` before the
+session can begin. To avoid desync and avoid "flashing" the world for a single frame:
+
+- The host and clients enter a dedicated waiting screen (`cls_waiting_for_network_start`).
+- The level is only shown once `SessionState::Phase` allows start.
+- The game timer only starts ticking once all players are ready.
+
 ### Session transport options
 
 All game-session payloads use a single message protocol (`src/multiplayer_protocol.hh`).
@@ -106,6 +126,11 @@ How those payloads are transported depends on connectivity:
 1) **Direct**: client connects to host via ENet (`host_ip:host_port`).
 2) **UDP relay**: client connects to relay via ENet; relay forwards ENet packets between client and host.
 3) **TCP relay**: client connects to relay via raw TCP; relay forwards framed payloads between client and host.
+
+To keep session logic independent of the concrete transport, multiplayer uses a small transport facade:
+
+- `src/multiplayer_transport.hh` / `src/multiplayer_transport.cc` provides one `Poll()` + `Send()` API.
+- Session code consumes that facade and does not branch on "direct vs relay" at every call site.
 
 #### ENet versioning (vendored vs system)
 
@@ -148,6 +173,24 @@ Clients compare these snapshots to local state:
 - If only RNG diverged, RNG can be corrected without restarting.
 - If world/actor checksums diverge, a resync is attempted.
 
+##### Checksum surface (what is hashed)
+
+The goal of checksums is to detect "world divergence" even if it does not show up as an obvious
+position mismatch yet (for example: rotors, stateful stones, puzzle elements, etc.).
+
+`WorldChecksum()` (see `src/world.cc`) hashes:
+
+- Level dimensions (`w`, `h`).
+- The *kind* and selected *state* of objects in the floor, stone, and item layers (for each tile).
+- The list of actors: stable ids and quantized physics state (position/velocity).
+- The list of "other" objects: stable id and kind (and selected state where applicable).
+
+Notes:
+
+- Positions and velocities are quantized before hashing to avoid false positives from tiny float drift.
+- The checksum is intended to be deterministic across platforms as long as object state enumeration
+  stays stable. If you change what is hashed, you change the desync detection behavior.
+
 #### Resync ("soft resync")
 
 When divergence is detected:
@@ -157,6 +200,17 @@ When divergence is detected:
 - Client applies it and continues.
 
 If resync fails repeatedly, the session reports a desync.
+
+### Global pause (multiplayer)
+
+Because the simulation is lockstep and each instance must keep pumping the network, pausing is
+implemented as a replicated state derived from menu-open state:
+
+- Clients notify the host when their ESC menu opens/closes (`NET_MENU`).
+- The host broadcasts the resulting pause/unpause decision to all peers (`NET_PAUSE`).
+- While paused, the simulation tick does not advance and no inputs are emitted, but the network is
+  still polled so unpause/leave/disconnect is handled promptly.
+- All instances show a pause screen (`cls_multiplayer_paused`) while any player has the menu open.
 
 ### Extra players on low-player maps (non-optimized mode)
 
@@ -177,6 +231,33 @@ Restarts are host-authoritative:
 - Clients restart via network-specific entry points (avoids host-only guards).
 
 This ensures all instances restart in lockstep.
+
+## Key code locations
+
+The refactor splits multiplayer into small translation units with focused responsibilities:
+
+- Lobby:
+  - `src/multiplayer_lan_lobby.cc` (UDP broadcast lobby)
+  - `src/multiplayer_internet_lobby.cc` (room-code lobby client)
+  - `tools/internet_lobby_server.py` (room-code lobby server)
+- Session protocol:
+  - `src/multiplayer_protocol.hh` (binary session protocol and lobby packets)
+  - `src/multiplayer_relay_codec.cc` (relay framing header)
+- Session runtime/state machine:
+  - `src/multiplayer_internal.hh` (shared state structs and enums)
+  - `src/multiplayer_session_runtime.cc` (high-level session API used by `src/multiplayer.cc`)
+  - `src/multiplayer_session_transport.cc` (packet dispatch and transport sink)
+  - `src/multiplayer_session_start.cc` (join/start/restart transitions)
+  - `src/multiplayer_session_sync.cc` (sync/checksum/resync helpers)
+- Transport implementations:
+  - `src/multiplayer_transport.cc` (transport facade: poll + send/broadcast)
+  - `src/multiplayer_enet_socket.cc` (ENet API shims and setup)
+  - `src/multiplayer_tcp_socket.cc` (raw TCP relay socket)
+  - `tools/relay_server.cc` (UDP/ENet relay)
+  - `tools/tcp_relay_server.cc` (TCP relay)
+- UI:
+  - `src/gui/MultiplayerMenu.cc` + helpers in `src/gui/MultiplayerMenu_*.cc`
+  - `src/gui/OptionsMenu.cc` (Multiplayer options tab)
 
 ## Deployment
 
@@ -234,16 +315,27 @@ g++ -std=c++14 -D_THREAD_SAFE \
 Protocol + engine:
 - `src/multiplayer.cc`
 - `src/multiplayer.hh`
+- `src/multiplayer_config.cc` / `src/multiplayer_config.hh`
 - `src/multiplayer_protocol.hh`
 - `src/multiplayer_state.hh`
+- `src/multiplayer_session.hh` (session entry points; implementation is split across `src/multiplayer_session_*.cc`)
+- `src/multiplayer_internal.hh` (shared internal state and constants)
+- `src/multiplayer_transport.cc` / `src/multiplayer_transport.hh` (unified send/poll across direct + relays)
+- `src/multiplayer_lan_lobby.cc` (LAN broadcast lobby)
+- `src/multiplayer_internet_lobby.cc` (Internet room requests to the lobby server)
+- `src/multiplayer_extra_players.cc` / `src/multiplayer_extra_players.hh` (extra-player spawn/placement for non-optimized maps)
 - `src/input.cc` / `src/input.hh`
 
 UI:
 - `src/gui/MultiplayerMenu.cc`
 - `src/gui/MultiplayerMenu.hh`
+- `src/gui/MultiplayerMenu_actions.cc`
+- `src/gui/MultiplayerMenu_levels.cc`
+- `src/gui/MultiplayerMenu_tick.cc`
+- `src/gui/MultiplayerMenu_common.cc`
+- `src/gui/MultiplayerMenu_internal.hh`
 
 Internet services:
 - `tools/internet_lobby_server.py`
 - `tools/relay_server.cc`
 - `tools/tcp_relay_server.cc`
-

@@ -181,6 +181,9 @@ public:
                                const std::vector<std::string> &modelnames) = 0;
 
     virtual void show_text(const std::string &str, bool scrolling, double duration = -1) = 0;
+    // Like show_text(), but does not overwrite an already active message.
+    // Returns true if the message was shown, false if a message was already active.
+    virtual bool try_show_text(const std::string &str, bool scrolling, double duration = -1) = 0;
     virtual void hide_text() = 0;
 
     virtual void show_move_counter(bool active) = 0;

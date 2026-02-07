@@ -38,6 +38,16 @@ namespace enigma { namespace gui {
         //! true: ok, false: menu aborted by user
         virtual bool manage();
 
+        // Non-blocking manage support.
+        //
+        // Some callers (multiplayer) must keep the main loop alive to pump the
+        // network while a menu is open. These helpers allow stepping a menu
+        // from an outer loop instead of blocking inside manage().
+        void begin_manage();
+        bool step_manage(double dt, bool do_delay);
+        bool finish_manage(bool apply_min_duration_delay);
+        bool is_active() const { return managing; }
+
         void add(Widget *w);
         void add(Widget *w, ecl::Rect r);
         void center(int top = 0, int bottom = 0, int left = 0, int right = 0);
@@ -73,6 +83,8 @@ namespace enigma { namespace gui {
         Widget *active_widget;
         Widget *key_focus_widget;
         bool quitp, abortp;
+        bool managing;
+        Uint32 manage_enter_tick_time;
         std::string previous_caption;
     };
 

@@ -6,6 +6,7 @@
 #include "gui/widgets.hh"
 #include "gui/TextField.hh"
 #include "multiplayer_protocol.hh"
+#include "multiplayer.hh"
 
 #include "lev/VolatileIndex.hh"
 
@@ -38,6 +39,27 @@ private:
     bool set_level_by_id(const std::string &level_id);
     bool select_pack_for_level(const std::string &level_id);
     void show_info(const std::string &text);
+    void show_transport_info(int transport_kind);
+    std::string current_room_code() const;
+    void clear_internet_room_state();
+    void leave_current_internet_room();
+    void enter_game_from_lobby();
+    void apply_start_selection(const multiplayer::protocol::LobbyStart &start);
+    void set_internet_connecting(bool connecting);
+    bool start_host_and_enter_game(const multiplayer::protocol::LobbyStart &start,
+                                   bool broadcast_start);
+    bool begin_client_join(const multiplayer::protocol::LobbyStart &start,
+                           const std::string &host_ip);
+    multiplayer::ClientJoinStatus poll_client_join_and_maybe_enter_game();
+    void handle_level_activated();
+    void handle_level_pack();
+    void handle_filter();
+    void handle_mode_toggle();
+    void handle_create_room();
+    void handle_join_room();
+    void handle_leave_room();
+    void tick_lan_mode(double dtime);
+    void tick_internet_mode(double dtime);
 
     gui::LevelWidget *levelwidget;
     gui::StaticTextButton *levelpack_button;
@@ -73,6 +95,16 @@ private:
     bool internet_connecting;
     double internet_poll_timer;
     unsigned internet_player_count;
+    Uint32 lan_last_join_session_id;
+    bool lan_last_join_failed;
+    Uint32 internet_last_join_session_id;
+    bool internet_last_join_failed;
+    bool lan_join_in_progress;
+    multiplayer::protocol::LobbyStart lan_join_start;
+    std::string lan_join_host_ip;
+    bool internet_join_in_progress;
+    multiplayer::protocol::LobbyStart internet_join_start;
+    std::string internet_join_host_ip;
     int internet_form_x;
     int internet_form_y;
     int internet_buttons_x;

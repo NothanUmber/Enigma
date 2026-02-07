@@ -28,6 +28,7 @@
 #include "Utf8ToXML.hh"
 #include "XMLtoLocal.hh"
 #include "XMLtoUtf8.hh"
+#include "multiplayer_config.hh"
 #include "display.hh"
 #include "ecl_video.hh"
 #include "lev/ScoreManager.hh"
@@ -936,13 +937,8 @@ public:
                 OPTIONS_NEW_T(userNameTF)
                 break;
             case OPTIONS_MULTIPLAYER: {
-                std::string lobby_server = options::GetString("MultiplayerLobbyServer");
-                if (lobby_server.empty())
-                    lobby_server = "CHANGEME";
-                // Backwards-compat: if the saved config still contains host:port, strip the port.
-                std::string::size_type port_sep = lobby_server.rfind(':');
-                if (port_sep != std::string::npos)
-                    lobby_server = lobby_server.substr(0, port_sep);
+                multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+                std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
                 multiplayerLobbyTF = new TextField(lobby_server);
                 multiplayerLobbyTF->setMaxChars(128);
                 OPTIONS_NEW_L(N_("Lobby/Relay server: "))

@@ -18,6 +18,9 @@ RUN g++ -std=c++14 tools/tcp_relay_server.cc -o /usr/local/bin/enigma-tcp-relay
 COPY tools/docker-entrypoint.sh /usr/local/bin/enigma-entrypoint
 RUN chmod +x /usr/local/bin/enigma-entrypoint
 
+# 12347/udp: Internet lobby server (room coordination)
+# 12348/udp: UDP relay (ENet) for gameplay transport fallback
+# 12349/tcp: TCP relay for networks that block UDP
 EXPOSE 12347/udp 12348/udp 12349/tcp
 
 ENTRYPOINT ["/usr/local/bin/enigma-entrypoint"]

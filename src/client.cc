@@ -244,6 +244,58 @@ void Client::handle_events() {
     }
 }
 
+void Client::handle_events_waiting_for_network_start() {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+        case SDL_QUIT:
+            client::Msg_Command("abort");
+            app.bossKeyPressed = true;
+            break;
+        case SDL_WINDOWEVENT:
+            if (e.window.event == SDL_WINDOWEVENT_EXPOSED)
+                draw_screen();
+            break;
+        default:
+            // Ignore input while waiting: start is deferred and we don't want to
+            // queue a burst of inputs that will be applied all at once later.
+            break;
+        }
+    }
+}
+
+void Client::handle_events_multiplayer_paused() {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+        case SDL_QUIT:
+            client::Msg_Command("abort");
+            app.bossKeyPressed = true;
+            break;
+        case SDL_KEYDOWN: {
+            SDL_Keysym keysym = e.key.keysym;
+            Uint16 keymod = keysym.mod;
+            if (keysym.sym == SDLK_ESCAPE) {
+                if (keymod & KMOD_SHIFT) {
+                    app.bossKeyPressed = true;
+                    // In multiplayer, abort must terminate the whole session.
+                    multiplayer::RequestAbort();
+                } else {
+                    open_multiplayer_menu();
+                }
+            }
+            break;
+        }
+        case SDL_WINDOWEVENT:
+            if (e.window.event == SDL_WINDOWEVENT_EXPOSED)
+                draw_screen();
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 void Client::handle_events_teatime() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -501,9 +553,18 @@ void Client::on_keydown(SDL_Event &e) {
         case SDLK_ESCAPE:
             if (keymod & KMOD_SHIFT) {
                 app.bossKeyPressed = true;
-                abort();
+                if (multiplayer::IsActive()) {
+                    // In multiplayer, abort must terminate the whole session.
+                    multiplayer::RequestAbort();
+                } else {
+                    abort();
+                }
             } else {
-                show_menu(true);
+                if (multiplayer::IsActive()) {
+                    open_multiplayer_menu();
+                } else {
+                    show_menu(true);
+                }
             }
             break;
         case SDLK_LEFT: set_mousespeed(options::GetMouseSpeed() - 1); break;
@@ -574,6 +635,10 @@ static const char *helptext_ingame[] = {
     0};
 
 void Client::show_help() {
+    if (multiplayer::IsActive()) {
+        Msg_ShowText(_("Help is not available in multiplayer."), false, 2.0);
+        return;
+    }
     server::Msg_Pause(true);
     ScopedInputGrab grab(false);
 
@@ -597,6 +662,12 @@ void Client::show_help() {
 }
 
 void Client::show_menu(bool isESC) {
+    if (multiplayer::IsActive()) {
+        // In multiplayer we cannot open a blocking modal menu here: it would stop
+        // pumping the network for this process and desync or disconnect peers.
+        open_multiplayer_menu();
+        return;
+    }
     if (isESC && server::LastMenuTime != 0.0 && server::LevelTime - server::LastMenuTime < 0.3) {
         return;  // protection against ESC D.o.S. attacks
     }
@@ -630,6 +701,46 @@ void Client::show_menu(bool isESC) {
         server::LastMenuTime = server::LevelTime;
 }
 
+void Client::open_multiplayer_menu() {
+    if (!multiplayer::IsActive())
+        return;
+    if (m_state == cls_multiplayer_menu)
+        return;
+
+    multiplayer::SetMenuOpen(true);
+
+    // Release input grab while the menu is active.
+    if (!m_menu_saved_input_grab_valid) {
+        m_menu_saved_input_grab = video_engine->SetInputGrab(false);
+        m_menu_saved_input_grab_valid = true;
+    } else {
+        video_engine->SetInputGrab(false);
+    }
+
+    video_engine->ShowMouse();
+
+    int x = 0;
+    int y = 0;
+    display::GetReferencePointCoordinates(&x, &y);
+    m_multiplayer_menu.reset(new enigma::gui::GameMenu(x, y));
+    m_multiplayer_menu->begin_manage();
+    m_state = cls_multiplayer_menu;
+}
+
+void Client::close_multiplayer_menu() {
+    if (multiplayer::IsActive())
+        multiplayer::SetMenuOpen(false);
+    m_multiplayer_menu.reset();
+
+    video_engine->HideMouse();
+    update_mouse_button_state();
+
+    if (m_menu_saved_input_grab_valid) {
+        video_engine->SetInputGrab(m_menu_saved_input_grab);
+        m_menu_saved_input_grab_valid = false;
+    }
+}
+
 void Client::draw_screen() {
     switch (m_state) {
     case cls_error: {
@@ -653,6 +764,45 @@ void Client::draw_screen() {
                 y += yskip;
             }
         }
+        scr->update_all();
+        scr->flush_updates();
+        break;
+    }
+    case cls_waiting_for_network_start: {
+        ecl::Screen *scr = video_engine->GetScreen();
+        ecl::GC gc(scr->get_surface());
+        blit(gc, 0, 0, enigma::GetImage("menu_bg", ".jpg"));
+        ecl::Font *f = enigma::GetFont("menufont");
+        const VMInfo *vminfo = video_engine->GetInfo();
+
+        std::string msg = _("Other players connecting...");
+        int msgw = f->get_width(msg);
+        int x = (vminfo->width - msgw) / 2;
+        int y = vminfo->height / 2 - f->get_height() / 2;
+        f->render(gc, x, y, msg);
+
+        scr->update_all();
+        scr->flush_updates();
+        break;
+    }
+    case cls_multiplayer_paused: {
+        ecl::Screen *scr = video_engine->GetScreen();
+        ecl::GC gc(scr->get_surface());
+        blit(gc, 0, 0, enigma::GetImage("menu_bg", ".jpg"));
+        ecl::Font *f = enigma::GetFont("menufont");
+        const VMInfo *vminfo = video_engine->GetInfo();
+
+        std::string msg = _("Game paused.");
+        std::string hint = _("Press ESC to open menu.");
+        int msgw = f->get_width(msg);
+        int hintw = f->get_width(hint);
+        int x1 = (vminfo->width - msgw) / 2;
+        int y1 = vminfo->height / 2 - f->get_height();
+        int x2 = (vminfo->width - hintw) / 2;
+        int y2 = vminfo->height / 2 + 10;
+        f->render(gc, x1, y1, msg);
+        f->render(gc, x2, y2, hint);
+
         scr->update_all();
         scr->flush_updates();
         break;
@@ -698,17 +848,98 @@ void Client::tick(double dtime) {
             m_effect->tick(dtime);
         } else {
             m_effect.reset();
-            server::Msg_StartGame();
+            const bool skip_start_msg = m_preparing_skip_start_msg;
+            m_preparing_skip_start_msg = false;
+            if (!skip_start_msg)
+                server::Msg_StartGame();
 
-            m_state = cls_game;
-            m_timeaccu = 0;
-            m_total_game_time = 0;
-            sdl::FlushEvents();
+            if (multiplayer::IsActive() && multiplayer::ShouldDeferStart()) {
+                m_state = cls_waiting_for_network_start;
+                draw_screen();
+            } else {
+                m_state = cls_game;
+                m_timeaccu = 0;
+                m_total_game_time = 0;
+                sdl::FlushEvents();
+            }
         }
         break;
     }
 
+    case cls_waiting_for_network_start:
+        if (!multiplayer::IsActive() || !multiplayer::ShouldDeferStart()) {
+            // Show the level with a transition effect once all peers are ready.
+            // The host already sent Msg_StartGame() while the "connecting" screen
+            // was displayed, so do not send it again here.
+            ecl::GC gc(video_engine->BackBuffer());
+            display::DrawAll(gc);
+            m_effect = video::CreateEffect(video::TM_PUSH_RANDOM, video_engine->BackBuffer());
+            m_preparing_skip_start_msg = true;
+            m_state = cls_preparing_game;
+        } else {
+            draw_screen();
+            handle_events_waiting_for_network_start();
+        }
+        break;
+
+    case cls_multiplayer_menu: {
+        if (!m_multiplayer_menu) {
+            close_multiplayer_menu();
+            m_state = cls_multiplayer_paused;
+            break;
+        }
+        // Abort can be triggered by any peer (NET_ABORT) while the menu is open.
+        // Once AbortGameP() is set, the world can be torn down; do not continue
+        // stepping/drawing the menu background (it depends on world state).
+        if (client::AbortGameP() || app.bossKeyPressed) {
+            close_multiplayer_menu();
+            abort();
+            break;
+        }
+        if (!m_multiplayer_menu->step_manage(timestep, false)) {
+            m_multiplayer_menu->finish_manage(false);
+            close_multiplayer_menu();
+            if (client::AbortGameP() || app.bossKeyPressed) {
+                // Abort can be triggered from within the menu (e.g. "Abort Level").
+                // Don't return to the level in that case.
+                abort();
+                break;
+            }
+            if (multiplayer::IsActive() && multiplayer::IsPaused()) {
+                m_state = cls_multiplayer_paused;
+                draw_screen();
+            } else {
+                m_state = cls_game;
+                m_timeaccu = 0;
+                m_total_game_time = 0;
+                sdl::FlushEvents();
+                display::RedrawAll(video_engine->GetScreen());
+                game::ResetGameTimer();
+            }
+        }
+        break;
+    }
+
+    case cls_multiplayer_paused:
+        if (!multiplayer::IsActive() || !multiplayer::IsPaused()) {
+            m_state = cls_game;
+            m_timeaccu = 0;
+            m_total_game_time = 0;
+            sdl::FlushEvents();
+            game::ResetGameTimer();
+            display::RedrawAll(video_engine->GetScreen());
+        } else {
+            draw_screen();
+            handle_events_multiplayer_paused();
+        }
+        break;
+
     case cls_game:
+        if (multiplayer::IsActive() && multiplayer::IsPaused()) {
+            m_state = cls_multiplayer_paused;
+            draw_screen();
+            break;
+        }
         if (app.state->getInt("NextLevelMode") == lev::NEXT_LEVEL_NOT_BEST) {
             int old_second = ecl::round_nearest<int>(m_total_game_time);
             int second = ecl::round_nearest<int>(m_total_game_time + dtime);
@@ -754,8 +985,15 @@ void Client::tick(double dtime) {
     // fall through
     case cls_finished: {
         m_timeaccu += dtime;
-        for (; m_timeaccu >= timestep; m_timeaccu -= timestep) {
-            display::Tick(timestep);
+        // During multiplayer start/join we intentionally defer simulation to keep
+        // peers in sync. Freeze UI animation/message timers as well so level intro
+        // texts are not "used up" while waiting for connections.
+        if (multiplayer::IsActive() && multiplayer::ShouldDeferStart()) {
+            m_timeaccu = 0;
+        } else {
+            for (; m_timeaccu >= timestep; m_timeaccu -= timestep) {
+                display::Tick(timestep);
+            }
         }
         display::Redraw(video_engine->GetScreen());
         handle_events();
@@ -911,6 +1149,21 @@ void Client::level_loaded(bool isRestart) {
 
     sound::StartLevelMusic();
 
+    // Multiplayer start may be deferred until all peers have connected and reported ready.
+    // Avoid showing the level for a single frame before the "connecting" screen appears by
+    // skipping the transition effect entirely while start is deferred.
+    if (multiplayer::IsActive() && multiplayer::ShouldDeferStart()) {
+        m_effect.reset();
+        m_preparing_skip_start_msg = false;
+        m_cheater = false;
+        if (multiplayer::IsActive())
+            player::SetCurrentPlayer(multiplayer::LocalPlayer());
+        m_state = cls_waiting_for_network_start;
+        server::Msg_StartGame();
+        draw_screen();
+        return;
+    }
+
     // start screen transition
     ecl::GC gc(video_engine->BackBuffer());
     display::DrawAll(gc);
@@ -918,6 +1171,7 @@ void Client::level_loaded(bool isRestart) {
     m_effect = video::CreateEffect((isRestart ? video::TM_NONE : video::TM_PUSH_RANDOM),
                                    video_engine->BackBuffer());
     m_cheater = false;
+    m_preparing_skip_start_msg = false;
     if (multiplayer::IsActive())
         player::SetCurrentPlayer(multiplayer::LocalPlayer());
     m_state = cls_preparing_game;

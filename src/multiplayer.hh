@@ -59,6 +59,26 @@ TransportKind ActiveTransport();
 
 bool StartHostSession(const protocol::LobbyStart &start);
 bool StartClientSession(const protocol::LobbyStart &start, const std::string &host_ip);
+
+// Async client-join helper used by the lobby UI.
+//
+// `StartClientSession()` performs a blocking connect + welcome handshake. That is fine
+// when the user explicitly starts a session, but it can stall the lobby UI when the
+// host is unreachable (for example after a crash or abrupt disconnect).
+//
+// The async variant splits the join into begin/poll steps so the UI remains responsive
+// while timeouts elapse.
+enum class ClientJoinStatus {
+    IDLE = 0,
+    CONNECTING = 1,
+    JOINED = 2,
+    FAILED = 3
+};
+
+bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip);
+ClientJoinStatus PollClientJoin();
+void CancelClientJoin();
+
 void Tick(double dtime);
 void Shutdown();
 

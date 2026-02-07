@@ -8,7 +8,7 @@
       <el:copyright>Copyright © 2026 Enigma Team</el:copyright>
       <el:license el:type="GPL v2.0 or above" el:open="true"/>
       <el:compatibility el:enigma="1.10"/>
-      <el:modes el:easy="false" el:single="true" el:network="true" el:players="3"/>
+      <el:modes el:easy="false" el:single="false" el:network="true" el:players="3"/>
       <el:score el:easy="-" el:difficult="-"/>
     </el:info>
     <el:luamain><![CDATA[
@@ -21,13 +21,14 @@ local C2 = 4
 
 ti[" "] = {"fl_sahara"}
 ti["#"] = {"st_rawglass"}
+ti["o"] = {"st_oxyd"}
 ti["0"] = {"#ac_marble_black", owner = P0, controllers = C0, essential = INDISPENSABLE}
 ti["1"] = {"#ac_marble_white", owner = P1, controllers = C1, essential = INDISPENSABLE}
 ti["2"] = {"#ac_marble_black", owner = P2, controllers = C2, essential = INDISPENSABLE}
 
 wo(ti, " ", {
     "###################",
-    "#0             1  #",
+    "#0     o       1 o#",
     "#                 #",
     "#        2        #",
     "#                 #",

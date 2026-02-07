@@ -29,7 +29,10 @@ enum NetMessageType : Uint8 {
     NET_RESTART = 6,
     NET_RESYNC_REQUEST = 7,
     NET_RESYNC_STATE = 8,
-    NET_PLACE = 9
+    NET_PLACE = 9,
+    NET_PAUSE = 10,
+    NET_MENU = 11,
+    NET_ABORT = 12
 };
 
 struct LobbyAnnounce {
@@ -335,6 +338,63 @@ inline bool decode_start(ecl::Buffer &buf, Uint32 &epoch) {
         return false;
     if (!(buf >> epoch))
         return false;
+    return true;
+}
+
+inline void encode_pause(ecl::Buffer &buf, Uint32 epoch, bool paused) {
+    buf << Uint8(NET_PAUSE) << Uint32(epoch) << Uint8(paused ? 1 : 0);
+}
+
+inline bool decode_pause(ecl::Buffer &buf, Uint32 &epoch, bool &paused) {
+    Uint8 type = 0;
+    Uint32 parsed_epoch = 0;
+    Uint8 parsed_paused = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_PAUSE)
+        return false;
+    if (!(buf >> parsed_epoch >> parsed_paused))
+        return false;
+    epoch = parsed_epoch;
+    paused = parsed_paused != 0;
+    return true;
+}
+
+inline void encode_menu(ecl::Buffer &buf, Uint32 epoch, Uint8 player, bool open) {
+    buf << Uint8(NET_MENU) << Uint32(epoch) << Uint8(player) << Uint8(open ? 1 : 0);
+}
+
+inline bool decode_menu(ecl::Buffer &buf, Uint32 &epoch, Uint8 &player, bool &open) {
+    Uint8 type = 0;
+    Uint32 parsed_epoch = 0;
+    Uint8 parsed_player = 0;
+    Uint8 parsed_open = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_MENU)
+        return false;
+    if (!(buf >> parsed_epoch >> parsed_player >> parsed_open))
+        return false;
+    epoch = parsed_epoch;
+    player = parsed_player;
+    open = parsed_open != 0;
+    return true;
+}
+
+inline void encode_abort(ecl::Buffer &buf, Uint32 epoch) {
+    buf << Uint8(NET_ABORT) << Uint32(epoch);
+}
+
+inline bool decode_abort(ecl::Buffer &buf, Uint32 &epoch) {
+    Uint8 type = 0;
+    Uint32 parsed_epoch = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_ABORT)
+        return false;
+    if (!(buf >> parsed_epoch))
+        return false;
+    epoch = parsed_epoch;
     return true;
 }
 

@@ -42,6 +42,8 @@ Menu::Menu()
   key_focus_widget(NULL),
   quitp(false),
   abortp(false),
+  managing(false),
+  manage_enter_tick_time(0),
   previous_caption(video_engine->GetCaption()) {
     }
     
@@ -83,33 +85,74 @@ Menu::Menu()
         return video_engine->GetCaption();
     }
 
-    bool Menu::manage() {
-        quitp=abortp=false;
+    void Menu::begin_manage() {
+        quitp = abortp = false;
+        managing = true;
+        manage_enter_tick_time = SDL_GetTicks();  // protection against ESC D.o.S. attacks
+
         SDL_Event e;
-        Uint32 enterTickTime = SDL_GetTicks(); // protection against ESC D.o.S. attacks
-        while (SDL_PollEvent(&e)) {}  // clear event queue
+        while (SDL_PollEvent(&e)) {
+        }  // clear event queue
         draw_all();
-        while (!(quitp || abortp)) {
-            SCREEN->flush_updates();
-            while (SDL_PollEvent(&e)) {
-                handle_event(e);
-                if (app.bossKeyPressed) return true;
+    }
+
+    bool Menu::step_manage(double dt, bool do_delay) {
+        if (!managing)
+            return false;
+        if (quitp || abortp)
+            return false;
+
+        SCREEN->flush_updates();
+
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            handle_event(e);
+            if (app.bossKeyPressed) {
+                // Exit Enigma as requested by boss key; treat as normal completion.
+                quitp = true;
+                abortp = false;
+                return false;
             }
-            SDL_Delay(10);
-            if(active_widget) active_widget->tick(0.01);
-            if(key_focus_widget && (key_focus_widget != active_widget)) key_focus_widget->tick(0.01);
-            tick(0.01);
-            sound::MusicTick(0.01);
-            refresh();
         }
-        sound::EmitSoundEvent ("menuexit");
-        // protection against ESC D.o.S. attacks
-        Uint32 menuTickDuration = SDL_GetTicks() - enterTickTime;
-        Uint32 minMenuTickDuration = 300;
-        if (menuTickDuration < minMenuTickDuration)
-            SDL_Delay(minMenuTickDuration - menuTickDuration);
-        while (SDL_PollEvent(&e)) {}  // clear event queue
+
+        if (do_delay)
+            SDL_Delay(10);
+
+        if (active_widget)
+            active_widget->tick(dt);
+        if (key_focus_widget && (key_focus_widget != active_widget))
+            key_focus_widget->tick(dt);
+
+        tick(dt);
+        sound::MusicTick(dt);
+        refresh();
+        return !(quitp || abortp);
+    }
+
+    bool Menu::finish_manage(bool apply_min_duration_delay) {
+        if (!managing)
+            return true;
+        managing = false;
+        sound::EmitSoundEvent("menuexit");
+
+        if (apply_min_duration_delay) {
+            Uint32 menuTickDuration = SDL_GetTicks() - manage_enter_tick_time;
+            Uint32 minMenuTickDuration = 300;
+            if (menuTickDuration < minMenuTickDuration)
+                SDL_Delay(minMenuTickDuration - menuTickDuration);
+        }
+
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+        }  // clear event queue
         return !abortp;
+    }
+
+    bool Menu::manage() {
+        begin_manage();
+        while (step_manage(0.01, true)) {
+        }
+        return finish_manage(true);
     }
     
     void Menu::goto_adjacent_widget(int xdir, int ydir) {

@@ -25,6 +25,9 @@
 #include <vector>
 
 namespace enigma {
+namespace gui {
+class GameMenu;
+}  // namespace gui
 namespace client {
 
 /* -------------------- Server -> Client messages -------------------- */
@@ -95,6 +98,9 @@ struct Cl_PlaySound {
 enum ClientState {
     cls_idle,
     cls_preparing_game,  // level loaded, currently updating the screen
+    cls_waiting_for_network_start,  // multiplayer: waiting for peers to be ready before showing the level
+    cls_multiplayer_menu,  // multiplayer: local ESC menu (stepped, non-blocking)
+    cls_multiplayer_paused,  // multiplayer: global pause state (host broadcasts pause/unpause)
     cls_game,
     cls_finished,  // level finished, waiting for next one
     cls_gamehelp,
@@ -146,6 +152,8 @@ private:
 
     // Event handling
     void handle_events();
+    void handle_events_waiting_for_network_start();
+    void handle_events_multiplayer_paused();
     void handle_events_teatime();
     void on_keydown(SDL_Event &e);
     void on_mousebutton(SDL_Event &e);
@@ -159,6 +167,10 @@ private:
     void user_input_backspace();
     void user_input_previous();
     void user_input_next();
+
+    // Multiplayer UI helpers (non-blocking ESC menu)
+    void open_multiplayer_menu();
+    void close_multiplayer_menu();
 
     // Variables
     ClientState m_state;
@@ -179,6 +191,13 @@ private:
     std::string m_user_input;
     std::string m_error_message;
     std::unique_ptr<video::TransitionEffect> m_effect;
+    // Used when we want to run a visual transition without re-sending Msg_StartGame().
+    // (Multiplayer start is deferred; the host already sent StartGame while showing the
+    // "connecting" screen, so the transition must not trigger a second StartGame.)
+    bool m_preparing_skip_start_msg = false;
+    std::unique_ptr<enigma::gui::GameMenu> m_multiplayer_menu;
+    bool m_menu_saved_input_grab = false;
+    bool m_menu_saved_input_grab_valid = false;
     ENetHost *m_network_host;
     ENetPeer *m_server;
 

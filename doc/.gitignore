@@ -1,8 +1,10 @@
+# Autotools output in `doc/` (generated during `./configure` / `make`), including `doc/Makefile.in`.
 Makefile.in
 *.aux
 *.log
 *.toc
 *.html
+!multiplayer_pr_review.html
 *.pdf
 *.ky
 *.pg

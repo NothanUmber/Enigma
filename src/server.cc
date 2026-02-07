@@ -235,6 +235,14 @@ void gametick(double dtime) {
     int count = 0;
 
     time_accu += dtime;
+    if (input::IsNetworked() && !input::CanAdvanceTick()) {
+        // When the simulation is deterministic-networked we stop advancing the world
+        // until all per-tick inputs are available. In that case, accumulating wall-clock
+        // time as "simulation debt" just triggers misleading overload warnings and can
+        // cause large time steps to hit non-deterministic subsystems.
+        if (time_accu > timestep)
+            time_accu = timestep;
+    }
     if (time_accu > 1.0) {
         fprintf(stderr, "Whoa, system overload!\n");
         time_accu = 1.0;
@@ -473,6 +481,10 @@ void Msg_JumpBack() {
 void Msg_StartGame() {
     if (state == sv_waiting_for_clients) {
         if (multiplayer::ShouldDeferStart()) {
+            // In Internet play it can take a moment until all peers have connected and
+            // reported "ready". While we wait, the level may already be visible but
+            // simulation/input is intentionally deferred to keep everyone in sync.
+            display::GetStatusBar()->try_show_text(_("Other players connecting..."), false, 2.0);
             multiplayer::NotifyStartRequested();
             return;
         }

@@ -1,0 +1,37 @@
+#include "multiplayer_internal.hh"
+
+namespace enigma {
+namespace multiplayer {
+namespace internal {
+
+void encode_relay_header(ecl::Buffer &buf, RelayMessageType type, Uint32 session_id,
+                         Uint32 client_id) {
+    buf << Uint32(kRelayMagic) << Uint8(kRelayVersion) << Uint8(type)
+        << Uint32(session_id) << Uint32(client_id);
+}
+
+bool decode_relay_header(const char *data, size_t len, RelayMessageType &type,
+                         Uint32 &session_id, Uint32 &client_id,
+                         const char *&payload, size_t &payload_len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    Uint32 magic = 0;
+    Uint8 version = 0;
+    Uint8 raw_type = 0;
+    if (!(buf >> magic >> version >> raw_type >> session_id >> client_id))
+        return false;
+    if (magic != kRelayMagic || version != kRelayVersion)
+        return false;
+    type = static_cast<RelayMessageType>(raw_type);
+    size_t offset = static_cast<size_t>(buf.get_rpos());
+    if (offset > len)
+        return false;
+    payload = data + offset;
+    payload_len = len - offset;
+    return true;
+}
+
+}  // namespace internal
+}  // namespace multiplayer
+}  // namespace enigma
+

@@ -34,6 +34,7 @@
 #include "lev/Proxy.hh"
 
 #include <cassert>
+#include <cstdint>
 
 using namespace ecl;
 using namespace std;
@@ -98,9 +99,23 @@ namespace enigma { namespace gui {
     
             // randomly choose ball offset
             int x, y;
+            // IMPORTANT (multiplayer): do not touch the deterministic game RNG here.
+            // The menu background is purely cosmetic; consuming the shared RNG would
+            // desync the simulation between peers.
+            auto pick_offset = [&](int &out_x, int &out_y) {
+                if (multiplayer::IsActive()) {
+                    uint32_t h = (static_cast<uint32_t>(zoomxpos) * 73856093u) ^
+                                 (static_cast<uint32_t>(zoomypos) * 19349663u);
+                    out_x = static_cast<int>(h % 6u);
+                    out_y = static_cast<int>((h / 6u) % 4u);
+                    return;
+                }
+                out_x = IntegerRand(0, 5, false);
+                out_y = IntegerRand(0, 3, false);
+            };
+
             for (int trials = 5; trials; --trials) {
-                x = IntegerRand(0, 5, false);
-                y = IntegerRand(0, 3, false);
+                pick_offset(x, y);
     
                 // try to avoid menu-ball overlap:
                 if (x<2 || x>3 || y<1 || y>2 || (trials == 1)) {
@@ -183,6 +198,10 @@ namespace enigma { namespace gui {
                 return true;
                 break; }
             case SDLK_F1: {
+                if (multiplayer::IsActive()) {
+                    client::Msg_ShowText("Help is not available in multiplayer.", true, 2.0);
+                    break;
+                }
                 displayHelp(helptext_gamemenu, 200);
                 draw_all();
                 break; }
@@ -198,7 +217,10 @@ namespace enigma { namespace gui {
             Menu::quit();
         }
         else if (w == abort) {
-            client::Msg_Command("abort");
+            if (multiplayer::IsActive())
+                multiplayer::RequestAbort();
+            else
+                client::Msg_Command("abort");
             Menu::quit();
         }
         else if (w == restart) {
@@ -214,18 +236,29 @@ namespace enigma { namespace gui {
             Menu::quit();
         }
         else if (w == options) {
+            if (multiplayer::IsActive()) {
+                client::Msg_ShowText("Options are not available in multiplayer.", true, 2.0);
+                return;
+            }
             enigma::gui::ShowOptionsMenu (0, true);
             invalidate_all();
 //            Menu::quit();
         }
         else if (w == info) {
+            if (multiplayer::IsActive()) {
+                client::Msg_ShowText("Level info is not available in multiplayer.", true, 2.0);
+                return;
+            }
             LevelInspector m(ind->getCurrent(), false);
             m.manage();
             invalidate_all();
 //            Menu::quit();
         }
         else if (w == bosskey) {
-            client::Msg_Command("abort");
+            if (multiplayer::IsActive())
+                multiplayer::RequestAbort();
+            else
+                client::Msg_Command("abort");
             app.bossKeyPressed = true;
         }
         else if (w == scrshot) {

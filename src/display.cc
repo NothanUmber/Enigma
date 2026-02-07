@@ -344,6 +344,13 @@ void StatusBarImpl::show_text(const std::string &str, bool scrolling, double dur
     m_changedp = true;
 }
 
+bool StatusBarImpl::try_show_text(const std::string &str, bool scrolling, double duration) {
+    if (m_text_active)
+        return false;
+    show_text(str, scrolling, duration);
+    return true;
+}
+
 void StatusBarImpl::tick(double dtime) {
     // Animation of player indicator
     playerImageDuration += dtime;
