@@ -36,6 +36,12 @@ struct RGBA_Mask {
     Uint32 r, g, b, a;
 };
 
+// On Windows, <windows.h> defines an RGB() macro (COLORREF helper) which can
+// break this type declaration when included earlier (e.g. via ENet/SDL).
+#ifdef RGB
+#undef RGB
+#endif
+
 struct RGB {
     RGB(char rr = 0, char gg = 0, char bb = 0) : r(rr), g(gg), b(bb) {}
     char r, g, b;
