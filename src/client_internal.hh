@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2003,2004,2005 Daniel Heck
  * Copyright (C) 2009 Ronald Lamprecht
+ * Copyright (C) 2026 Ferdinand Strixner (LLM collaboration)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

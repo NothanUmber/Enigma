@@ -169,15 +169,40 @@ Periodic `NET_SYNC` snapshots include:
 - tick
 - RNG state
 - player reference positions (p0/p1)
-- checksums over relevant world/actor state (diagnostic)
+- checksums over relevant world/actor state
 
 Clients compare these snapshots to local state:
 
-- If only RNG diverged, RNG can be corrected without restarting.
-- If positions drift beyond `kSyncPosEpsilon` or RNG diverges, a resync is attempted.
-- World/actor checksum mismatches are treated as an early warning signal and debugging aid. They do
-  not trigger resync by themselves, because they can disagree due to benign differences in object
-  enumeration order (especially in scripted levels with multiple identical actors).
+- If only RNG diverged, RNG is corrected without a resync.
+- If reference positions drift beyond `kSyncPosEpsilon` or RNG diverges (non-RNG-only case), a
+  *soft resync* is attempted after a short consecutive mismatch streak.
+- If actor checksums diverge without any position/RNG/world mismatch, a soft resync can still be
+  attempted, but only after a longer mismatch streak (actor checksums can be sensitive).
+- If the world checksum diverges *without* any position/RNG/actor mismatch ("world-only mismatch"),
+  we currently treat this as not auto-recoverable and show a "World desync detected. Please restart."
+  toast after repeated detections. (This is where a future hard-resync could go.)
+
+In debug logs this is visible in the `mp desync... flags(pos=... rand=... actor=... world=...) action=...`
+line, where `action` is one of:
+
+- `rng-fix`: RNG-only mismatch, fixed by setting local RNG to the snapshot value
+- `soft-resync`: position/RNG mismatch likely recoverable by resyncing actor state
+- `actor-resync`: actor checksum mismatch only (position/RNG/world match), resync after longer streak
+- `diagnostic-only`: checksum mismatch observed, but no recovery action taken
+
+##### Reference actor probing (multi-ball + "stable sinks")
+
+The "reference positions" (`p0`/`p1`) are not always a literal "main ball". Instead, for each player we
+choose a deterministic *probe actor* via `sync_reference_actor(player, tick)`:
+
+- Prefer steerable actors controlled by that player.
+- Use a stable sort key (kind/owner/controllers/color/name/id), not position.
+- Cycle the chosen probe deterministically over time.
+
+The cycling is crucial for levels where a player controls multiple marbles (e.g. Per.Oxyd meditation
+pearls). If a single fixed probe happens to be in a "stable sink" (for example: stuck in a hole), its
+position can remain identical across peers even while other controlled marbles diverge. Cycling ensures
+each controlled marble is eventually sampled and can trigger recovery.
 
 ##### Checksum surface (what is hashed)
 

@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2026 Ferdinand Strixner (LLM collaboration)
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ */
+
 #include "multiplayer_extra_players.hh"
 
 #include "multiplayer_ball_assignment.hh"
@@ -16,6 +34,15 @@
 #include <limits>
 #include <unordered_map>
 #include <vector>
+
+/* -------------------- Multiplayer extra players -------------------- */
+/*
+ * Extra-player support for "non-optimized" levels.
+ *
+ * When a level was authored for N players but the lobby has M > N players, the
+ * session either spawns additional actors (M > N) or redistributes authored
+ * steerable actors (N > M) depending on the level's ball layout.
+ */
 
 namespace enigma {
 namespace multiplayer {
