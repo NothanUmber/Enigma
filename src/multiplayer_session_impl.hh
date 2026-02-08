@@ -12,6 +12,7 @@ const char *transport_name(TransportKind t);
 const char *host_source_name(HostSource s);
 
 bool abort_session_with_message(const char *message);
+void begin_abort_after_grace(const char *message);
 bool has_remote_peers();
 bool can_accept_more_remote_players();
 bool local_can_send_ready();

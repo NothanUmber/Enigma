@@ -72,7 +72,33 @@ uint32_t stable_name_hash(Actor *actor) {
     return h ? h : 1u;
 }
 
-Actor *sync_reference_actor(unsigned player);
+Actor *sync_reference_actor(unsigned player, uint32_t tick);
+
+struct ActorSortKey {
+    uint32_t name_hash = 0;
+    std::string kind;
+    Uint32 object_id = 0;
+};
+
+ActorSortKey actor_sort_key(Actor *a) {
+    ActorSortKey k;
+    k.name_hash = stable_name_hash(a);
+    k.kind = a ? a->getKind() : std::string();
+    k.object_id = a ? static_cast<Uint32>(a->getId()) : 0u;
+    return k;
+}
+
+bool actor_key_less(const ActorSortKey &a, const ActorSortKey &b) {
+    // Prefer actors with a stable authored name (e.g. meditation pearls: pearl%N).
+    // Unnamed actors sort after named ones.
+    uint32_t an = a.name_hash ? a.name_hash : 0xFFFFFFFFu;
+    uint32_t bn = b.name_hash ? b.name_hash : 0xFFFFFFFFu;
+    if (an != bn)
+        return an < bn;
+    if (a.kind != b.kind)
+        return a.kind < b.kind;
+    return a.object_id < b.object_id;
+}
 
 void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::SyncPacket *sync) {
     if (!debug_enabled() || !dump_state_enabled())
@@ -104,7 +130,7 @@ void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::S
                   static_cast<int>(server::GameCompatibility));
     }
 
-    if (Actor *p0 = sync_reference_actor(0)) {
+    if (Actor *p0 = sync_reference_actor(0, tick)) {
         const ecl::V2 &pos = p0->get_pos();
         const ecl::V2 &vel = p0->get_vel();
         Value name = p0->getAttr("name");
@@ -119,7 +145,7 @@ void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::S
                   static_cast<double>(vel[0]),
                   static_cast<double>(vel[1]));
     }
-    if (Actor *p1 = sync_reference_actor(1)) {
+    if (Actor *p1 = sync_reference_actor(1, tick)) {
         const ecl::V2 &pos = p1->get_pos();
         const ecl::V2 &vel = p1->get_vel();
         Value name = p1->getAttr("name");
@@ -230,40 +256,51 @@ void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::S
     }
 }
 
-Actor *sync_reference_actor(unsigned player) {
+constexpr uint32_t kSyncProbeStrideTicks =
+    static_cast<uint32_t>(kSyncInterval / kInputTimestep + 0.5);
+
+Actor *sync_reference_actor(unsigned player, uint32_t tick) {
     // The legacy engine defines "main actor" as the first actor in the player's
     // actor list. For authored multi-ball levels (e.g. meditation pearls) that
     // ordering can differ across peers even when the physical state matches,
     // which would cause spurious position mismatches in sync packets.
     //
     // Pick a deterministic steerable actor controlled by this player instead.
+    //
+    // IMPORTANT: Do not use position-based ordering. When a player controls
+    // multiple marbles that can cross, "top-left" can flip between peers (or
+    // across ticks) while still being physically consistent, causing endless
+    // false "pos mismatch" reports and soft-resync churn.
+    //
+    // Also, do not always pick the same controlled actor. If the chosen probe
+    // happens to be in a "stable sink" (e.g. trapped in a hole), its position
+    // can stay identical while other controlled marbles diverge. Cycle the
+    // probe deterministically so all controlled actors eventually get sampled.
     std::vector<Actor *> actors;
     GetActors(actors);
-    Actor *best = nullptr;
+    std::vector<Actor *> candidates;
+    std::vector<ActorSortKey> keys;
     for (Actor *a : actors) {
         if (!a || !a->isSteerable())
             continue;
         if (!a->controlled_by(static_cast<int>(player)))
             continue;
-        if (!best) {
-            best = a;
-            continue;
-        }
-        const ecl::V2 &pa = a->get_pos();
-        const ecl::V2 &pb = best->get_pos();
-        auto qa0 = static_cast<int64_t>(std::llround(pa[0] * 1000.0));
-        auto qa1 = static_cast<int64_t>(std::llround(pa[1] * 1000.0));
-        auto qb0 = static_cast<int64_t>(std::llround(pb[0] * 1000.0));
-        auto qb1 = static_cast<int64_t>(std::llround(pb[1] * 1000.0));
-        if (qa1 != qb1)
-            best = (qa1 < qb1) ? a : best;
-        else if (qa0 != qb0)
-            best = (qa0 < qb0) ? a : best;
-        else if (a->getKind() < best->getKind())
-            best = a;
+        candidates.push_back(a);
+        keys.push_back(actor_sort_key(a));
     }
-    if (best)
-        return best;
+
+    if (!candidates.empty()) {
+        std::vector<size_t> order(candidates.size());
+        for (size_t i = 0; i < order.size(); ++i)
+            order[i] = i;
+        std::sort(order.begin(), order.end(), [&](size_t ia, size_t ib) {
+            return actor_key_less(keys[ia], keys[ib]);
+        });
+        uint32_t stride = kSyncProbeStrideTicks ? kSyncProbeStrideTicks : 1u;
+        size_t idx = static_cast<size_t>((tick / stride) % static_cast<uint32_t>(order.size()));
+        return candidates[order[idx]];
+    }
+
     return player::GetMainActor(player);
 }
 
@@ -292,8 +329,8 @@ void send_sync_to_peers() {
     sync.epoch = g_session.input_epoch;
     sync.tick = input::CurrentTick();
     sync.random_state = server::RandomState;
-    Actor *p0 = sync_reference_actor(0);
-    Actor *p1 = sync_reference_actor(1);
+    Actor *p0 = sync_reference_actor(0, sync.tick);
+    Actor *p1 = sync_reference_actor(1, sync.tick);
     sync.p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     sync.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sync.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
@@ -315,6 +352,7 @@ void send_resync_request() {
     debug_log("mp resync request: tick=%u attempt=%u via=%s", req.tick,
               static_cast<unsigned>(g_session.resync_attempts + 1),
               transport_name(g_session.active_transport));
+    g_session.telemetry.resync_requests_sent += 1;
     ecl::Buffer buf;
     protocol::encode_resync_request(buf, req);
     g_transport.ClientSend(buf);
@@ -401,6 +439,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
         return;
     if (state.epoch != g_session.input_epoch)
         return;
+    g_session.telemetry.resync_responses_recv += 1;
     uint32_t local_tick = input::CurrentTick();
     uint32_t delta_ticks = (local_tick > state.tick) ? (local_tick - state.tick) : 0;
     // Resync snapshots can arrive a few ticks late, but velocity projection is
@@ -676,6 +715,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
         debug_log("mp resync applied: actors=%u (obj_id=%u group=%u) max_pos_delta=%.3f",
                   applied, object_id_matches, matched_by_group,
                   static_cast<double>(max_pos_delta));
+    g_session.telemetry.resync_applied += 1;
 
     // Mark the resync response as received. Do NOT reset attempts here: if the
     // resync does not actually fix the divergence, resetting attempts would
@@ -712,6 +752,7 @@ void send_abort_to_host() {
     ecl::Buffer buf;
     protocol::encode_abort(buf, g_session.input_epoch);
     g_transport.ClientSend(buf);
+    g_transport.Flush();
 }
 
 void send_start_to_peers() {
@@ -793,10 +834,13 @@ bool lookup_checksum_sample(uint32_t tick, SessionState::ChecksumSample &out) {
 }
 
 void handle_sync_current(const protocol::SyncPacket &sync) {
+    if (g_session.abort_pending)
+        return;
     if (sync.epoch != g_session.input_epoch) {
         debug_log("mp sync skip: epoch=%u local epoch=%u", sync.epoch, g_session.input_epoch);
         return;
     }
+    g_session.telemetry.sync_current_total += 1;
     uint32_t local_tick = input::CurrentTick();
     if (sync.tick != local_tick) {
         debug_log("mp sync skip: sync tick=%u local tick=%u", sync.tick, local_tick);
@@ -820,8 +864,8 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
                   static_cast<unsigned long long>(local_actor_checksum),
                   static_cast<unsigned long long>(sync.actor_checksum));
     }
-    Actor *p0 = sync_reference_actor(0);
-    Actor *p1 = sync_reference_actor(1);
+    Actor *p0 = sync_reference_actor(0, sync.tick);
+    Actor *p1 = sync_reference_actor(1, sync.tick);
     float p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     float p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     float p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
@@ -833,16 +877,52 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
                         diff(sync.p0_y, p0_y) > kSyncPosEpsilon ||
                         diff(sync.p1_x, p1_x) > kSyncPosEpsilon ||
                         diff(sync.p1_y, p1_y) > kSyncPosEpsilon;
+    if (pos_mismatch)
+        g_session.telemetry.mismatch_pos += 1;
+    if (rand_mismatch)
+        g_session.telemetry.mismatch_rand += 1;
+    if (actor_mismatch)
+        g_session.telemetry.mismatch_actor += 1;
+    if (checksum_mismatch)
+        g_session.telemetry.mismatch_world += 1;
+
+    const bool rng_only =
+        (!pos_mismatch && rand_mismatch && !checksum_mismatch && !actor_mismatch);
+    const bool diagnostic_only =
+        (!pos_mismatch && !rand_mismatch && (checksum_mismatch || actor_mismatch));
+    const bool soft_resync_candidate = (pos_mismatch || rand_mismatch);
+    const bool actor_resync_candidate =
+        (!pos_mismatch && !rand_mismatch && actor_mismatch && !checksum_mismatch);
+    const bool world_only_mismatch =
+        (!pos_mismatch && !rand_mismatch && checksum_mismatch && !actor_mismatch);
     if (pos_mismatch || rand_mismatch || actor_mismatch || checksum_mismatch) {
+        if (rng_only)
+            g_session.telemetry.mismatch_rng_only += 1;
+        if (diagnostic_only)
+            g_session.telemetry.mismatch_diagnostic_only += 1;
+        if (soft_resync_candidate)
+            g_session.telemetry.mismatch_soft_resync_candidate += 1;
+
+        const char *action =
+            rng_only ? "rng-fix"
+                     : soft_resync_candidate ? "soft-resync"
+                                             : actor_resync_candidate ? "actor-resync"
+                                             : diagnostic_only ? "diagnostic-only"
+                                                               : "none";
         debug_log("mp desync: tick=%u rand local=%u remote=%u "
+                  "flags(pos=%d rand=%d actor=%d world=%d) action=%s "
                   "p0(%.2f,%.2f)->(%.2f,%.2f) p1(%.2f,%.2f)->(%.2f,%.2f)",
                   sync.tick, static_cast<unsigned>(server::RandomState),
-                  static_cast<unsigned>(sync.random_state), p0_x, p0_y, sync.p0_x, sync.p0_y,
+                  static_cast<unsigned>(sync.random_state),
+                  pos_mismatch ? 1 : 0, rand_mismatch ? 1 : 0, actor_mismatch ? 1 : 0,
+                  checksum_mismatch ? 1 : 0, action,
+                  p0_x, p0_y, sync.p0_x, sync.p0_y,
                   p1_x, p1_y, sync.p1_x, sync.p1_y);
         if (actor_mismatch || checksum_mismatch)
             dump_actor_digest_once("sync_current_mismatch", sync.tick, &sync);
-        if (!pos_mismatch && rand_mismatch && !checksum_mismatch && !actor_mismatch) {
+        if (rng_only) {
             server::RandomState = sync.random_state;
+            g_session.telemetry.rng_resync_applied += 1;
             debug_log("mp rng resynced to %u", static_cast<unsigned>(sync.random_state));
             return;
         }
@@ -851,8 +931,17 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
     // Actor/world checksums can diverge due to harmless platform floating-point
     // drift in physics-heavy levels. Drive recovery from position/RNG mismatch,
     // and keep checksums for diagnostics only.
-    bool want_resync = pos_mismatch || rand_mismatch;
-    if (want_resync) {
+    if (world_only_mismatch) {
+        g_session.world_only_desync_streak += 1;
+        if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
+            g_session.desync_reported = true;
+            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+        }
+    } else {
+        g_session.world_only_desync_streak = 0;
+    }
+    if (soft_resync_candidate) {
+        g_session.actor_desync_streak = 0;
         g_session.desync_streak += 1;
         if (g_session.desync_streak < kDesyncStreakForResync)
             return;
@@ -864,24 +953,55 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
             g_session.resync_attempts += 1;
             g_session.resync_cooldown = kResyncCooldown;
         }
-        if (g_session.resync_attempts >= kResyncMaxAttempts && !g_session.desync_reported) {
-            g_session.desync_reported = true;
-            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+        if (g_session.resync_attempts >= kResyncMaxAttempts) {
+            // Resync did not quickly converge. Keep running without prompting a restart:
+            // most of these cases are physics drift that can self-heal or improve over time.
+            // Throttle further requests instead of permanently giving up.
+            g_session.telemetry.resync_giveups += 1;
+            g_session.resync_attempts = 0;
+            g_session.resync_inflight = false;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_cooldown = std::max(g_session.resync_cooldown, 3.0);
+        }
+    } else if (actor_resync_candidate) {
+        g_session.desync_streak = 0;
+        g_session.actor_desync_streak += 1;
+        if (g_session.actor_desync_streak < kActorDesyncStreakForResync)
+            return;
+        if (g_session.resync_attempts < kResyncMaxAttempts && !g_session.resync_inflight &&
+            g_session.resync_cooldown <= 0.0) {
+            send_resync_request();
+            g_session.resync_inflight = true;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_attempts += 1;
+            g_session.resync_cooldown = kResyncCooldown;
+        }
+        if (g_session.resync_attempts >= kResyncMaxAttempts) {
+            g_session.telemetry.resync_giveups += 1;
+            g_session.resync_attempts = 0;
+            g_session.resync_inflight = false;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_cooldown = std::max(g_session.resync_cooldown, 3.0);
         }
     } else {
         g_session.resync_attempts = 0;
         g_session.resync_inflight = false;
         g_session.resync_inflight_timer = 0.0;
         g_session.desync_streak = 0;
+        g_session.actor_desync_streak = 0;
+        g_session.world_only_desync_streak = 0;
     }
 }
 
 void handle_sync_sample(const protocol::SyncPacket &sync,
                         const SessionState::ChecksumSample &sample) {
+    if (g_session.abort_pending)
+        return;
     if (sync.epoch != g_session.input_epoch) {
         debug_log("mp sync skip: epoch=%u local epoch=%u", sync.epoch, g_session.input_epoch);
         return;
     }
+    g_session.telemetry.sync_sample_total += 1;
     bool checksum_mismatch = false;
     if (sample.world_valid && sync.world_checksum != 0)
         checksum_mismatch = sync.world_checksum != sample.world_checksum;
@@ -892,6 +1012,24 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
                         diff(sync.p0_y, sample.p0_y) > kSyncPosEpsilon ||
                         diff(sync.p1_x, sample.p1_x) > kSyncPosEpsilon ||
                         diff(sync.p1_y, sample.p1_y) > kSyncPosEpsilon;
+    if (pos_mismatch)
+        g_session.telemetry.mismatch_pos += 1;
+    if (rand_mismatch)
+        g_session.telemetry.mismatch_rand += 1;
+    if (actor_mismatch)
+        g_session.telemetry.mismatch_actor += 1;
+    if (checksum_mismatch)
+        g_session.telemetry.mismatch_world += 1;
+
+    const bool rng_only =
+        (!pos_mismatch && rand_mismatch && !checksum_mismatch && !actor_mismatch);
+    const bool diagnostic_only =
+        (!pos_mismatch && !rand_mismatch && (checksum_mismatch || actor_mismatch));
+    const bool soft_resync_candidate = (pos_mismatch || rand_mismatch);
+    const bool actor_resync_candidate =
+        (!pos_mismatch && !rand_mismatch && actor_mismatch && !checksum_mismatch);
+    const bool world_only_mismatch =
+        (!pos_mismatch && !rand_mismatch && checksum_mismatch && !actor_mismatch);
 
     if (checksum_mismatch) {
         debug_log("mp checksum mismatch: tick=%u local=%llu remote=%llu",
@@ -906,11 +1044,27 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
                   static_cast<unsigned long long>(sync.actor_checksum));
     }
     if (pos_mismatch || rand_mismatch || actor_mismatch || checksum_mismatch) {
+        if (rng_only)
+            g_session.telemetry.mismatch_rng_only += 1;
+        if (diagnostic_only)
+            g_session.telemetry.mismatch_diagnostic_only += 1;
+        if (soft_resync_candidate)
+            g_session.telemetry.mismatch_soft_resync_candidate += 1;
+
+        const char *action =
+            rng_only ? "rng-fix"
+                     : soft_resync_candidate ? "soft-resync"
+                                             : actor_resync_candidate ? "actor-resync"
+                                             : diagnostic_only ? "diagnostic-only"
+                                                               : "none";
         debug_log("mp desync (late): tick=%u rand local=%u remote=%u "
+                  "flags(pos=%d rand=%d actor=%d world=%d) action=%s "
                   "p0(%.2f,%.2f)->(%.2f,%.2f) p1(%.2f,%.2f)->(%.2f,%.2f)",
                   sync.tick,
                   static_cast<unsigned>(sample.random_state),
                   static_cast<unsigned>(sync.random_state),
+                  pos_mismatch ? 1 : 0, rand_mismatch ? 1 : 0, actor_mismatch ? 1 : 0,
+                  checksum_mismatch ? 1 : 0, action,
                   sample.p0_x, sample.p0_y, sync.p0_x, sync.p0_y,
                   sample.p1_x, sample.p1_y, sync.p1_x, sync.p1_y);
         if (actor_mismatch || checksum_mismatch)
@@ -919,8 +1073,17 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
 
     // Actor checksums are useful diagnostics but too sensitive to drive recovery
     // on their own, especially in physics-heavy scenes.
-    bool want_resync = pos_mismatch || rand_mismatch;
-    if (want_resync) {
+    if (world_only_mismatch) {
+        g_session.world_only_desync_streak += 1;
+        if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
+            g_session.desync_reported = true;
+            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+        }
+    } else {
+        g_session.world_only_desync_streak = 0;
+    }
+    if (soft_resync_candidate) {
+        g_session.actor_desync_streak = 0;
         g_session.desync_streak += 1;
         if (g_session.desync_streak < kDesyncStreakForResync)
             return;
@@ -932,15 +1095,40 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
             g_session.resync_attempts += 1;
             g_session.resync_cooldown = kResyncCooldown;
         }
-        if (g_session.resync_attempts >= kResyncMaxAttempts && !g_session.desync_reported) {
-            g_session.desync_reported = true;
-            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+        if (g_session.resync_attempts >= kResyncMaxAttempts) {
+            g_session.telemetry.resync_giveups += 1;
+            g_session.resync_attempts = 0;
+            g_session.resync_inflight = false;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_cooldown = std::max(g_session.resync_cooldown, 3.0);
+        }
+    } else if (actor_resync_candidate) {
+        g_session.desync_streak = 0;
+        g_session.actor_desync_streak += 1;
+        if (g_session.actor_desync_streak < kActorDesyncStreakForResync)
+            return;
+        if (g_session.resync_attempts < kResyncMaxAttempts && !g_session.resync_inflight &&
+            g_session.resync_cooldown <= 0.0) {
+            send_resync_request();
+            g_session.resync_inflight = true;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_attempts += 1;
+            g_session.resync_cooldown = kResyncCooldown;
+        }
+        if (g_session.resync_attempts >= kResyncMaxAttempts) {
+            g_session.telemetry.resync_giveups += 1;
+            g_session.resync_attempts = 0;
+            g_session.resync_inflight = false;
+            g_session.resync_inflight_timer = 0.0;
+            g_session.resync_cooldown = std::max(g_session.resync_cooldown, 3.0);
         }
     } else {
         g_session.resync_attempts = 0;
         g_session.resync_inflight = false;
         g_session.resync_inflight_timer = 0.0;
         g_session.desync_streak = 0;
+        g_session.actor_desync_streak = 0;
+        g_session.world_only_desync_streak = 0;
     }
 }
 
@@ -953,8 +1141,8 @@ void record_checksum_sample() {
     sample.world_checksum = 0;
     sample.world_valid = false;
     sample.random_state = server::RandomState;
-    Actor *p0 = sync_reference_actor(0);
-    Actor *p1 = sync_reference_actor(1);
+    Actor *p0 = sync_reference_actor(0, tick);
+    Actor *p1 = sync_reference_actor(1, tick);
     sample.p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     sample.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sample.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;

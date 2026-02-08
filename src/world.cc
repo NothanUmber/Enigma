@@ -2355,6 +2355,7 @@ uint64_t WorldChecksum() {
 
     struct ActorDigest {
         uint32_t kind = 0;
+        uint32_t id = 0;
         int owner = -1;
         int controllers = 0;
         int64_t x = 0;
@@ -2367,6 +2368,7 @@ uint64_t WorldChecksum() {
     for (Actor *actor : level->actorlist) {
         ActorDigest d;
         d.kind = static_cast<uint32_t>(get_id(actor));
+        d.id = static_cast<uint32_t>(actor->getId());
         Value owner = actor->getAttr("owner");
         if (owner.getType() != Value::NIL)
             d.owner = static_cast<int>(owner);
@@ -2382,6 +2384,8 @@ uint64_t WorldChecksum() {
     std::sort(actors.begin(), actors.end(), [](const ActorDigest &a, const ActorDigest &b) {
         if (a.kind != b.kind)
             return a.kind < b.kind;
+        if (a.id != b.id)
+            return a.id < b.id;
         if (a.owner != b.owner)
             return a.owner < b.owner;
         if (a.controllers != b.controllers)
@@ -2397,6 +2401,7 @@ uint64_t WorldChecksum() {
     hash_u64(h, static_cast<uint64_t>(actors.size()));
     for (const auto &d : actors) {
         hash_u64(h, static_cast<uint64_t>(d.kind));
+        hash_u64(h, static_cast<uint64_t>(d.id));
         hash_i64(h, static_cast<int64_t>(d.owner));
         hash_i64(h, static_cast<int64_t>(d.controllers));
         hash_i64(h, d.x);
@@ -2423,6 +2428,7 @@ uint64_t ActorChecksum() {
     uint64_t h = kChecksumOffset;
     struct ActorDigest {
         uint32_t kind = 0;
+        uint32_t id = 0;
         int owner = -1;
         int controllers = 0;
         int64_t x = 0;
@@ -2435,6 +2441,7 @@ uint64_t ActorChecksum() {
     for (Actor *actor : level->actorlist) {
         ActorDigest d;
         d.kind = static_cast<uint32_t>(get_id(actor));
+        d.id = static_cast<uint32_t>(actor->getId());
         Value owner = actor->getAttr("owner");
         if (owner.getType() != Value::NIL)
             d.owner = static_cast<int>(owner);
@@ -2450,6 +2457,8 @@ uint64_t ActorChecksum() {
     std::sort(actors.begin(), actors.end(), [](const ActorDigest &a, const ActorDigest &b) {
         if (a.kind != b.kind)
             return a.kind < b.kind;
+        if (a.id != b.id)
+            return a.id < b.id;
         if (a.owner != b.owner)
             return a.owner < b.owner;
         if (a.controllers != b.controllers)
@@ -2465,6 +2474,7 @@ uint64_t ActorChecksum() {
     hash_u64(h, static_cast<uint64_t>(actors.size()));
     for (const auto &d : actors) {
         hash_u64(h, static_cast<uint64_t>(d.kind));
+        hash_u64(h, static_cast<uint64_t>(d.id));
         hash_i64(h, static_cast<int64_t>(d.owner));
         hash_i64(h, static_cast<int64_t>(d.controllers));
         hash_i64(h, d.x);

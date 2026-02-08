@@ -146,7 +146,30 @@ void host_update_pause_from_menu_state() {
     send_pause_to_peers(want_pause);
 }
 
+void tick_abort_grace(double dtime) {
+    if (!g_session.abort_pending)
+        return;
+    g_session.abort_timer += dtime;
+    if (g_session.abort_timer < kAbortDeliveryGrace)
+        return;
+    const std::string message = g_session.abort_message;
+    g_session.abort_pending = false;
+    g_session.abort_timer = 0.0;
+    g_session.abort_message.clear();
+    abort_session_with_message(message.c_str());
+}
+
 }  // namespace
+
+void begin_abort_after_grace(const char *message) {
+    if (!g_session.active)
+        return;
+    if (g_session.abort_pending)
+        return;
+    g_session.abort_pending = true;
+    g_session.abort_timer = 0.0;
+    g_session.abort_message = message ? message : "Game aborted. Ending session.";
+}
 
 void SessionSetMenuOpen(bool open) {
     if (!g_session.active)
@@ -169,11 +192,11 @@ void SessionRequestAbort() {
         return;
     if (g_session.host) {
         send_abort_to_peers();
-        abort_session_with_message("Game aborted. Ending session.");
+        begin_abort_after_grace("Game aborted. Ending session.");
         return;
     }
     send_abort_to_host();
-    abort_session_with_message("Game aborted. Ending session.");
+    begin_abort_after_grace("Game aborted. Ending session.");
 }
 
 void SessionPrepareExtraActors() {
@@ -296,6 +319,7 @@ void tick_update_resync_inflight_timeout(double dtime) {
     debug_log("mp resync timeout: local tick=%u attempts=%u via=%s", input::CurrentTick(),
               static_cast<unsigned>(g_session.resync_attempts),
               transport_name(g_session.active_transport));
+    g_session.telemetry.resync_inflight_timeouts += 1;
     g_session.resync_inflight = false;
     g_session.resync_inflight_timer = 0.0;
     // Allow a retry on the next mismatch observation.
@@ -390,18 +414,31 @@ void shutdown_enet_host_state() {
 void SessionTick(double dtime) {
     if (!g_session.active)
         return;
+    if (g_session.abort_pending) {
+        process_network_events();
+        tick_abort_grace(dtime);
+        return;
+    }
     // While paused we still need to pump the network (for unpause / disconnect),
     // but we must not advance the input clock or emit inputs.
     if (g_session.paused) {
         process_network_events();
         return;
     }
+    g_session.no_payload_timer += dtime;
     tick_advance_input_clock(dtime);
     process_network_events();
     if (!g_session.active)
         return;
     if (g_session.paused)
         return;
+    if (g_session.abort_pending)
+        return;
+    if (!g_session.host && g_session.phase == SessionState::Phase::RUNNING &&
+        g_session.no_payload_timer >= kClientNoPayloadDisconnectTimeout) {
+        abort_session_with_message("Lost connection to host. Ending session.");
+        return;
+    }
     tick_apply_pending_sync();
     record_checksum_sample();
     tick_update_resync_cooldown(dtime);
@@ -416,6 +453,28 @@ void SessionTick(double dtime) {
 void SessionShutdown() {
     if (!g_session.active)
         return;
+    if (debug_enabled()) {
+        const auto &t = g_session.telemetry;
+        debug_log("mp telemetry: sync_current=%llu sync_sample=%llu "
+                  "mismatch(pos=%llu rand=%llu actor=%llu world=%llu) "
+                  "classified(diag_only=%llu rng_only=%llu soft_candidate=%llu) "
+                  "rng_fixed=%llu resync(req=%llu resp=%llu applied=%llu timeout=%llu giveup=%llu)",
+                  static_cast<unsigned long long>(t.sync_current_total),
+                  static_cast<unsigned long long>(t.sync_sample_total),
+                  static_cast<unsigned long long>(t.mismatch_pos),
+                  static_cast<unsigned long long>(t.mismatch_rand),
+                  static_cast<unsigned long long>(t.mismatch_actor),
+                  static_cast<unsigned long long>(t.mismatch_world),
+                  static_cast<unsigned long long>(t.mismatch_diagnostic_only),
+                  static_cast<unsigned long long>(t.mismatch_rng_only),
+                  static_cast<unsigned long long>(t.mismatch_soft_resync_candidate),
+                  static_cast<unsigned long long>(t.rng_resync_applied),
+                  static_cast<unsigned long long>(t.resync_requests_sent),
+                  static_cast<unsigned long long>(t.resync_responses_recv),
+                  static_cast<unsigned long long>(t.resync_applied),
+                  static_cast<unsigned long long>(t.resync_inflight_timeouts),
+                  static_cast<unsigned long long>(t.resync_giveups));
+    }
     shutdown_enet_host_state();
     tcp_close(g_session.tcp_relay_socket);
     g_session = SessionState();

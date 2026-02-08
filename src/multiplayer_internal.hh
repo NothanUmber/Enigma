@@ -24,6 +24,10 @@ constexpr Uint16 kInternetLobbyPort = 12347;
 constexpr double kAnnounceInterval = 0.5;
 constexpr double kPeerTimeout = 2.0;
 constexpr uint32_t kInputDelay = 4;
+// TCP relay adds latency and jitter compared to direct/UDP. Use a larger input
+// delay to reduce "missing input" situations that otherwise force frequent
+// resyncs (or eventually a restart prompt).
+constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
 constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
@@ -33,10 +37,22 @@ constexpr double kResyncCooldown = 1.0;
 // clear the in-flight flag so we can retry. Without this, a single lost resync
 // response can permanently disable recovery.
 constexpr double kResyncInflightTimeout = 2.5;
+// When aborting a session, keep the transport alive briefly so reliable abort
+// packets have a chance to reach peers (avoids prolonged desync spam on clients
+// if the host shuts down immediately).
+constexpr double kAbortDeliveryGrace = 0.25;
+// If a client stops receiving any transport payloads while RUNNING, treat it as
+// a disconnect. This catches cases where a host exits too quickly for a
+// reliable abort to arrive.
+constexpr double kClientNoPayloadDisconnectTimeout = 2.0;
 // Require at least N consecutive mismatch observations before triggering a resync
 // request. This reduces "jumpy mode" when a single late/out-of-order sync sample
 // briefly disagrees but the world would converge again naturally.
 constexpr unsigned kDesyncStreakForResync = 2;
+// Actor checksum mismatches can be caused by platform drift. Only trigger a
+// resync from actor checksums when the mismatch persists for multiple sync
+// intervals.
+constexpr unsigned kActorDesyncStreakForResync = 6;
 constexpr unsigned kResyncMaxAttempts = 3;
 constexpr size_t kChecksumHistory = 512;
 // Position drift tolerance (in tile units) for sync packets. The simulation is
@@ -114,6 +130,7 @@ struct SessionState {
     unsigned local_player = 0;
     unsigned expected_players = 1;
     TransportKind active_transport = TransportKind::NONE;
+    uint32_t input_delay = kInputDelay;
     Uint32 session_id = 0;
     Uint32 seed = 0;
     Uint32 input_epoch = 0;
@@ -142,6 +159,12 @@ struct SessionState {
     bool desync_reported = false;
     bool paused = false;
     std::vector<bool> menu_open;
+    // Time since last received transport payload (reset on any packet).
+    double no_payload_timer = 0.0;
+    // Local abort grace window to deliver NET_ABORT reliably.
+    bool abort_pending = false;
+    double abort_timer = 0.0;
+    std::string abort_message;
     // Session lifecycle phase for start/restart transitions.
     //
     // Invariants:
@@ -180,6 +203,8 @@ struct SessionState {
     double resync_cooldown = 0.0;
     unsigned resync_attempts = 0;
     unsigned desync_streak = 0;
+    unsigned actor_desync_streak = 0;
+    unsigned world_only_desync_streak = 0;
     unsigned level_players = 0;
     std::vector<bool> placement_received;
     // Tracks whether a given session player needs an additional start position
@@ -191,6 +216,35 @@ struct SessionState {
     // once per epoch on the first observed desync. This helps diagnose whether
     // a mismatch is present at start or introduced by simulation drift.
     bool debug_state_dumped = false;
+
+    // Lightweight counters to understand how often desync signals occur and
+    // whether they are expected to auto-heal via soft resync. Intended for
+    // telemetry via ENIGMA_MP_DEBUG logs, not gameplay logic.
+    struct Telemetry {
+        uint64_t sync_current_total = 0;
+        uint64_t sync_sample_total = 0;
+
+        uint64_t mismatch_pos = 0;
+        uint64_t mismatch_rand = 0;
+        uint64_t mismatch_actor = 0;
+        uint64_t mismatch_world = 0;
+
+        // Actor/world checksum mismatch without position/RNG mismatch.
+        uint64_t mismatch_diagnostic_only = 0;
+        // RNG mismatch without any other mismatch (fixed by syncing RNG only).
+        uint64_t mismatch_rng_only = 0;
+        // Position and/or RNG mismatch (eligible for soft resync).
+        uint64_t mismatch_soft_resync_candidate = 0;
+
+        uint64_t rng_resync_applied = 0;
+
+        uint64_t resync_requests_sent = 0;
+        uint64_t resync_responses_recv = 0;
+        uint64_t resync_applied = 0;
+        uint64_t resync_inflight_timeouts = 0;
+        uint64_t resync_giveups = 0;
+    };
+    Telemetry telemetry;
 };
 
 extern LobbyState g_lobby;

@@ -233,7 +233,8 @@ bool handle_host_abort_packet(const char *data, size_t len) {
         return true;
     // Abort is global: one player aborts => end the session for all.
     send_abort_to_peers();
-    return abort_session_with_message("Game aborted. Ending session.");
+    begin_abort_after_grace("Game aborted. Ending session.");
+    return true;
 }
 
 bool handle_host_placement_packet(const char *data, size_t len) {
@@ -325,6 +326,8 @@ bool handle_client_welcome_packet(const char *data, size_t len) {
 }
 
 bool handle_client_sync_packet(const char *data, size_t len) {
+    if (g_session.abort_pending)
+        return true;
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
     protocol::SyncPacket sync;
@@ -620,6 +623,8 @@ void process_network_events() {
             return handle_direct_disconnect_event(peer);
         }
         bool OnPayload(HostSource source, ENetPeer *peer, const char *data, size_t len) override {
+            // Any packet counts as progress (avoid false "host disconnected" aborts).
+            g_session.no_payload_timer = 0.0;
             if (source == HostSource::UDP_RELAY) {
                 return handle_udp_relay_payload(data, len);
             }
@@ -661,7 +666,8 @@ void send_local_inputs() {
     if (!g_session.active || !g_session.local_player_known)
         return;
     uint32_t current_tick = input::CurrentTick();
-    uint32_t target_tick = current_tick + kInputDelay;
+    uint32_t delay = g_session.input_delay ? g_session.input_delay : kInputDelay;
+    uint32_t target_tick = current_tick + delay;
     if (g_session.input_clock_tick > current_tick) {
         uint32_t extra = g_session.input_clock_tick - current_tick;
         if (extra > kMaxInputLead)

@@ -29,15 +29,23 @@ namespace multiplayer {
 namespace internal {
 
 void configure_input_session(unsigned expected_players) {
+    // The input stream is stamped for a future tick (input delay). A larger
+    // delay reduces the odds that a peer reaches a tick before receiving the
+    // other players' inputs for that tick.
+    g_session.input_delay =
+        (g_session.active_transport == TransportKind::TCP_RELAY) ? kInputDelayTcpRelay : kInputDelay;
+    if (debug_enabled())
+        debug_log("mp input delay=%u transport=%s", static_cast<unsigned>(g_session.input_delay),
+                  transport_name(g_session.active_transport));
     input::Reset();
     input::SetNetworked(true);
     input::SetExpectedPlayers(expected_players);
-    for (uint32_t tick = 0; tick < kInputDelay; ++tick) {
+    for (uint32_t tick = 0; tick < g_session.input_delay; ++tick) {
         for (unsigned player = 0; player < expected_players; ++player) {
             input::EnqueueInput(tick, player, input::PlayerInput());
         }
     }
-    g_session.next_local_tick = kInputDelay;
+    g_session.next_local_tick = g_session.input_delay;
     g_session.next_send_tick = 0;
     g_session.local_history.clear();
     g_session.input_clock_tick = input::CurrentTick();
