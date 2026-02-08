@@ -108,6 +108,27 @@ namespace enigma {
                 performAction(false);
             }
             return Value();
+        } else if (m.message == "_mp_resync_flags") {
+            // Multiplayer resync helper: recompute max/min violation flags from
+            // current anchor positions without triggering performAction().
+            //
+            // This keeps peers aligned when a soft resync teleports actors, and
+            // avoids persistent divergence caused by stale OBJBIT_*VIOLATION flags.
+            ecl::V2 v = posAnchor2() - anchor1->get_pos();
+            double len = ecl::length(v);
+            if ((objFlags & OBJBIT_MAXVIOLATION) && (maxLength > 0) && (len <= maxLength))
+                objFlags &= ~OBJBIT_MAXVIOLATION;
+            if ((objFlags & OBJBIT_MINVIOLATION) && (len >= minLength))
+                objFlags &= ~OBJBIT_MINVIOLATION;
+            if ((maxLength > 0) && (len > maxLength))
+                objFlags |= OBJBIT_MAXVIOLATION;
+            else
+                objFlags &= ~OBJBIT_MAXVIOLATION;
+            if (len < minLength)
+                objFlags |= OBJBIT_MINVIOLATION;
+            else
+                objFlags &= ~OBJBIT_MINVIOLATION;
+            return Value();
         } else if (m.message == "_performaction") {
             performAction(true);
             return Value();

@@ -5,6 +5,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 
 #ifdef WIN32
 #include <process.h>
@@ -19,6 +20,23 @@ namespace enigma {
 namespace multiplayer {
 namespace internal {
 
+namespace {
+
+const char *transport_kind_name(TransportKind kind) {
+    switch (kind) {
+    case TransportKind::DIRECT:
+        return "direct";
+    case TransportKind::UDP_RELAY:
+        return "udp-relay";
+    case TransportKind::TCP_RELAY:
+        return "tcp-relay";
+    default:
+        return "none";
+    }
+}
+
+}  // namespace
+
 bool debug_enabled() {
     const char *env = std::getenv("ENIGMA_MP_DEBUG");
     return env && *env;
@@ -26,6 +44,11 @@ bool debug_enabled() {
 
 bool force_relay_enabled() {
     const char *env = std::getenv("ENIGMA_MP_FORCE_RELAY");
+    return env && *env;
+}
+
+bool dump_state_enabled() {
+    const char *env = std::getenv("ENIGMA_MP_DUMP_STATE");
     return env && *env;
 }
 
@@ -52,8 +75,21 @@ void debug_log(const char *fmt, ...) {
     }
 #endif
 
+    // Prefix every log line with stable session context so host/client logs
+    // can be correlated even when per-level tick counters reset.
+    static uint64_t seq = 0;
+    seq += 1;
+    const unsigned sid = static_cast<unsigned>(g_session.session_id);
+    const unsigned rid = static_cast<unsigned>(g_session.restart_id);
+    const unsigned epoch = static_cast<unsigned>(g_session.input_epoch);
+    const unsigned lp = static_cast<unsigned>(g_session.local_player);
+    const int is_host = g_session.host ? 1 : 0;
+    const char *via = transport_kind_name(g_session.active_transport);
+
     va_list args;
     va_start(args, fmt);
+    std::fprintf(stderr, "mp[%llu sid=%u rid=%u epoch=%u host=%d p=%u via=%s] ",
+                 static_cast<unsigned long long>(seq), sid, rid, epoch, is_host, lp, via);
     std::vfprintf(stderr, fmt, args);
     std::fprintf(stderr, "\n");
     std::fflush(stderr);
@@ -62,6 +98,8 @@ void debug_log(const char *fmt, ...) {
     if (log_file) {
         va_list args2;
         va_copy(args2, args);
+        std::fprintf(log_file, "mp[%llu sid=%u rid=%u epoch=%u host=%d p=%u via=%s] ",
+                     static_cast<unsigned long long>(seq), sid, rid, epoch, is_host, lp, via);
         std::vfprintf(log_file, fmt, args2);
         std::fprintf(log_file, "\n");
         std::fflush(log_file);
@@ -92,4 +130,3 @@ std::string address_to_ip_string(const ENetAddress &addr) {
 }  // namespace internal
 }  // namespace multiplayer
 }  // namespace enigma
-

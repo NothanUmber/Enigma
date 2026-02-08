@@ -41,8 +41,13 @@ bool SessionShouldDeferStart() {
         return false;
     bool can_start = (g_session.phase == SessionState::Phase::READY_TO_START ||
                       g_session.phase == SessionState::Phase::RUNNING);
-    if (debug_enabled())
-        debug_log("mp should defer start: %d", can_start ? 0 : 1);
+    if (debug_enabled()) {
+        int v = can_start ? 0 : 1;
+        if (g_session.last_defer_start_log != v) {
+            debug_log("mp should defer start: %d", v);
+            g_session.last_defer_start_log = v;
+        }
+    }
     return !can_start;
 }
 
@@ -228,12 +233,15 @@ void SessionPrimeInputQueueForNewLevel() {
     g_session.checksum_history.clear();
     g_session.last_checksum_tick = UINT32_MAX;
     g_session.resync_inflight = false;
+    g_session.resync_inflight_timer = 0.0;
     g_session.resync_cooldown = 0.0;
     g_session.resync_attempts = 0;
+    g_session.desync_streak = 0;
     g_session.ready_timer = 0.0;
     g_session.level_players = 0;
     g_session.placement_received.clear();
     g_session.needs_placement.clear();
+    g_session.last_defer_start_log = -1;
     if (g_session.host) {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;
@@ -279,6 +287,21 @@ void tick_update_resync_cooldown(double dtime) {
         g_session.resync_cooldown = 0.0;
 }
 
+void tick_update_resync_inflight_timeout(double dtime) {
+    if (!g_session.resync_inflight)
+        return;
+    g_session.resync_inflight_timer += dtime;
+    if (g_session.resync_inflight_timer < kResyncInflightTimeout)
+        return;
+    debug_log("mp resync timeout: local tick=%u attempts=%u via=%s", input::CurrentTick(),
+              static_cast<unsigned>(g_session.resync_attempts),
+              transport_name(g_session.active_transport));
+    g_session.resync_inflight = false;
+    g_session.resync_inflight_timer = 0.0;
+    // Allow a retry on the next mismatch observation.
+    g_session.resync_cooldown = 0.0;
+}
+
 void tick_send_periodic_ready(double dtime) {
     if (g_session.host || g_session.phase != SessionState::Phase::WAITING_FOR_READY)
         return;
@@ -317,6 +340,7 @@ void tick_update_start_phase() {
         if (debug_enabled())
             debug_log("mp host: start allowed");
         g_session.input_epoch += 1;
+        g_session.debug_state_dumped = false;
         configure_input_session(g_session.expected_players);
         send_start_to_peers();
         g_session.phase = SessionState::Phase::READY_TO_START;
@@ -381,6 +405,7 @@ void SessionTick(double dtime) {
     tick_apply_pending_sync();
     record_checksum_sample();
     tick_update_resync_cooldown(dtime);
+    tick_update_resync_inflight_timeout(dtime);
     tick_send_periodic_ready(dtime);
     tick_debug_report_missing_input();
     tick_update_start_phase();

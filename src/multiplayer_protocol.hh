@@ -83,6 +83,10 @@ struct ResyncActorState {
     Uint32 object_id;
     Uint16 actor_id;
     Uint16 owner;
+    Uint32 controllers = 0;
+    Uint16 color = 0xFFFF;
+    // Stable identifier for resync matching when object ids diverge.
+    Uint32 name_hash = 0;
     float x;
     float y;
     float vx;
@@ -155,12 +159,8 @@ inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {
     msg.seed = seed;
     msg.expected_players = expected;
     msg.host_port = host_port;
-    msg.filter_optimized = 1;
-    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
-        Uint8 filter = 0;
-        if (buf >> filter)
-            msg.filter_optimized = filter;
-    }
+    if (!(buf >> msg.filter_optimized))
+        return false;
     return true;
 }
 
@@ -271,7 +271,8 @@ inline void encode_resync_state(ecl::Buffer &buf, const ResyncState &msg) {
         << Uint16(count);
     for (const auto &actor : msg.actors) {
         buf << Uint32(actor.object_id) << Uint16(actor.actor_id) << Uint16(actor.owner)
-            << float(actor.x) << float(actor.y) << float(actor.vx) << float(actor.vy);
+            << float(actor.x) << float(actor.y) << float(actor.vx) << float(actor.vy)
+            << Uint32(actor.controllers) << Uint16(actor.color) << Uint32(actor.name_hash);
     }
 }
 
@@ -301,7 +302,11 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
         float y = 0.0f;
         float vx = 0.0f;
         float vy = 0.0f;
-        if (!(buf >> object_id >> actor_id >> owner >> x >> y >> vx >> vy))
+        Uint32 controllers = 0;
+        Uint16 color = 0xFFFF;
+        Uint32 name_hash = 0;
+        if (!(buf >> object_id >> actor_id >> owner >> x >> y >> vx >> vy >> controllers >> color >>
+              name_hash))
             return false;
         actor.object_id = object_id;
         actor.actor_id = actor_id;
@@ -310,6 +315,9 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
         actor.y = y;
         actor.vx = vx;
         actor.vy = vy;
+        actor.controllers = controllers;
+        actor.color = color;
+        actor.name_hash = name_hash;
         msg.actors.push_back(actor);
     }
     return true;

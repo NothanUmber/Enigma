@@ -26,6 +26,9 @@
 #include "Object.hh"
 #include "world.hh"
 
+#include <algorithm>
+#include <locale>
+#include <sstream>
 #include <set>
 #include <vector>
 
@@ -35,6 +38,40 @@ using namespace ecl;
 namespace enigma {
     
 /* -------------------- Value implementation -------------------- */
+
+namespace {
+
+// Parse floating point numbers in a locale-independent way.
+//
+// XML level data and most config values are written with '.' as decimal separator.
+// Using locale-dependent atof() can truncate at '.' when LC_NUMERIC uses ',' which
+// would cause cross-platform desyncs in multiplayer (and wrong values in general).
+double parse_double_classic_locale(const char *s) {
+    if (!s)
+        return 0.0;
+
+    // Keep legacy "%<int>" escape behavior consistent with Value::operator int().
+    if (s[0] == '%')
+        return static_cast<double>(std::strtol(&(s[1]), NULL, 0));
+
+    std::string tmp(s);
+    // If the value looks like it uses ',' as decimal separator, normalize to '.'
+    // before parsing under the classic locale.
+    if (tmp.find('.') == std::string::npos && tmp.find(',') != std::string::npos) {
+        for (char &ch : tmp) {
+            if (ch == ',')
+                ch = '.';
+        }
+    }
+
+    std::istringstream iss(tmp);
+    iss.imbue(std::locale::classic());
+    double out = 0.0;
+    iss >> out;
+    return out;
+}
+
+}  // namespace
 
     Value::Value() : type (NIL) {
     }
@@ -253,7 +290,7 @@ namespace enigma {
             case BOOL: 
                 return (val.dval[0] != 0) ? 1 : 0;
             case STRING:
-                return atof(val.str);  // TODO use strtod and eval remaining part of string
+                return parse_double_classic_locale(val.str);
             default:
                 return 0.0;
         }

@@ -2113,6 +2113,13 @@ void KillOther(Other *o) {
     }
 }
 
+void GetRubberbands(std::vector<Rubberband *> &out) {
+    out.clear();
+    if (!level)
+        return;
+    out.insert(out.end(), level->rubberbands.begin(), level->rubberbands.end());
+}
+
 /* -------------------- Floor manipulation -------------------- */
 
 void KillFloor(GridPos p) {
@@ -2306,7 +2313,11 @@ void hash_string(uint64_t &h, const std::string &s) {
 }
 
 int64_t quantize(double v) {
-    return static_cast<int64_t>(std::llround(v * 1000.0));
+    // Multiplayer uses WorldChecksum/ActorChecksum for desync detection. Keep
+    // quantization coarse enough to avoid false positives due to tiny platform-
+    // dependent floating point drift, but fine enough to catch real divergence.
+    // 0.05 tiles ~= 1/20th of a cell.
+    return static_cast<int64_t>(std::llround(v * 20.0));
 }
 
 void hash_object_state(uint64_t &h, Object *obj) {
@@ -2342,19 +2353,56 @@ uint64_t WorldChecksum() {
         }
     }
 
-    std::vector<Actor *> actors(level->actorlist.begin(), level->actorlist.end());
-    std::sort(actors.begin(), actors.end(),
-              [](const Actor *a, const Actor *b) { return a->getId() < b->getId(); });
-    hash_u64(h, static_cast<uint64_t>(actors.size()));
-    for (Actor *actor : actors) {
-        hash_u64(h, static_cast<uint64_t>(actor->getId()));
-        hash_u64(h, static_cast<uint64_t>(get_id(actor)));
+    struct ActorDigest {
+        uint32_t kind = 0;
+        int owner = -1;
+        int controllers = 0;
+        int64_t x = 0;
+        int64_t y = 0;
+        int64_t vx = 0;
+        int64_t vy = 0;
+    };
+    std::vector<ActorDigest> actors;
+    actors.reserve(level->actorlist.size());
+    for (Actor *actor : level->actorlist) {
+        ActorDigest d;
+        d.kind = static_cast<uint32_t>(get_id(actor));
+        Value owner = actor->getAttr("owner");
+        if (owner.getType() != Value::NIL)
+            d.owner = static_cast<int>(owner);
+        d.controllers = actor->get_controllers();
         const ecl::V2 &pos = actor->get_pos();
         const ecl::V2 &vel = actor->get_vel();
-        hash_i64(h, quantize(pos[0]));
-        hash_i64(h, quantize(pos[1]));
-        hash_i64(h, quantize(vel[0]));
-        hash_i64(h, quantize(vel[1]));
+        d.x = quantize(pos[0]);
+        d.y = quantize(pos[1]);
+        d.vx = quantize(vel[0]);
+        d.vy = quantize(vel[1]);
+        actors.push_back(d);
+    }
+    std::sort(actors.begin(), actors.end(), [](const ActorDigest &a, const ActorDigest &b) {
+        if (a.kind != b.kind)
+            return a.kind < b.kind;
+        if (a.owner != b.owner)
+            return a.owner < b.owner;
+        if (a.controllers != b.controllers)
+            return a.controllers < b.controllers;
+        if (a.x != b.x)
+            return a.x < b.x;
+        if (a.y != b.y)
+            return a.y < b.y;
+        if (a.vx != b.vx)
+            return a.vx < b.vx;
+        return a.vy < b.vy;
+    });
+    hash_u64(h, static_cast<uint64_t>(actors.size()));
+    for (const auto &d : actors) {
+        hash_u64(h, static_cast<uint64_t>(d.kind));
+        hash_i64(h, static_cast<int64_t>(d.owner));
+        hash_i64(h, static_cast<int64_t>(d.controllers));
+        hash_i64(h, d.x);
+        hash_i64(h, d.y);
+        hash_i64(h, d.vx);
+        hash_i64(h, d.vy);
     }
 
     std::vector<Other *> others(level->others.begin(), level->others.end());
@@ -2373,19 +2421,56 @@ uint64_t ActorChecksum() {
     if (!level)
         return 0;
     uint64_t h = kChecksumOffset;
-    std::vector<Actor *> actors(level->actorlist.begin(), level->actorlist.end());
-    std::sort(actors.begin(), actors.end(),
-              [](const Actor *a, const Actor *b) { return a->getId() < b->getId(); });
-    hash_u64(h, static_cast<uint64_t>(actors.size()));
-    for (Actor *actor : actors) {
-        hash_u64(h, static_cast<uint64_t>(actor->getId()));
-        hash_u64(h, static_cast<uint64_t>(get_id(actor)));
+    struct ActorDigest {
+        uint32_t kind = 0;
+        int owner = -1;
+        int controllers = 0;
+        int64_t x = 0;
+        int64_t y = 0;
+        int64_t vx = 0;
+        int64_t vy = 0;
+    };
+    std::vector<ActorDigest> actors;
+    actors.reserve(level->actorlist.size());
+    for (Actor *actor : level->actorlist) {
+        ActorDigest d;
+        d.kind = static_cast<uint32_t>(get_id(actor));
+        Value owner = actor->getAttr("owner");
+        if (owner.getType() != Value::NIL)
+            d.owner = static_cast<int>(owner);
+        d.controllers = actor->get_controllers();
         const ecl::V2 &pos = actor->get_pos();
         const ecl::V2 &vel = actor->get_vel();
-        hash_i64(h, quantize(pos[0]));
-        hash_i64(h, quantize(pos[1]));
-        hash_i64(h, quantize(vel[0]));
-        hash_i64(h, quantize(vel[1]));
+        d.x = quantize(pos[0]);
+        d.y = quantize(pos[1]);
+        d.vx = quantize(vel[0]);
+        d.vy = quantize(vel[1]);
+        actors.push_back(d);
+    }
+    std::sort(actors.begin(), actors.end(), [](const ActorDigest &a, const ActorDigest &b) {
+        if (a.kind != b.kind)
+            return a.kind < b.kind;
+        if (a.owner != b.owner)
+            return a.owner < b.owner;
+        if (a.controllers != b.controllers)
+            return a.controllers < b.controllers;
+        if (a.x != b.x)
+            return a.x < b.x;
+        if (a.y != b.y)
+            return a.y < b.y;
+        if (a.vx != b.vx)
+            return a.vx < b.vx;
+        return a.vy < b.vy;
+    });
+    hash_u64(h, static_cast<uint64_t>(actors.size()));
+    for (const auto &d : actors) {
+        hash_u64(h, static_cast<uint64_t>(d.kind));
+        hash_i64(h, static_cast<int64_t>(d.owner));
+        hash_i64(h, static_cast<int64_t>(d.controllers));
+        hash_i64(h, d.x);
+        hash_i64(h, d.y);
+        hash_i64(h, d.vx);
+        hash_i64(h, d.vy);
     }
     return h;
 }

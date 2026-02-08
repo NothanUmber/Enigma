@@ -163,7 +163,7 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
         return false;
 
     addrinfo hints;
-    std::memset(&hints, 0, sizeof(hints));
+    ::memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
 

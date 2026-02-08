@@ -52,6 +52,7 @@ extern "C" {
 #include "lua-ecl.hh"
 
 #include <cassert>
+#include <cstdlib>
 
 #include "nls.hh"
 
@@ -2253,12 +2254,15 @@ static int setObjectByTable(lua_State *L, double x, double y, bool onlyFloors = 
         throwLuaError(L, "World: object type string missing");
         return 0;
     }
-    std::string name = lua_tostring(L, -1);
+    std::string raw_name = lua_tostring(L, -1);
+    std::string name = raw_name;
+    bool centered = false;
     if (name.find('#') == 0 ) {
         // position to be centered
         x = xi + 0.5;
         y = yi + 0.5;
         name = name.substr(1);
+        centered = true;
     }
     
     if (name == "nil") {
@@ -2351,6 +2355,8 @@ static int setObjectByTable(lua_State *L, double x, double y, bool onlyFloors = 
                 break;
             case Object::ACTOR :
                 if (!onlyFloors) {
+                    const double base_x = x;
+                    const double base_y = y;
                     lua_rawgeti(L, -1, 2);
                     if (lua_isnumber(L, -1))
                         x += lua_tonumber(L, -1);
@@ -2358,6 +2364,27 @@ static int setObjectByTable(lua_State *L, double x, double y, bool onlyFloors = 
                     if (lua_isnumber(L, -1))
                         y += lua_tonumber(L, -1);
                     lua_pop(L, 2);               
+                    if (std::getenv("ENIGMA_MP_TRACE_WORLDINIT")) {
+                        // Narrow, opt-in trace to debug rare cross-peer divergences in Lua-authored
+                        // levels (notably Per.Oxyd meditation pearls).
+                        Value name_attr = obj->getAttr("name");
+                        if (name_attr.getType() == Value::STRING) {
+                            const char *actor_name_c = name_attr;
+                            const std::string actor_name = actor_name_c ? actor_name_c : "";
+                            if (actor_name.find("pearl%") == 0) {
+                                const double dx = x - base_x;
+                                const double dy = y - base_y;
+                                fprintf(stderr,
+                                        "mp worldinit actor: kind=%s name=%s raw=%s centered=%d "
+                                        "base=(%.3f,%.3f) d=(%.3f,%.3f) final=(%.3f,%.3f) "
+                                        "grid=(%d,%d)\n",
+                                        obj->getKind().c_str(), actor_name.c_str(),
+                                        raw_name.c_str(), centered ? 1 : 0,
+                                        base_x, base_y, dx, dy, x, y,
+                                        round_down<int>(x), round_down<int>(y));
+                            }
+                        }
+                    }
                     if (IsInsideLevel(GridPos(round_down<int>(x), round_down<int>(y)))) 
                         AddActor(x, y, dynamic_cast<Actor *>(obj));
                     else

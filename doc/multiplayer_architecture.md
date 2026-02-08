@@ -73,6 +73,8 @@ Set environment variables before launching Enigma:
 
 - `ENIGMA_MP_DEBUG=1` enables verbose multiplayer logs.
 - `ENIGMA_MP_FORCE_RELAY=1` forces relay use (skips direct connect), useful for testing.
+- `ENIGMA_MP_DUMP_STATE=1` dumps a one-time deterministic actor digest when a sync mismatch is detected.
+- `ENIGMA_MP_TRACE_WORLDINIT=1` traces how `WorldInitLevel()` initializes actors (useful for tracking controller/ownership changes from Lua/compat).
 
 ## Architecture
 
@@ -166,12 +168,16 @@ Periodic `NET_SYNC` snapshots include:
 
 - tick
 - RNG state
-- checksums over relevant world/actor state
+- player reference positions (p0/p1)
+- checksums over relevant world/actor state (diagnostic)
 
 Clients compare these snapshots to local state:
 
 - If only RNG diverged, RNG can be corrected without restarting.
-- If world/actor checksums diverge, a resync is attempted.
+- If positions drift beyond `kSyncPosEpsilon` or RNG diverges, a resync is attempted.
+- World/actor checksum mismatches are treated as an early warning signal and debugging aid. They do
+  not trigger resync by themselves, because they can disagree due to benign differences in object
+  enumeration order (especially in scripted levels with multiple identical actors).
 
 ##### Checksum surface (what is hashed)
 
@@ -196,8 +202,26 @@ Notes:
 When divergence is detected:
 
 - Client requests a resync from the host.
-- Host responds with a compact actor-state snapshot (position/velocity + ids).
+- Host responds with a compact actor-state snapshot.
 - Client applies it and continues.
+
+Resync snapshots include, per actor:
+
+- stable identifiers (`object_id`, `kind_id`, and `name_hash` where available)
+- metadata that affects control (`owner`, `controllers`, `color`)
+- physics state (`pos`, `vel`)
+
+Applying a resync is intentionally conservative:
+
+- Snapshots are applied "as-is" (no velocity projection). Projecting positions forward by the
+  observed tick delta tends to amplify divergence in high-acceleration physics (rubberbands,
+  collisions).
+- To avoid gameplay side-effects, resync teleports update physics state and the spatial index only.
+- Actors are matched primarily by `object_id`, but fall back to `name_hash` (and finally to a
+  best-effort match by kind/owner/position). This is important for levels where scripting can
+  create identical actors in a non-deterministic order across peers (e.g. meditation pearls).
+- After applying, rubberband constraints are re-evaluated to avoid persistent post-resync drift in
+  multi-ball levels.
 
 If resync fails repeatedly, the session reports a desync.
 
@@ -234,6 +258,12 @@ If more players join than the map was authored for:
 The host broadcasts placements so all instances spawn identically.
 
 Notes:
+
+- Control assignment uses the explicit `controllers` bitmask on each actor. The legacy engine also
+  supports control-by-`color` for old levels that never set controllers. In multiplayer we rely on
+  controllers to be authoritative, so `Actor::controlled_by()` only falls back to `color` when
+  `controllers == 0`. This allows distributing multiple same-colored balls (e.g. all-white pearls)
+  across multiple players without changing their gameplay color.
 
 - Redistribution is performed both before and after `WorldInitLevel()`. Some compatibility
   modes and Lua init code can overwrite `controllers` during initialization (notably meditation

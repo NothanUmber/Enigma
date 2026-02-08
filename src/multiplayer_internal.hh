@@ -29,9 +29,21 @@ constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
+// If a resync request is in-flight for too long (packet loss, transport stall),
+// clear the in-flight flag so we can retry. Without this, a single lost resync
+// response can permanently disable recovery.
+constexpr double kResyncInflightTimeout = 2.5;
+// Require at least N consecutive mismatch observations before triggering a resync
+// request. This reduces "jumpy mode" when a single late/out-of-order sync sample
+// briefly disagrees but the world would converge again naturally.
+constexpr unsigned kDesyncStreakForResync = 2;
 constexpr unsigned kResyncMaxAttempts = 3;
 constexpr size_t kChecksumHistory = 512;
-constexpr float kSyncPosEpsilon = 0.05f;
+// Position drift tolerance (in tile units) for sync packets. The simulation is
+// not bit-identical across platforms, especially in physics-heavy levels (e.g.
+// rubberbands/meditation pearls). Keep this loose enough to avoid constant
+// resync churn, while still catching meaningful divergence.
+constexpr float kSyncPosEpsilon = 0.10f;
 
 constexpr Uint32 kInternetMagic = 0x52494E45;  // "ENIR"
 constexpr Uint8 kInternetVersion = 1;
@@ -164,14 +176,21 @@ struct SessionState {
     uint32_t last_checksum_tick = UINT32_MAX;
     uint64_t last_world_checksum = 0;
     bool resync_inflight = false;
+    double resync_inflight_timer = 0.0;
     double resync_cooldown = 0.0;
     unsigned resync_attempts = 0;
+    unsigned desync_streak = 0;
     unsigned level_players = 0;
     std::vector<bool> placement_received;
     // Tracks whether a given session player needs an additional start position
     // placement (only for extra actors we spawned). Extra players that take
     // over an existing authored actor do not need placement.
     std::vector<bool> needs_placement;
+    int last_defer_start_log = -1;
+    // When ENIGMA_MP_DUMP_STATE is enabled, we dump a deterministic actor digest
+    // once per epoch on the first observed desync. This helps diagnose whether
+    // a mismatch is present at start or introduced by simulation drift.
+    bool debug_state_dumped = false;
 };
 
 extern LobbyState g_lobby;
@@ -181,6 +200,7 @@ extern std::string g_tcp_relay_server;
 
 bool debug_enabled();
 bool force_relay_enabled();
+bool dump_state_enabled();
 void debug_log(const char *fmt, ...);
 
 std::string address_to_ip_string(const ENetAddress &addr);

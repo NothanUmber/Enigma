@@ -83,7 +83,7 @@ bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
 #endif
 
     sockaddr_in sin;
-    std::memset(&sin, 0, sizeof(sin));
+    ::memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_port = ENET_HOST_TO_NET_16(port);
     sin.sin_addr.s_addr = ENET_HOST_ANY;
@@ -98,4 +98,3 @@ bool bind_lobby_socket(ENetSocket socket, Uint16 port) {
 }  // namespace internal
 }  // namespace multiplayer
 }  // namespace enigma
-

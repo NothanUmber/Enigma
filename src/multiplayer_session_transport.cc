@@ -365,6 +365,7 @@ bool handle_client_start_packet(const char *data, size_t len) {
     if (!protocol::decode_start(buf, epoch))
         return false;
     g_session.input_epoch = epoch;
+    g_session.debug_state_dumped = false;
     configure_input_session(g_session.expected_players);
     g_session.phase = SessionState::Phase::READY_TO_START;
     debug_log("mp client: start allowed");

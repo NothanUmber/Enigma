@@ -178,7 +178,7 @@ bool tcp_connect_timeout(const std::string &host, Uint16 port, Uint32 timeout_ms
     if (host.empty() || port == 0)
         return false;
     addrinfo hints;
-    std::memset(&hints, 0, sizeof(hints));
+    ::memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
 
@@ -247,4 +247,3 @@ bool tcp_connect_timeout(const std::string &host, Uint16 port, Uint32 timeout_ms
 }  // namespace internal
 }  // namespace multiplayer
 }  // namespace enigma
-

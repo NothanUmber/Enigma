@@ -249,6 +249,12 @@ void for_each_existing_placement(Sender send) {
     if (g_session.placement_received.size() < g_session.expected_players)
         return;
     for (unsigned player = g_session.level_players; player < g_session.expected_players; ++player) {
+        // Only players that actually required placement during this level should get
+        // placement packets. Players that don't require placement are marked
+        // placement_received=true so the host can start immediately, but that does
+        // not mean we have a meaningful placement to broadcast.
+        if (!placement_required_for_player(player))
+            continue;
         if (!g_session.placement_received[player])
             continue;
         Actor *actor = player::GetMainActor(player);
@@ -579,6 +585,58 @@ void rebalance_authored_multi_ball_levels(unsigned level_players, unsigned expec
     }
 
     for (unsigned base = 0; base < level_players; ++base) {
+        // Ensure redistribution is deterministic across platforms/builds.
+        // Actor insertion order can differ subtly depending on loader/compat paths,
+        // so sort by a stable key before assigning controllers.
+        std::sort(candidates[base].begin(), candidates[base].end(),
+                  [](const Actor *a, const Actor *b) {
+                      if (a == b)
+                          return false;
+                      const ecl::V2 &pa = a->get_pos();
+                      const ecl::V2 &pb = b->get_pos();
+                      auto qa0 = static_cast<int64_t>(std::llround(pa[0] * 1000.0));
+                      auto qa1 = static_cast<int64_t>(std::llround(pa[1] * 1000.0));
+                      auto qb0 = static_cast<int64_t>(std::llround(pb[0] * 1000.0));
+                      auto qb1 = static_cast<int64_t>(std::llround(pb[1] * 1000.0));
+                      if (qa1 != qb1)
+                          return qa1 < qb1;
+                      if (qa0 != qb0)
+                          return qa0 < qb0;
+                      const ecl::V2 &va = a->get_vel();
+                      const ecl::V2 &vb = b->get_vel();
+                      auto qva0 = static_cast<int64_t>(std::llround(va[0] * 1000.0));
+                      auto qva1 = static_cast<int64_t>(std::llround(va[1] * 1000.0));
+                      auto qvb0 = static_cast<int64_t>(std::llround(vb[0] * 1000.0));
+                      auto qvb1 = static_cast<int64_t>(std::llround(vb[1] * 1000.0));
+                      if (qva1 != qvb1)
+                          return qva1 < qvb1;
+                      if (qva0 != qvb0)
+                          return qva0 < qvb0;
+                      int kind_cmp = a->getKind().compare(b->getKind());
+                      if (kind_cmp != 0)
+                          return kind_cmp < 0;
+                      int ca = a->get_controllers();
+                      int cb = b->get_controllers();
+                      if (ca != cb)
+                          return ca < cb;
+                      Value oa = a->getAttr("owner");
+                      Value ob = b->getAttr("owner");
+                      int oai = oa ? static_cast<int>(oa) : -1;
+                      int obi = ob ? static_cast<int>(ob) : -1;
+                      if (oai != obi)
+                          return oai < obi;
+                      Value cola = a->getAttr("color");
+                      Value colb = b->getAttr("color");
+                      int cai = cola ? static_cast<int>(cola) : -1;
+                      int cbi = colb ? static_cast<int>(colb) : -1;
+                      if (cai != cbi)
+                          return cai < cbi;
+                      // If everything matches, the order does not matter: the actors are
+                      // indistinguishable at our digest precision, and redistribution by
+                      // position/velocity already yields the same per-player multiset.
+                      return false;
+                  });
+
         std::vector<unsigned> group;
         for (unsigned p = base; p < expected_players; p += level_players)
             group.push_back(p);

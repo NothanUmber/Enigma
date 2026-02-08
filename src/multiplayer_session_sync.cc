@@ -10,9 +10,11 @@
 #include "world.hh"
 
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +48,243 @@ const char *host_source_name(HostSource s) {
     }
 }
 
+namespace {
+
+int64_t quantize_for_dump(double v) {
+    return static_cast<int64_t>(std::llround(v * 100.0));
+}
+
+uint32_t stable_name_hash(Actor *actor) {
+    if (!actor)
+        return 0;
+    Value name = actor->getAttr("name");
+    if (name.getType() != Value::STRING)
+        return 0;
+    const std::string &s = name.get_string();
+    if (s.empty())
+        return 0;
+    // FNV-1a 32-bit.
+    uint32_t h = 2166136261u;
+    for (unsigned char c : s) {
+        h ^= static_cast<uint32_t>(c);
+        h *= 16777619u;
+    }
+    return h ? h : 1u;
+}
+
+Actor *sync_reference_actor(unsigned player);
+
+void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::SyncPacket *sync) {
+    if (!debug_enabled() || !dump_state_enabled())
+        return;
+    if (g_session.debug_state_dumped)
+        return;
+    g_session.debug_state_dumped = true;
+
+    debug_log("mp dump: reason=%s epoch=%u tick=%u host=%d transport=%s expected=%u local_player=%u seed=%u",
+              reason ? reason : "unknown",
+              static_cast<unsigned>(g_session.input_epoch),
+              static_cast<unsigned>(tick),
+              g_session.host ? 1 : 0,
+              transport_name(g_session.active_transport),
+              static_cast<unsigned>(g_session.expected_players),
+              static_cast<unsigned>(g_session.local_player),
+              static_cast<unsigned>(g_session.seed));
+    debug_log("mp dump: local rand=%u", static_cast<unsigned>(server::RandomState));
+
+    if (server::LoadedProxy) {
+        std::string level_path =
+            (server::LoadedProxy->getNormPathType() == lev::Proxy::pt_resource)
+                ? server::LoadedProxy->getAbsLevelPath()
+                : server::LoadedProxy->getNormFilePath();
+        debug_log("mp dump: level id=%s path=%s difficult=%d compat=%d",
+                  server::LoadedProxy->getId().c_str(),
+                  level_path.c_str(),
+                  server::IsDifficult ? 1 : 0,
+                  static_cast<int>(server::GameCompatibility));
+    }
+
+    if (Actor *p0 = sync_reference_actor(0)) {
+        const ecl::V2 &pos = p0->get_pos();
+        const ecl::V2 &vel = p0->get_vel();
+        Value name = p0->getAttr("name");
+        const char *name_str = (name.getType() == Value::STRING) ? name.get_string() : "";
+        debug_log("mp dump: ref p0 kind=%s obj=%u ctrl=%d name=%s pos=%.2f,%.2f vel=%.2f,%.2f",
+                  p0->getKind().c_str(),
+                  static_cast<unsigned>(p0->getId()),
+                  p0->get_controllers(),
+                  name_str,
+                  static_cast<double>(pos[0]),
+                  static_cast<double>(pos[1]),
+                  static_cast<double>(vel[0]),
+                  static_cast<double>(vel[1]));
+    }
+    if (Actor *p1 = sync_reference_actor(1)) {
+        const ecl::V2 &pos = p1->get_pos();
+        const ecl::V2 &vel = p1->get_vel();
+        Value name = p1->getAttr("name");
+        const char *name_str = (name.getType() == Value::STRING) ? name.get_string() : "";
+        debug_log("mp dump: ref p1 kind=%s obj=%u ctrl=%d name=%s pos=%.2f,%.2f vel=%.2f,%.2f",
+                  p1->getKind().c_str(),
+                  static_cast<unsigned>(p1->getId()),
+                  p1->get_controllers(),
+                  name_str,
+                  static_cast<double>(pos[0]),
+                  static_cast<double>(pos[1]),
+                  static_cast<double>(vel[0]),
+                  static_cast<double>(vel[1]));
+    }
+
+    if (sync) {
+        debug_log("mp dump: sync tick=%u rand=%u world=%llu actor=%llu p0=(%.2f,%.2f) p1=(%.2f,%.2f)",
+                  static_cast<unsigned>(sync->tick),
+                  static_cast<unsigned>(sync->random_state),
+                  static_cast<unsigned long long>(sync->world_checksum),
+                  static_cast<unsigned long long>(sync->actor_checksum),
+                  static_cast<double>(sync->p0_x),
+                  static_cast<double>(sync->p0_y),
+                  static_cast<double>(sync->p1_x),
+                  static_cast<double>(sync->p1_y));
+    }
+
+    struct Digest {
+        uint32_t kind_id = 0;
+        std::string kind;
+        uint32_t object_id = 0;
+        int owner = -1;
+        int controllers = 0;
+        int color = -1;
+        int64_t x = 0;
+        int64_t y = 0;
+        int64_t vx = 0;
+        int64_t vy = 0;
+        std::string name;
+    };
+    std::vector<Digest> digs;
+    std::vector<Actor *> actors;
+    GetActors(actors);
+    digs.reserve(actors.size());
+    for (Actor *a : actors) {
+        if (!a)
+            continue;
+        Digest d;
+        d.kind_id = static_cast<uint32_t>(get_id(a));
+        d.kind = a->getKind();
+        d.object_id = static_cast<uint32_t>(a->getId());
+        Value owner = a->getAttr("owner");
+        if (owner.getType() != Value::NIL)
+            d.owner = static_cast<int>(owner);
+        d.controllers = a->get_controllers();
+        Value color = a->getAttr("color");
+        if (color.getType() != Value::NIL)
+            d.color = static_cast<int>(color);
+        Value name = a->getAttr("name");
+        if (name.getType() == Value::STRING)
+            d.name = name.get_string();
+        const ecl::V2 &pos = a->get_pos();
+        const ecl::V2 &vel = a->get_vel();
+        d.x = quantize_for_dump(pos[0]);
+        d.y = quantize_for_dump(pos[1]);
+        d.vx = quantize_for_dump(vel[0]);
+        d.vy = quantize_for_dump(vel[1]);
+        digs.push_back(d);
+    }
+    std::sort(digs.begin(), digs.end(), [](const Digest &a, const Digest &b) {
+        if (a.kind_id != b.kind_id)
+            return a.kind_id < b.kind_id;
+        if (a.owner != b.owner)
+            return a.owner < b.owner;
+        if (a.controllers != b.controllers)
+            return a.controllers < b.controllers;
+        if (a.color != b.color)
+            return a.color < b.color;
+        if (a.x != b.x)
+            return a.x < b.x;
+        if (a.y != b.y)
+            return a.y < b.y;
+        if (a.vx != b.vx)
+            return a.vx < b.vx;
+        if (a.vy != b.vy)
+            return a.vy < b.vy;
+        if (a.name != b.name)
+            return a.name < b.name;
+        if (a.kind != b.kind)
+            return a.kind < b.kind;
+        return a.object_id < b.object_id;
+    });
+
+    debug_log("mp dump: actors=%u", static_cast<unsigned>(digs.size()));
+    for (const auto &d : digs) {
+        debug_log("mp dump: actor kind_id=%u kind=%s obj=%u owner=%d ctrl=%d color=%d name=%s pos=%lld,%lld vel=%lld,%lld",
+                  static_cast<unsigned>(d.kind_id),
+                  d.kind.c_str(),
+                  static_cast<unsigned>(d.object_id),
+                  d.owner,
+                  d.controllers,
+                  d.color,
+                  d.name.c_str(),
+                  static_cast<long long>(d.x),
+                  static_cast<long long>(d.y),
+                  static_cast<long long>(d.vx),
+                  static_cast<long long>(d.vy));
+    }
+}
+
+Actor *sync_reference_actor(unsigned player) {
+    // The legacy engine defines "main actor" as the first actor in the player's
+    // actor list. For authored multi-ball levels (e.g. meditation pearls) that
+    // ordering can differ across peers even when the physical state matches,
+    // which would cause spurious position mismatches in sync packets.
+    //
+    // Pick a deterministic steerable actor controlled by this player instead.
+    std::vector<Actor *> actors;
+    GetActors(actors);
+    Actor *best = nullptr;
+    for (Actor *a : actors) {
+        if (!a || !a->isSteerable())
+            continue;
+        if (!a->controlled_by(static_cast<int>(player)))
+            continue;
+        if (!best) {
+            best = a;
+            continue;
+        }
+        const ecl::V2 &pa = a->get_pos();
+        const ecl::V2 &pb = best->get_pos();
+        auto qa0 = static_cast<int64_t>(std::llround(pa[0] * 1000.0));
+        auto qa1 = static_cast<int64_t>(std::llround(pa[1] * 1000.0));
+        auto qb0 = static_cast<int64_t>(std::llround(pb[0] * 1000.0));
+        auto qb1 = static_cast<int64_t>(std::llround(pb[1] * 1000.0));
+        if (qa1 != qb1)
+            best = (qa1 < qb1) ? a : best;
+        else if (qa0 != qb0)
+            best = (qa0 < qb0) ? a : best;
+        else if (a->getKind() < best->getKind())
+            best = a;
+    }
+    if (best)
+        return best;
+    return player::GetMainActor(player);
+}
+
+}  // namespace
+
+namespace {
+
+void apply_resync_metadata(Actor *actor, Uint16 owner, Uint32 controllers, Uint16 color) {
+    if (!actor)
+        return;
+    if (owner != 0xFFFF)
+        actor->setAttr("owner", Value(static_cast<int>(owner)));
+
+    actor->setAttr("controllers", Value(static_cast<int>(controllers)));
+
+    if (color != 0xFFFF)
+        actor->setAttr("color", Value(static_cast<int>(color)));
+}
+
+}  // namespace
+
 void send_sync_to_peers() {
     if (!g_session.host || !has_remote_peers())
         return;
@@ -53,8 +292,8 @@ void send_sync_to_peers() {
     sync.epoch = g_session.input_epoch;
     sync.tick = input::CurrentTick();
     sync.random_state = server::RandomState;
-    Actor *p0 = player::GetMainActor(0);
-    Actor *p1 = player::GetMainActor(1);
+    Actor *p0 = sync_reference_actor(0);
+    Actor *p1 = sync_reference_actor(1);
     sync.p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     sync.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sync.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
@@ -73,6 +312,9 @@ void send_resync_request() {
     protocol::ResyncRequest req;
     req.epoch = g_session.input_epoch;
     req.tick = input::CurrentTick();
+    debug_log("mp resync request: tick=%u attempt=%u via=%s", req.tick,
+              static_cast<unsigned>(g_session.resync_attempts + 1),
+              transport_name(g_session.active_transport));
     ecl::Buffer buf;
     protocol::encode_resync_request(buf, req);
     g_transport.ClientSend(buf);
@@ -96,6 +338,13 @@ protocol::ResyncState build_resync_state_snapshot() {
             entry.owner = static_cast<Uint16>(static_cast<int>(owner));
         else
             entry.owner = static_cast<Uint16>(0xFFFF);
+        entry.controllers = static_cast<Uint32>(actor->get_controllers());
+        Value color = actor->getAttr("color");
+        if (color.getType() != Value::NIL)
+            entry.color = static_cast<Uint16>(static_cast<int>(color));
+        else
+            entry.color = static_cast<Uint16>(0xFFFF);
+        entry.name_hash = stable_name_hash(actor);
         entry.x = static_cast<float>(actor->get_pos()[0]);
         entry.y = static_cast<float>(actor->get_pos()[1]);
         entry.vx = static_cast<float>(actor->get_vel()[0]);
@@ -120,6 +369,7 @@ void update_checksum_sample_world(uint32_t tick, uint64_t world_checksum) {
 void send_resync_state(ENetPeer *peer) {
     if (!peer)
         return;
+    dump_actor_digest_once("host_send_resync_state_direct", input::CurrentTick(), nullptr);
     protocol::ResyncState state = build_resync_state_snapshot();
     ecl::Buffer buf;
     protocol::encode_resync_state(buf, state);
@@ -129,6 +379,7 @@ void send_resync_state(ENetPeer *peer) {
 void send_resync_state_to_relay(Uint32 client_id) {
     if (!g_session.relay_peer)
         return;
+    dump_actor_digest_once("host_send_resync_state_udp_relay", input::CurrentTick(), nullptr);
     protocol::ResyncState state = build_resync_state_snapshot();
     ecl::Buffer buf;
     protocol::encode_resync_state(buf, state);
@@ -138,6 +389,7 @@ void send_resync_state_to_relay(Uint32 client_id) {
 void send_resync_state_to_tcp_relay(Uint32 client_id) {
     if (!tcp_socket_valid(g_session.tcp_relay_socket))
         return;
+    dump_actor_digest_once("host_send_resync_state_tcp_relay", input::CurrentTick(), nullptr);
     protocol::ResyncState state = build_resync_state_snapshot();
     ecl::Buffer buf;
     protocol::encode_resync_state(buf, state);
@@ -149,14 +401,25 @@ void apply_resync_state(const protocol::ResyncState &state) {
         return;
     if (state.epoch != g_session.input_epoch)
         return;
+    uint32_t local_tick = input::CurrentTick();
+    uint32_t delta_ticks = (local_tick > state.tick) ? (local_tick - state.tick) : 0;
+    // Resync snapshots can arrive a few ticks late, but velocity projection is
+    // unreliable in high-acceleration physics (rubberbands, collisions) and
+    // tends to amplify post-resync divergence. Apply snapshots as-is.
+    float dt = 0.0f;
+    if (debug_enabled())
+        debug_log("mp resync recv: state tick=%u local tick=%u delta=%u actors=%u", state.tick,
+                  local_tick, delta_ticks, static_cast<unsigned>(state.actors.size()));
     server::RandomState = state.random_state;
 
-    std::unordered_map<Uint32, Actor *> by_id;
+    std::unordered_map<Uint32, Actor *> by_object_id;
     std::vector<Actor *> actors;
     GetActors(actors);
-    by_id.reserve(actors.size());
+    by_object_id.reserve(actors.size());
     for (Actor *actor : actors)
-        by_id[static_cast<Uint32>(actor->getId())] = actor;
+        by_object_id[static_cast<Uint32>(actor->getId())] = actor;
+    std::unordered_map<Actor *, bool> used;
+    used.reserve(actors.size());
 
     // Applying a resync snapshot must not trigger gameplay side-effects like
     // floor/item enter/leave callbacks (which can diverge further across peers).
@@ -179,53 +442,249 @@ void apply_resync_state(const protocol::ResyncState &state) {
     };
 
     unsigned applied = 0;
+    unsigned object_id_matches = 0;
     float max_pos_delta = 0.0f;
+    // First, apply by object_id when possible (best fidelity).
     for (const auto &entry : state.actors) {
-        Actor *actor = nullptr;
-        auto it = by_id.find(entry.object_id);
-        if (it != by_id.end()) {
-            actor = it->second;
-        } else {
-            int desired_owner = (entry.owner == 0xFFFF) ? -1 : static_cast<int>(entry.owner);
-            for (Actor *candidate : actors) {
-                if (get_id(candidate) == entry.actor_id) {
-                    Value owner = candidate->getAttr("owner");
-                    int candidate_owner = (owner.getType() != Value::NIL) ? static_cast<int>(owner)
-                                                                          : -1;
-                    if (candidate_owner == desired_owner) {
-                        actor = candidate;
-                        break;
-                    }
-                }
-            }
-            if (!actor) {
-                for (Actor *candidate : actors) {
-                    if (get_id(candidate) == entry.actor_id) {
-                        actor = candidate;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!actor)
+        auto it = by_object_id.find(entry.object_id);
+        if (it == by_object_id.end())
             continue;
+        Actor *actor = it->second;
+        if (!actor || used[actor])
+            continue;
+        float x = entry.x + entry.vx * dt;
+        float y = entry.y + entry.vy * dt;
         ActorInfo *ai = actor->get_actorinfo();
-        float dx = static_cast<float>(ai->pos[0]) - entry.x;
-        float dy = static_cast<float>(ai->pos[1]) - entry.y;
+        float dx = static_cast<float>(ai->pos[0]) - x;
+        float dy = static_cast<float>(ai->pos[1]) - y;
         float d = std::sqrt(dx * dx + dy * dy);
         if (d > max_pos_delta)
             max_pos_delta = d;
-        resync_teleport(actor, entry.x, entry.y, entry.vx, entry.vy);
+        resync_teleport(actor, x, y, entry.vx, entry.vy);
+        apply_resync_metadata(actor, entry.owner, entry.controllers, entry.color);
+        used[actor] = true;
         applied += 1;
+        object_id_matches += 1;
+    }
+
+    // For the remaining entries, match by (kind, owner, position) instead of
+    // object_id. This avoids fragile resync mapping in levels with multiple
+    // identical marbles (e.g. meditation) where object ids can diverge across
+    // peers due to non-deterministic scripting/creation order.
+    std::vector<uint8_t> snap_used(state.actors.size(), 0);
+    std::vector<size_t> remaining_snaps;
+    remaining_snaps.reserve(state.actors.size());
+    for (size_t i = 0; i < state.actors.size(); ++i) {
+        const auto &entry = state.actors[i];
+        auto it = by_object_id.find(entry.object_id);
+        if (it != by_object_id.end()) {
+            Actor *actor = it->second;
+            if (actor && used[actor]) {
+                snap_used[i] = 1;
+                continue;
+            }
+        }
+        remaining_snaps.push_back(i);
+    }
+
+    // Pass 0: match by stable name hash when available (best effort for scripted
+    // multi-ball levels where object ids can differ across peers).
+    if (!remaining_snaps.empty()) {
+        std::unordered_map<uint64_t, std::vector<Actor *>> local_by_name;
+        local_by_name.reserve(actors.size());
+        for (Actor *a : actors) {
+            if (!a || used[a])
+                continue;
+            uint32_t nh = stable_name_hash(a);
+            if (!nh)
+                continue;
+            uint16_t kind = static_cast<uint16_t>(get_id(a));
+            uint64_t key = (static_cast<uint64_t>(kind) << 32) | static_cast<uint64_t>(nh);
+            local_by_name[key].push_back(a);
+        }
+
+        for (size_t idx : remaining_snaps) {
+            if (snap_used[idx])
+                continue;
+            const auto &s = state.actors[idx];
+            if (!s.name_hash)
+                continue;
+            uint64_t key = (static_cast<uint64_t>(s.actor_id) << 32) | static_cast<uint64_t>(s.name_hash);
+            auto it = local_by_name.find(key);
+            if (it == local_by_name.end() || it->second.empty())
+                continue;
+
+            // Choose the closest remaining actor to the snapshot position.
+            Actor *best = nullptr;
+            double best_d2 = 0.0;
+            for (Actor *cand : it->second) {
+                if (!cand || used[cand])
+                    continue;
+                const ecl::V2 &p = cand->get_pos();
+                double dx = static_cast<double>(p[0]) - static_cast<double>(s.x);
+                double dy = static_cast<double>(p[1]) - static_cast<double>(s.y);
+                double d2 = dx * dx + dy * dy;
+                if (!best || d2 < best_d2) {
+                    best = cand;
+                    best_d2 = d2;
+                }
+            }
+            if (!best)
+                continue;
+            float x = s.x + s.vx * dt;
+            float y = s.y + s.vy * dt;
+            ActorInfo *ai = best->get_actorinfo();
+            float dx = static_cast<float>(ai->pos[0]) - x;
+            float dy = static_cast<float>(ai->pos[1]) - y;
+            float d = std::sqrt(dx * dx + dy * dy);
+            if (d > max_pos_delta)
+                max_pos_delta = d;
+            resync_teleport(best, x, y, s.vx, s.vy);
+            apply_resync_metadata(best, s.owner, s.controllers, s.color);
+            used[best] = true;
+            snap_used[idx] = 1;
+            applied += 1;
+        }
+
+        // Rebuild remaining_snaps to exclude those already matched by name.
+        std::vector<size_t> tmp;
+        tmp.reserve(remaining_snaps.size());
+        for (size_t idx : remaining_snaps) {
+            if (!snap_used[idx])
+                tmp.push_back(idx);
+        }
+        remaining_snaps.swap(tmp);
+    }
+
+    auto local_owner = [](Actor *a) -> int {
+        Value owner = a->getAttr("owner");
+        if (owner.getType() != Value::NIL)
+            return static_cast<int>(owner);
+        return -1;
+    };
+
+    auto match_groups = [&](bool include_owner) -> unsigned {
+        std::unordered_map<uint32_t, std::vector<size_t>> snap_groups;
+        std::unordered_map<uint32_t, std::vector<Actor *>> local_groups;
+        snap_groups.reserve(remaining_snaps.size());
+        local_groups.reserve(actors.size());
+
+        auto make_key = [&](Uint16 kind, int owner) -> uint32_t {
+            if (!include_owner)
+                return static_cast<uint32_t>(kind);
+            uint32_t o = static_cast<uint32_t>(owner + 1);
+            if (o > 0xFFFFu)
+                o = 0xFFFFu;
+            return (static_cast<uint32_t>(kind) << 16) | o;
+        };
+
+        for (size_t idx : remaining_snaps) {
+            if (snap_used[idx])
+                continue;
+            const auto &s = state.actors[idx];
+            int owner = (s.owner == 0xFFFF) ? -1 : static_cast<int>(s.owner);
+            snap_groups[make_key(s.actor_id, owner)].push_back(idx);
+        }
+        for (Actor *a : actors) {
+            if (!a || used[a])
+                continue;
+            int owner = local_owner(a);
+            uint16_t kind = static_cast<uint16_t>(get_id(a));
+            local_groups[make_key(kind, owner)].push_back(a);
+        }
+
+        auto sort_snap = [&](size_t ai, size_t bi) {
+            const auto &a = state.actors[ai];
+            const auto &b = state.actors[bi];
+            if (a.x != b.x)
+                return a.x < b.x;
+            return a.y < b.y;
+        };
+        auto sort_local = [&](const Actor *a, const Actor *b) {
+            const ecl::V2 &pa = a->get_pos();
+            const ecl::V2 &pb = b->get_pos();
+            if (pa[0] != pb[0])
+                return pa[0] < pb[0];
+            return pa[1] < pb[1];
+        };
+
+        unsigned matched = 0;
+        for (auto &kv : snap_groups) {
+            auto it_local = local_groups.find(kv.first);
+            if (it_local == local_groups.end())
+                continue;
+            auto &snap_list = kv.second;
+            auto &local_list = it_local->second;
+            if (snap_list.empty() || local_list.empty())
+                continue;
+            std::sort(snap_list.begin(), snap_list.end(), sort_snap);
+            std::sort(local_list.begin(), local_list.end(), sort_local);
+            size_t n = std::min(snap_list.size(), local_list.size());
+            for (size_t i = 0; i < n; ++i) {
+                size_t snap_idx = snap_list[i];
+                Actor *actor = local_list[i];
+                if (!actor || used[actor] || snap_used[snap_idx])
+                    continue;
+                const auto &s = state.actors[snap_idx];
+                float x = s.x + s.vx * dt;
+                float y = s.y + s.vy * dt;
+                ActorInfo *ai = actor->get_actorinfo();
+                float dx = static_cast<float>(ai->pos[0]) - x;
+                float dy = static_cast<float>(ai->pos[1]) - y;
+                float d = std::sqrt(dx * dx + dy * dy);
+                if (d > max_pos_delta)
+                    max_pos_delta = d;
+                resync_teleport(actor, x, y, s.vx, s.vy);
+                apply_resync_metadata(actor, s.owner, s.controllers, s.color);
+                used[actor] = true;
+                snap_used[snap_idx] = 1;
+                applied += 1;
+                matched += 1;
+            }
+        }
+        return matched;
+    };
+
+    unsigned matched_by_group = 0;
+    // Pass 1: match by (kind, owner) when possible.
+    matched_by_group += match_groups(true);
+    // Pass 2: match by kind only for remaining (ownerless / ambiguous) actors.
+    // Rebuild remaining_snaps to exclude those already matched.
+    if (!remaining_snaps.empty()) {
+        std::vector<size_t> tmp;
+        tmp.reserve(remaining_snaps.size());
+        for (size_t idx : remaining_snaps) {
+            if (!snap_used[idx])
+                tmp.push_back(idx);
+        }
+        remaining_snaps.swap(tmp);
+    }
+    if (!remaining_snaps.empty())
+        matched_by_group += match_groups(false);
+    // Rubberband "violation" flags can diverge across peers and then keep
+    // applying different forces even after actor positions are snapped. After
+    // teleporting, recompute these flags from the current anchor positions to
+    // reduce persistent post-resync drift in meditation levels.
+    std::vector<Rubberband *> rubbers;
+    GetRubberbands(rubbers);
+    for (Rubberband *rb : rubbers) {
+        if (!rb)
+            continue;
+        SendMessage(rb, "_mp_resync_flags");
     }
     if (debug_enabled())
-        debug_log("mp resync applied: actors=%u max_pos_delta=%.3f", applied,
+        debug_log("mp resync applied: actors=%u (obj_id=%u group=%u) max_pos_delta=%.3f",
+                  applied, object_id_matches, matched_by_group,
                   static_cast<double>(max_pos_delta));
 
+    // Mark the resync response as received. Do NOT reset attempts here: if the
+    // resync does not actually fix the divergence, resetting attempts would
+    // cause endless "jumpy" re-resync loops and prevent reaching the "failed
+    // resync" user-facing warning.
     g_session.resync_inflight = false;
-    g_session.resync_cooldown = 0.0;
-    g_session.resync_attempts = 0;
-    g_session.desync_reported = false;
+    g_session.resync_inflight_timer = 0.0;
+    g_session.resync_cooldown = kResyncCooldown;
+    g_session.desync_streak = 0;
     record_checksum_sample();
 }
 
@@ -361,8 +820,8 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
                   static_cast<unsigned long long>(local_actor_checksum),
                   static_cast<unsigned long long>(sync.actor_checksum));
     }
-    Actor *p0 = player::GetMainActor(0);
-    Actor *p1 = player::GetMainActor(1);
+    Actor *p0 = sync_reference_actor(0);
+    Actor *p1 = sync_reference_actor(1);
     float p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     float p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     float p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
@@ -380,6 +839,8 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
                   sync.tick, static_cast<unsigned>(server::RandomState),
                   static_cast<unsigned>(sync.random_state), p0_x, p0_y, sync.p0_x, sync.p0_y,
                   p1_x, p1_y, sync.p1_x, sync.p1_y);
+        if (actor_mismatch || checksum_mismatch)
+            dump_actor_digest_once("sync_current_mismatch", sync.tick, &sync);
         if (!pos_mismatch && rand_mismatch && !checksum_mismatch && !actor_mismatch) {
             server::RandomState = sync.random_state;
             debug_log("mp rng resynced to %u", static_cast<unsigned>(sync.random_state));
@@ -387,10 +848,19 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
         }
     }
 
-    if (checksum_mismatch || actor_mismatch || pos_mismatch) {
-        if (!g_session.resync_inflight && g_session.resync_cooldown <= 0.0) {
+    // Actor/world checksums can diverge due to harmless platform floating-point
+    // drift in physics-heavy levels. Drive recovery from position/RNG mismatch,
+    // and keep checksums for diagnostics only.
+    bool want_resync = pos_mismatch || rand_mismatch;
+    if (want_resync) {
+        g_session.desync_streak += 1;
+        if (g_session.desync_streak < kDesyncStreakForResync)
+            return;
+        if (g_session.resync_attempts < kResyncMaxAttempts && !g_session.resync_inflight &&
+            g_session.resync_cooldown <= 0.0) {
             send_resync_request();
             g_session.resync_inflight = true;
+            g_session.resync_inflight_timer = 0.0;
             g_session.resync_attempts += 1;
             g_session.resync_cooldown = kResyncCooldown;
         }
@@ -401,6 +871,8 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
     } else {
         g_session.resync_attempts = 0;
         g_session.resync_inflight = false;
+        g_session.resync_inflight_timer = 0.0;
+        g_session.desync_streak = 0;
     }
 }
 
@@ -441,12 +913,22 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
                   static_cast<unsigned>(sync.random_state),
                   sample.p0_x, sample.p0_y, sync.p0_x, sync.p0_y,
                   sample.p1_x, sample.p1_y, sync.p1_x, sync.p1_y);
+        if (actor_mismatch || checksum_mismatch)
+            dump_actor_digest_once("sync_sample_mismatch", sync.tick, &sync);
     }
 
-    if (checksum_mismatch || actor_mismatch || pos_mismatch || rand_mismatch) {
-        if (!g_session.resync_inflight && g_session.resync_cooldown <= 0.0) {
+    // Actor checksums are useful diagnostics but too sensitive to drive recovery
+    // on their own, especially in physics-heavy scenes.
+    bool want_resync = pos_mismatch || rand_mismatch;
+    if (want_resync) {
+        g_session.desync_streak += 1;
+        if (g_session.desync_streak < kDesyncStreakForResync)
+            return;
+        if (g_session.resync_attempts < kResyncMaxAttempts && !g_session.resync_inflight &&
+            g_session.resync_cooldown <= 0.0) {
             send_resync_request();
             g_session.resync_inflight = true;
+            g_session.resync_inflight_timer = 0.0;
             g_session.resync_attempts += 1;
             g_session.resync_cooldown = kResyncCooldown;
         }
@@ -457,6 +939,8 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
     } else {
         g_session.resync_attempts = 0;
         g_session.resync_inflight = false;
+        g_session.resync_inflight_timer = 0.0;
+        g_session.desync_streak = 0;
     }
 }
 
@@ -469,8 +953,8 @@ void record_checksum_sample() {
     sample.world_checksum = 0;
     sample.world_valid = false;
     sample.random_state = server::RandomState;
-    Actor *p0 = player::GetMainActor(0);
-    Actor *p1 = player::GetMainActor(1);
+    Actor *p0 = sync_reference_actor(0);
+    Actor *p1 = sync_reference_actor(1);
     sample.p0_x = p0 ? static_cast<float>(p0->get_pos()[0]) : 0.0f;
     sample.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sample.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;

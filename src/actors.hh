@@ -187,8 +187,9 @@ public:
     double get_mouseforce() const { return adhesion; }
 
     bool controlled_by(int player) const {
-        if ((get_controllers() & (1 << player)) != 0)
-            return true;
+        const int ctr = get_controllers();
+        if (ctr != 0)
+            return (ctr & (1 << player)) != 0;
         Value color = getAttr("color");
         if (color.getType() != Value::NIL && static_cast<int>(color) == player)
             return true;
