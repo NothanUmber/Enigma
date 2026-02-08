@@ -48,7 +48,9 @@ constexpr Uint16 kLobbyPort = 12346;
 constexpr Uint16 kGamePort = 12345;
 constexpr Uint16 kInternetLobbyPort = 12347;
 constexpr double kAnnounceInterval = 0.5;
-constexpr double kPeerTimeout = 2.0;
+// Drop peers from the LAN lobby after a short absence of announces. Keep this
+// tolerant enough for WiFi/VM broadcast loss so the UI doesn't flicker.
+constexpr double kPeerTimeout = 5.0;
 constexpr uint32_t kInputDelay = 4;
 // TCP relay adds latency and jitter compared to direct/UDP. Use a larger input
 // delay to reduce "missing input" situations that otherwise force frequent
@@ -131,7 +133,9 @@ constexpr TcpSocket kInvalidTcpSocket = -1;
 
 struct LobbyPeerEntry {
     LobbyPeer peer;
-    double last_seen;
+    ENetAddress addr = {0, 0};  // last seen source address (for unicast announces)
+    double last_seen = 0.0;
+    double last_unicast_sent = 0.0;
 };
 
 struct LobbyState {

@@ -87,6 +87,8 @@ bool decode_hex(const std::string &text, ecl::Buffer &out) {
 void send_lobby_announce() {
     if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
         return;
+    // Username can change in Options; refresh before broadcasting.
+    ensure_lobby_identity();
     protocol::LobbyAnnounce msg;
     msg.id = g_lobby.local_id;
     msg.name = g_lobby.local_name;
@@ -96,9 +98,33 @@ void send_lobby_announce() {
     ecl::Buffer buf;
     protocol::encode_lobby_announce(buf, msg);
 
+    ENetBuffer eb;
+    eb.data = const_cast<char *>(buf.data());
+    eb.dataLength = buf.size();
+
     ENetAddress addr;
     addr.host = ENET_HOST_BROADCAST;
     addr.port = kLobbyPort;
+    enet_socket_send(g_lobby.socket, &addr, &eb, 1);
+}
+
+void send_lobby_announce_to(const ENetAddress &dst) {
+    if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
+        return;
+    // Username can change in Options; refresh before sending.
+    ensure_lobby_identity();
+
+    protocol::LobbyAnnounce msg;
+    msg.id = g_lobby.local_id;
+    msg.name = g_lobby.local_name;
+    msg.level_id = g_lobby.selected_level;
+    msg.player_count = static_cast<Uint8>(g_lobby.peers.size() + 1);
+
+    ecl::Buffer buf;
+    protocol::encode_lobby_announce(buf, msg);
+
+    ENetAddress addr = dst;
+    addr.port = kLobbyPort;  // announces are always listened for on the lobby port
     ENetBuffer eb;
     eb.data = const_cast<char *>(buf.data());
     eb.dataLength = buf.size();
@@ -129,13 +155,25 @@ void poll_lobby_socket() {
         if (protocol::decode_lobby_announce(buf, announce)) {
             if (announce.id == g_lobby.local_id)
                 continue;
+            // Some networks deliver broadcasts asymmetrically (or filter
+            // broadcast but allow unicast). If we heard a peer's announce,
+            // send a direct unicast announce back once so they can discover us
+            // even if they didn't receive our broadcast.
+            bool newly_seen = g_lobby.peers.find(announce.id) == g_lobby.peers.end();
             LobbyPeerEntry &entry = g_lobby.peers[announce.id];
             entry.peer.id = announce.id;
             entry.peer.name = announce.name;
             entry.peer.level_id = announce.level_id;
             entry.peer.address = ip;
             entry.peer.is_self = false;
+            entry.addr = src;
+            entry.addr.port = kLobbyPort;
             entry.last_seen = g_lobby.time;
+            if (newly_seen) {
+                debug_log("mp lobby: saw peer id=%s name=%s ip=%s (announce-back)",
+                          announce.id.c_str(), announce.name.c_str(), ip.c_str());
+                send_lobby_announce_to(src);
+            }
             continue;
         }
 
@@ -162,6 +200,23 @@ void cleanup_lobby_peers() {
             it = g_lobby.peers.erase(it);
         else
             ++it;
+    }
+}
+
+void send_unicast_announces() {
+    // Broadcast delivery can be flaky or asymmetric (notably across VMs). Once we
+    // know a peer's unicast address, also send announces directly to keep LAN
+    // discovery stable.
+    if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
+        return;
+    for (auto &kv : g_lobby.peers) {
+        LobbyPeerEntry &entry = kv.second;
+        if (entry.addr.host == 0)
+            continue;
+        if (g_lobby.time - entry.last_unicast_sent < kAnnounceInterval)
+            continue;
+        send_lobby_announce_to(entry.addr);
+        entry.last_unicast_sent = g_lobby.time;
     }
 }
 
@@ -227,6 +282,7 @@ void LobbyTick(double dtime) {
     if (g_lobby.announce_timer >= kAnnounceInterval) {
         g_lobby.announce_timer = 0.0;
         send_lobby_announce();
+        send_unicast_announces();
     }
     poll_lobby_socket();
     cleanup_lobby_peers();
@@ -236,6 +292,8 @@ std::vector<LobbyPeer> LobbyPeers() {
     std::vector<LobbyPeer> result;
     if (!g_lobby.active)
         return result;
+    // Username can change in Options; keep UI up to date.
+    ensure_lobby_identity();
     LobbyPeer self;
     self.id = g_lobby.local_id;
     self.name = g_lobby.local_name;

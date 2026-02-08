@@ -110,8 +110,10 @@ const char HSEP = '^';  // history separator (use character that user cannot use
 
 Client::Client()
 : m_state(cls_idle), m_state_before_teatime(cls_idle), m_levelname(),
-  m_hunt_against_time(0), m_cheater(false), m_user_input() {
+	  m_hunt_against_time(0), m_cheater(false), m_user_input() {
     m_ignore_mouse_movement = false;
+    m_ignore_mouse_movement_until_ticks = 0;
+    m_window_has_focus = true;
     m_network_host = 0;
 }
 
@@ -199,6 +201,38 @@ void Client::network_stop() {
 
 /* ---------- Event handling ---------- */
 
+void Client::warp_mouse_to_window_center_if_in_game() {
+    if (m_state != cls_game)
+        return;
+    const WindowSize ws = video_engine->ActiveWindowSize();
+    if (ws.width <= 0 || ws.height <= 0)
+        return;
+    SDL_WarpMouseInWindow(nullptr, ws.width / 2, ws.height / 2);
+}
+
+void Client::handle_focus_lost() {
+    m_window_has_focus = false;
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+}
+
+void Client::handle_focus_gained() {
+    m_window_has_focus = true;
+
+    // While a level runs, the OS/SDL can drop relative mouse mode on focus loss.
+    // Restore the desired state so mouse deltas behave consistently again.
+    if (m_state == cls_game) {
+        video_engine->SetInputGrab(!enigma::Nograb);
+        video_engine->HideMouse();
+        warp_mouse_to_window_center_if_in_game();
+    }
+
+    // SDL can deliver a burst of motion deltas accumulated while unfocused.
+    // Drop those and ignore motion briefly so the first tick after focus gain
+    // doesn't apply a large unintended "kick" in the physics.
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    m_ignore_mouse_movement_until_ticks = SDL_GetTicks() + 200;
+}
+
 void Client::handle_events() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -207,7 +241,12 @@ void Client::handle_events() {
         //       we need to add SDL_TEXTINPUT and SDL_TEXTEDITING here.
         case SDL_KEYDOWN: on_keydown(e); break;
         case SDL_MOUSEMOTION:
+            if (!m_window_has_focus)
+                break;
             if (m_ignore_mouse_movement)
+                break;
+            if (m_ignore_mouse_movement_until_ticks &&
+                SDL_GetTicks() < m_ignore_mouse_movement_until_ticks)
                 break;
             if (abs(e.motion.xrel) > 300 || abs(e.motion.yrel) > 300) {
                 fprintf(stderr, "mouse event with %i, %i\n", e.motion.xrel, e.motion.yrel);
@@ -228,10 +267,13 @@ void Client::handle_events() {
         case SDL_WINDOWEVENT: {
             update_mouse_button_state();
             if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                handle_focus_lost();
                 // TODO(SDL2): is this sthe right event? The old code had
                 // !video::IsFullScreen() as an additional check - necessary?
                 if (!multiplayer::IsActive())
                     show_menu(false);
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                handle_focus_gained();
             } else if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
                 display::RedrawAll(video_engine->GetScreen());
             }
@@ -254,8 +296,13 @@ void Client::handle_events_waiting_for_network_start() {
             app.bossKeyPressed = true;
             break;
         case SDL_WINDOWEVENT:
-            if (e.window.event == SDL_WINDOWEVENT_EXPOSED)
+            if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
                 draw_screen();
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                handle_focus_lost();
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                handle_focus_gained();
+            }
             break;
         default:
             // Ignore input while waiting: start is deferred and we don't want to
@@ -288,8 +335,13 @@ void Client::handle_events_multiplayer_paused() {
             break;
         }
         case SDL_WINDOWEVENT:
-            if (e.window.event == SDL_WINDOWEVENT_EXPOSED)
+            if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
                 draw_screen();
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                handle_focus_lost();
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                handle_focus_gained();
+            }
             break;
         default:
             break;
@@ -312,9 +364,12 @@ void Client::handle_events_teatime() {
         case SDL_WINDOWEVENT: {
             update_mouse_button_state();
             if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                handle_focus_lost();
                 // TODO(SDL2): is this sthe right event? The old code had
                 // !video::IsFullScreen() as an additional check - necessary?
                 show_menu(false);
+            } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                handle_focus_gained();
             } else if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
                 display::RedrawAll(video_engine->GetScreen());
             }

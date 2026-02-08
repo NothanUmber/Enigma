@@ -159,6 +159,9 @@ private:
     void on_keydown(SDL_Event &e);
     void on_mousebutton(SDL_Event &e);
     void update_mouse_button_state();
+    void warp_mouse_to_window_center_if_in_game();
+    void handle_focus_lost();
+    void handle_focus_gained();
 
     // Inventory & command line
     void rotate_inventory(int direction);
@@ -177,6 +180,8 @@ private:
     ClientState m_state;
     ClientState m_state_before_teatime;
     bool m_ignore_mouse_movement;
+    Uint32 m_ignore_mouse_movement_until_ticks = 0;
+    bool m_window_has_focus = true;
     std::string m_levelname;
     double m_timeaccu;
 
