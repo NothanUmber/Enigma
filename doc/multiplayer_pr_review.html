@@ -30,7 +30,7 @@ h1 { margin: 0 0 8px; }
 </style>
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
-<div class="small">Generated 2026-02-08 13:48:58. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD b3d58c03). Diff hash: <code>67691e032744</code>.</div>
+<div class="small">Generated 2026-02-08 13:59:29. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD b214da43). Diff hash: <code>3baf85662a88</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 
 
@@ -13089,7 +13089,7 @@ h1 { margin: 0 0 8px; }
 </div>
 <div class="diff">
 <div class="line meta"><span class="code">diff --git a/src/world.hh b/src/world.hh</span></div>
-<div class="line meta"><span class="code">index 0d83c3a6..d30cbd2c 100644</span></div>
+<div class="line meta"><span class="code">index 0d83c3a6..7b0e140a 100644</span></div>
 <div class="line meta"><span class="code">--- a/src/world.hh</span></div>
 <div class="line meta"><span class="code">+++ b/src/world.hh</span></div>
 <div class="line hunkhdr"><span class="code">@@ -31,6 +31,9 @@</span></div>
@@ -13128,6 +13128,20 @@ h1 { margin: 0 0 8px; }
 <div class="line ctx"><span class="ln old">190</span><span class="ln new">198</span><span class="code"></span></div>
 <div class="line ctx"><span class="ln old">191</span><span class="ln new">199</span><span class="code">/* -------------------- Meditation Control ---------------------- */</span></div>
 <div class="line ctx"><span class="ln old">192</span><span class="ln new">200</span><span class="code"></span></div>
+<div class="line hunkhdr"><span class="code">@@ -200,6 +208,13 @@ void AddScramble(GridPos p, Direction d);</span></div>
+<div class="line ctx"><span class="ln old">200</span><span class="ln new">208</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">201</span><span class="ln new">209</span><span class="code">/* -------------------- Signals &amp; Messages -------------------- */</span></div>
+<div class="line ctx"><span class="ln old">202</span><span class="ln new">210</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">211</span><span class="code">// On Windows, &lt;windows.h&gt; defines SendMessage as a macro expanding to</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">212</span><span class="code">// SendMessageA/W. That macro can accidentally rewrite Enigma&#x27;s SendMessage</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">213</span><span class="code">// declarations/usages and cause link errors. We do not use the WinAPI macro.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">214</span><span class="code">#ifdef SendMessage</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">215</span><span class="code">#undef SendMessage</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">216</span><span class="code">#endif</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">217</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">203</span><span class="ln new">218</span><span class="code">// just for Oxyd and old API compatibility</span></div>
+<div class="line ctx"><span class="ln old">204</span><span class="ln new">219</span><span class="code">void AddSignal(const GridLoc &amp;src, const GridLoc &amp;dst, const std::string &amp;msg);</span></div>
+<div class="line ctx"><span class="ln old">205</span><span class="ln new">220</span><span class="code"></span></div>
 </div>
 </div>
 <div class="section" id="src_world_internal_hh">

@@ -208,6 +208,13 @@ void AddScramble(GridPos p, Direction d);
 
 /* -------------------- Signals & Messages -------------------- */
 
+// On Windows, <windows.h> defines SendMessage as a macro expanding to
+// SendMessageA/W. That macro can accidentally rewrite Enigma's SendMessage
+// declarations/usages and cause link errors. We do not use the WinAPI macro.
+#ifdef SendMessage
+#undef SendMessage
+#endif
+
 // just for Oxyd and old API compatibility
 void AddSignal(const GridLoc &src, const GridLoc &dst, const std::string &msg);
 
