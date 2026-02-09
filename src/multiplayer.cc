@@ -21,6 +21,10 @@ unsigned ExpectedPlayers() {
     return internal::SessionExpectedPlayers();
 }
 
+bool HasRemotePeers() {
+    return internal::SessionHasRemotePeers();
+}
+
 bool ShouldDeferStart() {
     return internal::SessionShouldDeferStart();
 }

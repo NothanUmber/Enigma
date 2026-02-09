@@ -8,6 +8,7 @@ bool IsActive();
 bool IsHost();
 unsigned LocalPlayer();
 unsigned ExpectedPlayers();
+bool HasRemotePeers();
 void PrimeInputQueueForNewLevel();
 void PrepareExtraActors();
 void SetupExtraPlayerStartPositions();

@@ -74,6 +74,12 @@ bool has_remote_peers() {
            !g_session.tcp_relay_players.empty();
 }
 
+bool SessionHasRemotePeers() {
+    if (!g_session.active)
+        return false;
+    return has_remote_peers();
+}
+
 bool can_accept_more_remote_players() {
     return g_session.next_player_id < g_session.expected_players;
 }

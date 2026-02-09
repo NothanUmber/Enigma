@@ -43,6 +43,7 @@ bool SessionIsActive();
 bool SessionIsHost();
 unsigned SessionLocalPlayer();
 unsigned SessionExpectedPlayers();
+bool SessionHasRemotePeers();
 TransportKind SessionActiveTransport();
 
 // While connecting/joining, peers must not advance the deterministic simulation. When this returns
