@@ -80,11 +80,59 @@ bool SessionHasRemotePeers() {
     return has_remote_peers();
 }
 
+unsigned SessionConnectedRemotePlayers() {
+    if (!g_session.active || !g_session.host)
+        return 0;
+    return static_cast<unsigned>(g_session.peer_players.size() + g_session.relay_players.size() +
+                                 g_session.tcp_relay_players.size());
+}
+
 bool can_accept_more_remote_players() {
-    return g_session.next_player_id < g_session.expected_players;
+    if (!g_session.host)
+        return false;
+    if (g_session.expected_players <= 1)
+        return false;
+    if (g_session.player_in_use.size() != g_session.expected_players)
+        return true;  // allocation will normalize
+    for (unsigned id = 1; id < g_session.expected_players; ++id) {
+        if (!g_session.player_in_use[id])
+            return true;
+    }
+    return false;
 }
 
 namespace {
+
+bool allocate_remote_player_id(unsigned &out_player_id) {
+    out_player_id = 0;
+    if (!g_session.host || g_session.expected_players <= 1)
+        return false;
+    if (g_session.player_in_use.size() != g_session.expected_players)
+        g_session.player_in_use.assign(g_session.expected_players, false);
+    if (g_session.player_in_use.empty())
+        return false;
+    g_session.player_in_use[0] = true;
+    for (unsigned id = 1; id < g_session.expected_players; ++id) {
+        if (!g_session.player_in_use[id]) {
+            g_session.player_in_use[id] = true;
+            out_player_id = id;
+            return true;
+        }
+    }
+    return false;
+}
+
+void release_remote_player_id(unsigned player_id) {
+    if (!g_session.host)
+        return;
+    if (player_id == 0)
+        return;
+    if (g_session.player_in_use.size() != g_session.expected_players)
+        return;
+    if (player_id >= g_session.player_in_use.size())
+        return;
+    g_session.player_in_use[player_id] = false;
+}
 
 bool lookup_remote_player(HostSource source, ENetPeer *peer, Uint32 relay_client_id,
                           unsigned &player_id) {
@@ -200,8 +248,24 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
                               Uint32 relay_client_id) {
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
-    if (!protocol::decode_ready(buf))
+    Uint32 session_id = 0;
+    Uint32 epoch = 0;
+    if (!protocol::decode_ready(buf, session_id, epoch))
         return false;
+    if (session_id != g_session.session_id) {
+        if (debug_enabled())
+            debug_log("mp host: drop ready (session mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(session_id),
+                      static_cast<unsigned>(g_session.session_id));
+        return true;
+    }
+    if (epoch != g_session.input_epoch) {
+        if (debug_enabled())
+            debug_log("mp host: drop ready (epoch mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(epoch),
+                      static_cast<unsigned>(g_session.input_epoch));
+        return true;
+    }
     unsigned player_id = 0;
     if (lookup_remote_player(source, peer, relay_client_id, player_id)) {
         debug_log("mp host: ready player=%u source=%s", player_id, host_source_name(source));
@@ -349,11 +413,11 @@ bool handle_client_welcome_packet(const char *data, size_t len) {
     debug_log("mp client: welcome player=%u expected=%u seed=%u", player_id, expected_players, seed);
     if (debug_enabled())
         debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
-    if (g_session.phase == SessionState::Phase::WAITING_FOR_READY && !g_session.local_ready_sent) {
-        send_ready_to_host();
-        g_session.local_ready_sent = true;
-        g_session.ready_timer = 0.0;
-    }
+    // Do not send READY here.
+    //
+    // READY must mean "level pack switched + level loaded, waiting for NET_START".
+    // If we send READY immediately after WELCOME, the host can start running while
+    // the client is still switching packs (or even failing to load the level).
     return true;
 }
 
@@ -507,7 +571,9 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
     if (!can_accept_more_remote_players())
         return false;
 
-    unsigned player_id = g_session.next_player_id++;
+    unsigned player_id = 0;
+    if (!allocate_remote_player_id(player_id))
+        return false;
     ecl::Buffer welcome;
     protocol::encode_welcome(welcome, static_cast<Uint8>(player_id),
                              static_cast<Uint8>(g_session.expected_players), g_session.seed);
@@ -535,9 +601,15 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
 
 bool host_unregister_relay_client(Uint32 client_id, HostSource source) {
     if (source == HostSource::UDP_RELAY) {
+        auto it = g_session.relay_players.find(client_id);
+        if (it != g_session.relay_players.end())
+            release_remote_player_id(it->second);
         g_session.relay_players.erase(client_id);
         g_session.relay_ready.erase(client_id);
     } else if (source == HostSource::TCP_RELAY) {
+        auto it = g_session.tcp_relay_players.find(client_id);
+        if (it != g_session.tcp_relay_players.end())
+            release_remote_player_id(it->second);
         g_session.tcp_relay_players.erase(client_id);
         g_session.tcp_relay_ready.erase(client_id);
     } else {
@@ -552,15 +624,58 @@ bool handle_direct_connect_event(ENetPeer *peer) {
     if (!g_session.host)
         return true;
     if (!can_accept_more_remote_players()) {
+        // During pre-start, allow retries: if an existing direct peer has not
+        // reached READY yet, drop it and accept the new connection attempt.
+        // This prevents LAN sessions getting stuck forever on a half-connected
+        // peer (common with VM/NAT/multi-homing quirks).
+        if (g_session.phase != SessionState::Phase::RUNNING) {
+            ENetPeer *replace = nullptr;
+            for (const auto &entry : g_session.peer_ready) {
+                if (!entry.second) {
+                    replace = entry.first;
+                    break;
+                }
+            }
+            if (replace) {
+                unsigned old_id = 0;
+                auto it = g_session.peer_players.find(replace);
+                if (it != g_session.peer_players.end())
+                    old_id = it->second;
+                if (debug_enabled()) {
+                    char rip[64];
+                    rip[0] = '\0';
+                    if (enet_address_get_host_ip(&replace->address, rip, sizeof(rip)) != 0)
+                        std::snprintf(rip, sizeof(rip), "<unknown>");
+                    debug_log("mp host: dropping unready peer player=%u ip=%s:%u (retry connect)",
+                              old_id, rip, static_cast<unsigned>(replace->address.port));
+                }
+                g_session.peer_players.erase(replace);
+                g_session.peer_ready.erase(replace);
+                release_remote_player_id(old_id);
+                enet_peer_reset(replace);
+            }
+        }
+        if (!can_accept_more_remote_players()) {
+            enet_peer_disconnect(peer, 0);
+            return true;
+        }
+    }
+
+    char host_ip[64];
+    host_ip[0] = '\0';
+    if (enet_address_get_host_ip(&peer->address, host_ip, sizeof(host_ip)) != 0)
+        std::snprintf(host_ip, sizeof(host_ip), "<unknown>");
+
+    unsigned player_id = 0;
+    if (!allocate_remote_player_id(player_id)) {
         enet_peer_disconnect(peer, 0);
         return true;
     }
-
-    unsigned player_id = g_session.next_player_id++;
     g_session.peer_players[peer] = player_id;
     g_session.peer_ready[peer] = false;
     peer->data = reinterpret_cast<void *>(static_cast<uintptr_t>(player_id));
-    debug_log("mp host: peer connected -> player %u", player_id);
+    debug_log("mp host: peer connected -> player %u ip=%s:%u", player_id, host_ip,
+              static_cast<unsigned>(peer->address.port));
 
     ecl::Buffer buf;
     protocol::encode_welcome(buf, static_cast<Uint8>(player_id),
@@ -680,7 +795,13 @@ void process_network_events() {
         }
         static bool handle_direct_disconnect_event_impl(ENetPeer *peer) {
             if (g_session.host) {
-                g_session.peer_players.erase(peer);
+                auto it = g_session.peer_players.find(peer);
+                if (it == g_session.peer_players.end()) {
+                    // Ignore disconnects for peers we already replaced/dropped.
+                    return true;
+                }
+                release_remote_player_id(it->second);
+                g_session.peer_players.erase(it);
                 g_session.peer_ready.erase(peer);
                 if (g_session.active)
                     return abort_session_with_message("Player disconnected. Ending session.");

@@ -29,9 +29,18 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <string>
 #include <vector>
+
+#ifdef WIN32
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#endif
 
 /* -------------------- Multiplayer LAN lobby -------------------- */
 /*
@@ -47,6 +56,70 @@ namespace multiplayer {
 namespace {
 
 using namespace internal;
+
+std::vector<std::string> local_ipv4_addresses() {
+    std::vector<std::string> out;
+#ifdef WIN32
+    // Best-effort: enumerate addresses via hostname resolution. This does not
+    // require extra link flags (unlike GetAdaptersAddresses()) and is good
+    // enough to provide additional candidates beyond the UDP sender IP.
+    char hostname[256];
+    hostname[0] = '\0';
+    if (gethostname(hostname, sizeof(hostname)) != 0)
+        return out;
+
+    addrinfo hints;
+    ::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+
+    addrinfo *res = nullptr;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0)
+        return out;
+    for (addrinfo *ai = res; ai; ai = ai->ai_next) {
+        if (!ai->ai_addr || ai->ai_family != AF_INET)
+            continue;
+        sockaddr_in *sin = reinterpret_cast<sockaddr_in *>(ai->ai_addr);
+        char buf[INET_ADDRSTRLEN] = {0};
+        if (!inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf)))
+            continue;
+        std::string ip(buf);
+        if (ip.empty())
+            continue;
+        // Filter loopback.
+        if (ip.rfind("127.", 0) == 0)
+            continue;
+        if (std::find(out.begin(), out.end(), ip) == out.end())
+            out.push_back(ip);
+    }
+    freeaddrinfo(res);
+    return out;
+#else
+    ifaddrs *ifas = nullptr;
+    if (getifaddrs(&ifas) != 0)
+        return out;
+    for (ifaddrs *ifa = ifas; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+            continue;
+        // Skip down interfaces and loopback.
+        if ((ifa->ifa_flags & IFF_UP) == 0)
+            continue;
+        if ((ifa->ifa_flags & IFF_LOOPBACK) != 0)
+            continue;
+        sockaddr_in *sin = reinterpret_cast<sockaddr_in *>(ifa->ifa_addr);
+        char buf[INET_ADDRSTRLEN] = {0};
+        if (!inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf)))
+            continue;
+        std::string ip(buf);
+        if (ip.empty())
+            continue;
+        if (std::find(out.begin(), out.end(), ip) == out.end())
+            out.push_back(ip);
+    }
+    freeifaddrs(ifas);
+    return out;
+#endif
+}
 
 std::string encode_hex(const char *data, size_t len) {
     static const char *hex = "0123456789ABCDEF";
@@ -202,6 +275,15 @@ void poll_lobby_socket() {
             auto it = g_lobby.peers.find(start.host_id);
             if (!ip.empty())
                 g_lobby.pending_host_ips.push_back(ip);
+            // Next, add any host-provided IP candidates.
+            for (const std::string &hip : start.host_ips) {
+                if (hip.empty())
+                    continue;
+                if (std::find(g_lobby.pending_host_ips.begin(), g_lobby.pending_host_ips.end(),
+                              hip) == g_lobby.pending_host_ips.end()) {
+                    g_lobby.pending_host_ips.push_back(hip);
+                }
+            }
             if (it != g_lobby.peers.end()) {
                 const std::string &announce_ip = it->second.peer.address;
                 if (!announce_ip.empty() &&
@@ -384,6 +466,9 @@ protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned exp
     start.session_id = session_id;
     start.level_id = level_id;
     start.pack_name = pack_name;
+    // Include a best-effort list of local IPv4s to help multi-homed peers find
+    // a working direct-connect route (VMs, VPNs, multiple NICs).
+    start.host_ips = local_ipv4_addresses();
     start.seed = seed;
     start.expected_players = static_cast<Uint8>(expected_players);
     start.host_port = kGamePort;
@@ -426,7 +511,10 @@ void LobbyBroadcastStart(const protocol::LobbyStart &start) {
 
 std::string EncodeStartToken(const protocol::LobbyStart &start) {
     ecl::Buffer buf;
-    protocol::encode_lobby_start(buf, start);
+    // Keep tokens stable and avoid embedding local interface IPs.
+    protocol::LobbyStart tmp = start;
+    tmp.host_ips.clear();
+    protocol::encode_lobby_start(buf, tmp);
     return encode_hex(buf.data(), buf.size());
 }
 

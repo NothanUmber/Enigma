@@ -755,9 +755,12 @@ void apply_resync_state(const protocol::ResyncState &state) {
 }
 
 void send_ready_to_host() {
-    debug_log("mp send ready via=%s", transport_name(g_session.active_transport));
+    debug_log("mp send ready via=%s session=%u epoch=%u",
+              transport_name(g_session.active_transport),
+              static_cast<unsigned>(g_session.session_id),
+              static_cast<unsigned>(g_session.input_epoch));
     ecl::Buffer buf;
-    protocol::encode_ready(buf);
+    protocol::encode_ready(buf, g_session.session_id, g_session.input_epoch);
     g_transport.ClientSend(buf);
 }
 

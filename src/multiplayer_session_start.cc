@@ -28,6 +28,8 @@
 #include "SDL.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -36,6 +38,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -80,6 +83,19 @@ void configure_input_session(unsigned expected_players) {
 
 namespace {
 
+void log_enet_socket_address(const char *tag, ENetHost *host) {
+    if (!debug_enabled() || !host)
+        return;
+    ENetAddress a;
+    if (enet_socket_get_address(host->socket, &a) != 0)
+        return;
+    char ipbuf[64];
+    ipbuf[0] = '\0';
+    if (enet_address_get_host_ip(&a, ipbuf, sizeof(ipbuf)) != 0)
+        std::snprintf(ipbuf, sizeof(ipbuf), "<unknown>");
+    debug_log("mp %s local=%s:%u", tag, ipbuf, static_cast<unsigned>(a.port));
+}
+
 struct ConnectStrategy {
     bool enabled;
     const char *disabled_log;
@@ -118,9 +134,97 @@ struct ClientJoinState {
     // TCP relay connect attempt state.
     addrinfo *tcp_addrs = nullptr;
     addrinfo *tcp_next = nullptr;
+
+    // Last ENet event observed during the current attempt (CONNECTING/WAIT_WELCOME).
+    int last_enet_event = -1;
 };
 
 ClientJoinState g_join;
+
+bool is_numeric_private_ipv4(const std::string &host) {
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(host.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) != 4)
+        return false;
+    if (a > 255 || b > 255 || c > 255 || d > 255)
+        return false;
+    return (a == 10) ||
+           (a == 172 && b >= 16 && b <= 31) ||
+           (a == 192 && b == 168) ||
+           (a == 127) ||
+           (a == 169 && b == 254);
+}
+
+bool should_bind_local_interface_for_enet(const std::string &host) {
+    // Binding a UDP socket to a specific local interface can improve behavior on
+    // multi-homed machines (VPNs), but it can also break in VM/NAT setups where
+    // the OS/network stack rewrites or routes differently than our probe expects.
+    // Default: do not bind for LAN/private targets; allow opting in via env var.
+    if (std::getenv("ENIGMA_MP_BIND_LOCAL") != nullptr)
+        return true;
+
+    auto ends_with = [](const std::string &s, const char *suffix) -> bool {
+        size_t n = std::strlen(suffix);
+        if (s.size() < n)
+            return false;
+        return s.compare(s.size() - n, n, suffix) == 0;
+    };
+
+    if (host == "localhost" || ends_with(host, ".local") || ends_with(host, ".localdomain"))
+        return false;
+    if (is_numeric_private_ipv4(host))
+        return false;
+    return true;
+}
+
+bool probe_local_bind_ipv4_for_remote(const std::string &remote_host, Uint16 remote_port,
+                                      std::string &out_local_ip) {
+    out_local_ip.clear();
+    if (remote_host.empty() || remote_port == 0)
+        return false;
+
+    addrinfo hints;
+    ::memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_family = AF_INET;
+
+    addrinfo *res = nullptr;
+    std::string port_str = std::to_string(static_cast<unsigned>(remote_port));
+    if (getaddrinfo(remote_host.c_str(), port_str.c_str(), &hints, &res) != 0)
+        return false;
+
+    bool ok = false;
+    for (addrinfo *ai = res; ai; ai = ai->ai_next) {
+        TcpSocket s = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (!tcp_socket_valid(s))
+            continue;
+        if (::connect(s, ai->ai_addr, static_cast<int>(ai->ai_addrlen)) != 0) {
+            tcp_close(s);
+            continue;
+        }
+
+        sockaddr_in local_addr;
+        ::memset(&local_addr, 0, sizeof(local_addr));
+#ifdef WIN32
+        int addr_len = static_cast<int>(sizeof(local_addr));
+#else
+        socklen_t addr_len = static_cast<socklen_t>(sizeof(local_addr));
+#endif
+        if (getsockname(s, reinterpret_cast<sockaddr *>(&local_addr), &addr_len) == 0) {
+            char ipbuf[INET_ADDRSTRLEN];
+            ipbuf[0] = '\0';
+            if (inet_ntop(AF_INET, &local_addr.sin_addr, ipbuf, sizeof(ipbuf)) != nullptr) {
+                out_local_ip = ipbuf;
+                ok = !out_local_ip.empty();
+            }
+        }
+        tcp_close(s);
+        if (ok)
+            break;
+    }
+
+    freeaddrinfo(res);
+    return ok;
+}
 
 void join_clear_network_state() {
     if (g_session.host_handle) {
@@ -151,6 +255,7 @@ void join_fail_current_attempt() {
     g_join.relay_connect = false;
     g_join.target_host.clear();
     g_join.target_port = 0;
+    g_join.last_enet_event = -1;
 }
 
 bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_connect,
@@ -159,17 +264,43 @@ bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_co
     g_join.relay_connect = relay_connect;
     g_join.target_host = host;
     g_join.target_port = port;
+    g_join.last_enet_event = -1;
 
-    g_session.host_handle = enet_host_create(nullptr, 1,
+    // On multi-homed systems, the OS may pick an unexpected source address for
+    // outgoing UDP if we bind to ENET_HOST_ANY. We can probe the route and bind
+    // ENet to that local interface, but do this only when it is expected to help
+    // (see should_bind_local_interface_for_enet()).
+    ENetAddress local_bind_addr;
+    ENetAddress *local_bind_ptr = nullptr;
+    std::string local_bind_ip;
+    if (should_bind_local_interface_for_enet(host)) {
+        if (probe_local_bind_ipv4_for_remote(host, port, local_bind_ip)) {
+            if (enet_address_set_host(&local_bind_addr, local_bind_ip.c_str()) == 0) {
+                local_bind_addr.port = 0;  // ephemeral
+                local_bind_ptr = &local_bind_addr;
+                if (debug_enabled())
+                    debug_log("mp client: bind %s for connect to %s:%u", local_bind_ip.c_str(),
+                              host.c_str(), static_cast<unsigned>(port));
+            }
+        }
+    }
+
+    g_session.host_handle = enet_host_create(local_bind_ptr, 1,
 #ifdef ENET_VER_EQ_GT_13
                                              2 /* channels */,
 #endif
                                              0, 0);
     if (g_session.host_handle == nullptr)
         return false;
+    log_enet_socket_address("client: enet socket", g_session.host_handle);
 
     ENetAddress addr;
-    enet_address_set_host(&addr, host.c_str());
+    if (enet_address_set_host(&addr, host.c_str()) != 0) {
+        if (debug_enabled())
+            debug_log("mp client: invalid host '%s'", host.c_str());
+        join_clear_network_state();
+        return false;
+    }
     addr.port = port;
     g_session.server_peer = enet_host_connect(g_session.host_handle, &addr, 2
 #ifdef ENET_VER_EQ_GT_13
@@ -272,6 +403,34 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
 }
 
 bool join_begin_next_attempt() {
+    auto direct_connect_timeout_ms_for_host = [](const std::string &host) -> Uint32 {
+        auto ends_with = [](const std::string &s, const char *suffix) -> bool {
+            size_t n = std::strlen(suffix);
+            if (s.size() < n)
+                return false;
+            return s.compare(s.size() - n, n, suffix) == 0;
+        };
+
+        if (host == "localhost" || ends_with(host, ".local") || ends_with(host, ".localdomain"))
+            return kDirectConnectTimeoutMsLan;
+
+        // If the host is a numeric IPv4, treat public addresses as "Internet" and
+        // use a short timeout so we fall back to relays quickly when NAT blocks.
+        unsigned a = 0, b = 0, c = 0, d = 0;
+        if (std::sscanf(host.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a <= 255 && b <= 255 &&
+            c <= 255 && d <= 255) {
+            const bool is_private =
+                (a == 10) ||
+                (a == 172 && b >= 16 && b <= 31) ||
+                (a == 192 && b == 168) ||
+                (a == 127) ||
+                (a == 169 && b == 254);
+            return is_private ? kDirectConnectTimeoutMsLan : kDirectConnectTimeoutMsInternet;
+        }
+
+        return kDirectConnectTimeoutMsLan;
+    };
+
     while (g_join.strategy_index < g_join.strategies.size()) {
         TransportKind kind = g_join.strategies[g_join.strategy_index];
         g_join.attempt_kind = kind;
@@ -284,8 +443,17 @@ bool join_begin_next_attempt() {
                 if (debug_enabled())
                     debug_log("mp client: connect %s:%u relay=0", host.c_str(),
                               static_cast<unsigned>(g_join.start.host_port));
+                Uint32 connect_timeout_ms = direct_connect_timeout_ms_for_host(host);
+                // If we have multiple host IP candidates (multi-homed/VPN/VM),
+                // cycle through them quickly. A long ENet connect timeout on a
+                // single unreachable interface makes LAN joins feel stuck.
+                if (g_join.host_ips.size() > 1 &&
+                    connect_timeout_ms == kDirectConnectTimeoutMsLan &&
+                    is_numeric_private_ipv4(host)) {
+                    connect_timeout_ms = 5000;
+                }
                 if (join_begin_enet_attempt(host, g_join.start.host_port, false,
-                                            kDirectConnectTimeoutMs,
+                                            connect_timeout_ms,
                                             kJoinTimeoutMs)) {
                     return true;
                 }
@@ -378,6 +546,9 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
     g_session.session_id = start.session_id;
     g_session.seed = start.seed;
     g_session.menu_open.assign(expected_players, false);
+    g_session.player_in_use.assign(expected_players, false);
+    if (is_host && expected_players > 0)
+        g_session.player_in_use[0] = true;
 
     enigma::Randomize(start.seed, true);
     configure_input_session(expected_players);
@@ -387,13 +558,26 @@ bool host_open_direct_listener(Uint16 port, unsigned expected_players) {
     ENetAddress address;
     address.host = ENET_HOST_ANY;
     address.port = port;
-    g_session.host_handle = enet_host_create(&address, expected_players - 1,
+    unsigned peer_capacity = 0;
+    if (expected_players > 1) {
+        // Allow a few extra peers so clients can retry with alternate host IPs
+        // without the host getting "stuck" on a half-connected attempt.
+        peer_capacity = std::max<unsigned>(expected_players - 1, 8);
+    }
+    g_session.host_handle = enet_host_create(&address, peer_capacity,
 #ifdef ENET_VER_EQ_GT_13
                                              2 /* channels */,
 #endif
                                              0, 0);
-    if (g_session.host_handle == nullptr)
+    if (g_session.host_handle == nullptr) {
+        if (debug_enabled())
+            debug_log("mp host: failed to open direct listener port=%u",
+                      static_cast<unsigned>(port));
         return false;
+    }
+    if (debug_enabled())
+        debug_log("mp host: direct listener port=%u", static_cast<unsigned>(port));
+    log_enet_socket_address("host: direct listener", g_session.host_handle);
     // Do not tweak ENet-managed sockets. ENet already configures non-blocking
     // mode and buffering; overriding this can break connect/handshake on some
     // platform builds.
@@ -505,16 +689,36 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
         g_session.host_handle = nullptr;
     }
     g_session.server_peer = nullptr;
-    g_session.host_handle = enet_host_create(nullptr, 1,
+    ENetAddress local_bind_addr;
+    ENetAddress *local_bind_ptr = nullptr;
+    std::string local_bind_ip;
+    if (probe_local_bind_ipv4_for_remote(target_host, target_port, local_bind_ip)) {
+        if (enet_address_set_host(&local_bind_addr, local_bind_ip.c_str()) == 0) {
+            local_bind_addr.port = 0;  // ephemeral
+            local_bind_ptr = &local_bind_addr;
+            if (debug_enabled())
+                debug_log("mp client: bind %s for connect to %s:%u", local_bind_ip.c_str(),
+                          target_host.c_str(), static_cast<unsigned>(target_port));
+        }
+    }
+
+    g_session.host_handle = enet_host_create(local_bind_ptr, 1,
 #ifdef ENET_VER_EQ_GT_13
                                              2 /* channels */,
 #endif
                                              0, 0);
     if (g_session.host_handle == nullptr)
         return false;
+    log_enet_socket_address("client: enet socket", g_session.host_handle);
 
     ENetAddress addr;
-    enet_address_set_host(&addr, target_host.c_str());
+    if (enet_address_set_host(&addr, target_host.c_str()) != 0) {
+        if (debug_enabled())
+            debug_log("mp client: invalid host '%s'", target_host.c_str());
+        enet_host_destroy(g_session.host_handle);
+        g_session.host_handle = nullptr;
+        return false;
+    }
     addr.port = target_port;
     g_session.server_peer = enet_host_connect(g_session.host_handle, &addr, 2
 #ifdef ENET_VER_EQ_GT_13
@@ -526,11 +730,12 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
         return false;
 
     ENetEvent event;
-    if (!(enet_host_service(g_session.host_handle, &event, connect_timeout_ms) > 0 &&
-          event.type == ENET_EVENT_TYPE_CONNECT)) {
+    const int serviced = enet_host_service(g_session.host_handle, &event, connect_timeout_ms);
+    if (!(serviced > 0 && event.type == ENET_EVENT_TYPE_CONNECT)) {
         if (debug_enabled())
-            debug_log("mp client: connect failed %s:%u", target_host.c_str(),
-                      static_cast<unsigned>(target_port));
+            debug_log("mp client: connect failed %s:%u service=%d event=%d", target_host.c_str(),
+                      static_cast<unsigned>(target_port), serviced,
+                      serviced > 0 ? static_cast<int>(event.type) : -1);
         enet_host_destroy(g_session.host_handle);
         g_session.host_handle = nullptr;
         g_session.server_peer = nullptr;
@@ -600,7 +805,19 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
 bool client_try_connect_direct(const protocol::LobbyStart &start, const std::string &host_ip) {
     // Keep the actual connect timeout short, but allow a longer welcome window
     // in case the host is still loading/binding when the client attempts to join.
-    return client_connect_and_wait_enet(host_ip, start.host_port, false, kDirectConnectTimeoutMs,
+    Uint32 connect_timeout_ms = kDirectConnectTimeoutMsLan;
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(host_ip.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a <= 255 && b <= 255 &&
+        c <= 255 && d <= 255) {
+        const bool is_private =
+            (a == 10) ||
+            (a == 172 && b >= 16 && b <= 31) ||
+            (a == 192 && b == 168) ||
+            (a == 127) ||
+            (a == 169 && b == 254);
+        connect_timeout_ms = is_private ? kDirectConnectTimeoutMsLan : kDirectConnectTimeoutMsInternet;
+    }
+    return client_connect_and_wait_enet(host_ip, start.host_port, false, connect_timeout_ms,
                                         kJoinTimeoutMs, start.session_id);
 }
 
@@ -953,8 +1170,22 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
 
     ENetEvent event;
     while (g_session.host_handle && enet_host_service(g_session.host_handle, &event, 0) > 0) {
+        g_join.last_enet_event = static_cast<int>(event.type);
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
             g_session.server_peer = event.peer;
+            if (debug_enabled())
+            {
+                char rip[64];
+                rip[0] = '\0';
+                if (enet_address_get_host_ip(&event.peer->address, rip, sizeof(rip)) != 0)
+                    std::snprintf(rip, sizeof(rip), "<unknown>");
+                debug_log("mp client: connected target=%s:%u remote=%s:%u relay=%d",
+                          g_join.target_host.c_str(),
+                          static_cast<unsigned>(g_join.target_port),
+                          rip,
+                          static_cast<unsigned>(event.peer->address.port),
+                          g_join.relay_connect ? 1 : 0);
+            }
             if (g_join.relay_connect) {
                 ecl::Buffer buf;
                 encode_relay_header(buf, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
@@ -972,6 +1203,14 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
             Uint8 expected_players = 0;
             Uint32 seed = 0;
             if (protocol::decode_welcome(buf, player_id, expected_players, seed)) {
+                if (seed != g_join.start.seed) {
+                    if (debug_enabled())
+                        debug_log("mp client: welcome ignored (seed mismatch remote=%u local=%u)",
+                                  static_cast<unsigned>(seed),
+                                  static_cast<unsigned>(g_join.start.seed));
+                    enet_packet_destroy(event.packet);
+                    continue;
+                }
                 if (debug_enabled())
                     debug_log("mp client: welcome player=%u expected=%u seed=%u",
                               static_cast<unsigned>(player_id),
@@ -1000,8 +1239,8 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
 
     if (g_join.phase == JoinPhase::CONNECTING && now > g_join.connect_deadline) {
         if (debug_enabled())
-            debug_log("mp client: connect failed %s:%u", g_join.target_host.c_str(),
-                      static_cast<unsigned>(g_join.target_port));
+            debug_log("mp client: connect failed %s:%u last_event=%d", g_join.target_host.c_str(),
+                      static_cast<unsigned>(g_join.target_port), g_join.last_enet_event);
         join_fail_current_attempt();
     } else if (g_join.phase == JoinPhase::WAIT_WELCOME && now > g_join.welcome_deadline) {
         if (debug_enabled())

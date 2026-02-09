@@ -62,7 +62,11 @@ constexpr Uint32 kJoinTimeoutMs = 15000;
 // Allow extra time for direct connect handshakes while the host is still
 // transitioning/loading the level and not pumping ENet yet (common on slower
 // machines / VMs). ENet server replies are application-driven.
-constexpr Uint32 kDirectConnectTimeoutMs = 12000;
+// Direct ENet connect can be slow to fail on some networks. For Internet play we
+// prefer a fast fallback to relays, while LAN play can tolerate a longer window
+// (clients may still be switching packs / loading after receiving START).
+constexpr Uint32 kDirectConnectTimeoutMsLan = 12000;
+constexpr Uint32 kDirectConnectTimeoutMsInternet = 1200;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
 // If a resync request is in-flight for too long (packet loss, transport stall),
@@ -185,7 +189,14 @@ struct SessionState {
     uint32_t tcp_relay_frame_len = 0;
     std::unordered_map<Uint32, unsigned> tcp_relay_players;
     std::unordered_map<Uint32, bool> tcp_relay_ready;
-    unsigned next_player_id = 1;
+    // Host-side player id allocation.
+    //
+    // We deliberately do not assume that direct connects succeed bidirectionally:
+    // on some LAN/VM setups the host can observe an ENet CONNECT event while the
+    // client never receives WELCOME. To allow retries (and to avoid getting
+    // stuck forever in "waiting for players"), we allocate player ids from a
+    // reusable pool and can replace unready peers during the pre-start phase.
+    std::vector<bool> player_in_use;
     uint32_t next_local_tick = 0;
     uint32_t next_send_tick = 0;
     std::unordered_map<uint32_t, input::PlayerInput> local_history;

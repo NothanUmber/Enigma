@@ -60,6 +60,8 @@ MultiplayerMenu::MultiplayerMenu()
       internet_last_join_failed(false),
       lan_join_in_progress(false),
       internet_join_in_progress(false),
+      host_waiting_for_peers(false),
+      host_pending_expected(0),
       internet_form_x(0),
       internet_form_y(0),
       internet_buttons_x(0),
@@ -191,6 +193,10 @@ MultiplayerMenu::~MultiplayerMenu() {
     multiplayer::CancelClientJoin();
     if (internet_in_room)
         leave_current_internet_room();
+    // If the host started a session but never entered the game (for example
+    // while waiting for peers to connect), ensure we don't keep listening in
+    // the background after leaving the menu.
+    multiplayer::Shutdown();
     multiplayer::LobbyStop();
     if (!previous_index_name.empty()) {
         if (lev::Index::setCurrentIndex(previous_index_name)) {

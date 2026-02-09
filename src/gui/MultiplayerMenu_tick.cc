@@ -107,7 +107,14 @@ void MultiplayerMenu::apply_start_selection(const multiplayer::protocol::LobbySt
         selected_pack_name = start.pack_name;
         // Ensure the pack index is active/known before rebuilding the filtered lobby index.
         // This mirrors what the host did when selecting the pack via LevelPackMenu.
-        lev::Index::setCurrentIndex(selected_pack_name);
+        if (!lev::Index::setCurrentIndex(selected_pack_name)) {
+            // If pack selection fails (different installation, renamed pack), fall back to
+            // best-effort lookup by level id. This keeps LAN play usable even when the
+            // pack name differs across machines.
+            select_pack_for_level(start.level_id);
+            if (!selected_pack_name.empty())
+                lev::Index::setCurrentIndex(selected_pack_name);
+        }
     } else {
         // Backward compat with older peers/servers: best-effort lookup by level id.
         select_pack_for_level(start.level_id);
@@ -131,8 +138,32 @@ bool MultiplayerMenu::start_host_and_enter_game(const multiplayer::protocol::Lob
         // where clients attempt to connect before the host socket is bound.
         multiplayer::LobbyBroadcastStart(start);
     }
-    enter_game_from_lobby();
+    host_pending_start = start;
+    host_pending_expected = std::max<unsigned>(1, start.expected_players);
+    host_waiting_for_peers = (host_pending_expected > 1);
+    if (!host_waiting_for_peers) {
+        enter_game_from_lobby();
+        return true;
+    }
+    show_info(_("Waiting for other players to connect..."));
     return true;
+}
+
+void MultiplayerMenu::tick_host_waiting_for_peers(double dtime) {
+    if (!host_waiting_for_peers)
+        return;
+
+    // Pump the multiplayer transport while still in the lobby UI. This allows
+    // clients to connect and reach READY (after switching packs / loading).
+    multiplayer::Tick(dtime);
+
+    // Wait until the session runtime reports that start should no longer be
+    // deferred. For hosts this means: all expected peers connected + READY.
+    if (multiplayer::ShouldDeferStart())
+        return;
+
+    host_waiting_for_peers = false;
+    enter_game_from_lobby();
 }
 
 bool MultiplayerMenu::begin_client_join(const multiplayer::protocol::LobbyStart &start,
@@ -158,6 +189,7 @@ multiplayer::ClientJoinStatus MultiplayerMenu::poll_client_join_and_maybe_enter_
 
 void MultiplayerMenu::tick(double dtime) {
     update_filter_button();
+    tick_host_waiting_for_peers(dtime);
     if (!internet_mode)
         tick_lan_mode(dtime);
     else

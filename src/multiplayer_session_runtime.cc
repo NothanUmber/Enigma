@@ -62,13 +62,15 @@ TransportKind SessionActiveTransport() {
 bool SessionShouldDeferStart() {
     if (!g_session.active)
         return false;
-    // For the host we must be stricter than "phase says RUNNING": on some networks
-    // (notably VM NAT setups) a lobby START can be seen but the direct ENet connect
-    // never succeeds. In that case the host must keep the simulation deferred until
-    // the expected number of peers have actually connected and reported READY.
+    // For hosts, "ready" means that all expected peers have connected and reported READY
+    // (and that any extra-actor placement is complete). This must gate simulation start,
+    // otherwise the host can run ahead while a client is still switching packs / loading.
     bool can_start = false;
     if (g_session.host) {
-        can_start = (g_session.phase == SessionState::Phase::RUNNING) || host_ready_to_start();
+        if (g_session.expected_players <= 1)
+            can_start = true;
+        else
+            can_start = host_ready_to_start();
     } else {
         can_start = (g_session.phase == SessionState::Phase::READY_TO_START ||
                      g_session.phase == SessionState::Phase::RUNNING);
@@ -91,7 +93,12 @@ void SessionNotifyStartRequested() {
                   g_session.local_player, g_session.expected_players);
     if (g_session.phase != SessionState::Phase::RUNNING)
         g_session.phase = SessionState::Phase::WAITING_FOR_READY;
-    if (!g_session.host && local_can_send_ready() && !g_session.local_ready_sent) {
+    // READY must mean "the level is fully initialized and the client is waiting
+    // for NET_START". During level loading, server::PrepareLevel() sets
+    // sv_waiting_for_clients early, so Msg_StartGame() can be invoked before the
+    // world is initialized; guard against sending READY too early.
+    if (!g_session.host && server::WorldInitialized && local_can_send_ready() &&
+        !g_session.local_ready_sent) {
         send_ready_to_host();
         g_session.local_ready_sent = true;
         g_session.ready_timer = 0.0;
@@ -360,6 +367,8 @@ void tick_update_resync_inflight_timeout(double dtime) {
 
 void tick_send_periodic_ready(double dtime) {
     if (g_session.host || g_session.phase != SessionState::Phase::WAITING_FOR_READY)
+        return;
+    if (!server::WorldInitialized)
         return;
     g_session.ready_timer += dtime;
     if (g_session.ready_timer < 0.5)
