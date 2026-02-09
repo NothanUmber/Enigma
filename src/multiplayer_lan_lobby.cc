@@ -217,8 +217,10 @@ void poll_lobby_socket() {
                         hosts += ",";
                     hosts += g_lobby.pending_host_ips[i];
                 }
-                debug_log("mp lobby: start received session=%u host_id=%s port=%u hosts=%s",
+                debug_log("mp lobby: start received session=%u pack=%s level_id=%s host_id=%s port=%u hosts=%s",
                           static_cast<unsigned>(start.session_id),
+                          start.pack_name.c_str(),
+                          start.level_id.c_str(),
                           start.host_id.c_str(),
                           static_cast<unsigned>(start.host_port),
                           hosts.c_str());
