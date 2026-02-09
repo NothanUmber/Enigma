@@ -38,6 +38,12 @@ Open **Options -> Multiplayer** and set:
   - UDP relay
   - TCP relay
 
+Notes:
+
+- The actual game session port for direct-connect is `12345` (`kGamePort`). This is currently not
+  configurable via the UI and is shared by LAN and Internet direct-connect.
+- LAN discovery uses a separate UDP broadcast port `12346` (`kLobbyPort`), also not configurable.
+
 If multiple strategies are enabled, clients try them in this order:
 
 `Direct` -> `UDP relay` -> `TCP relay` (skipping disabled strategies).
@@ -96,6 +102,11 @@ LAN discovery:
 - Each peer periodically broadcasts `LobbyAnnounce` over UDP broadcast.
 - The host starts by broadcasting `LobbyStart`.
 
+Ports:
+
+- `kLobbyPort = 12346` for UDP broadcast discovery (`LobbyAnnounce`, `LobbyStart`)
+- `kGamePort = 12345` for the actual game session (ENet direct-connect)
+
 Internet discovery (room codes):
 
 - Server: `tools/internet_lobby_server.py` (UDP, default 12347)
@@ -109,9 +120,32 @@ Internet discovery (room codes):
 - `pack_name` (fully qualifies the map across level packs; clients switch to this pack before loading)
 - `host_ips` (optional list of IPv4 candidates the client can try for direct connect on multi-homed hosts, VMs, VPNs)
 - `expected_players`
-- `host_port`
+- `host_port` (direct-connect game port; currently `12345`)
 - `host_id`
 - map filter settings (minimum intended player count)
+
+#### Direct-connect retries on multi-homed hosts
+
+In LAN mode (and in Internet mode when direct-connect is enabled), clients may attempt to connect to
+multiple `host_ips` (for example: a VM interface and a WiFi interface on the same machine). Some
+networks can produce "half-open" attempts where:
+
+- the host observes an ENet `CONNECT` event, but
+- the client never receives the `WELCOME` handshake.
+
+If the host only allows `expected_players - 1` peers and allocates player ids monotonically, such a
+failed attempt can consume the only available remote slot and make subsequent retry attempts fail,
+leaving the host stuck on "Waiting for other players to connect...".
+
+To make this robust, the host:
+
+- allocates remote player ids from a reusable pool (`player_in_use`), and
+- allows extra ENet peer capacity for retries, and
+- before the session starts, may drop an existing *unready* peer to accept a retry connection.
+
+In debug logs this shows up as:
+
+- `mp host: dropping unready peer ... (retry connect)`
 
 ### "Other players connecting..." start barrier
 
