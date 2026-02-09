@@ -154,13 +154,12 @@ void MultiplayerMenu::tick_host_waiting_for_peers(double dtime) {
         return;
 
     // Pump the multiplayer transport while still in the lobby UI. This allows
-    // clients to complete the connect+WELCOME handshake before the host begins
-    // loading the level (which can take a while for some packs).
+    // clients to connect and reach READY (after switching packs / loading).
     multiplayer::Tick(dtime);
 
-    const unsigned needed = host_pending_expected > 0 ? (host_pending_expected - 1) : 0;
-    const unsigned connected = multiplayer::ConnectedRemotePlayers();
-    if (needed > 0 && connected < needed)
+    // Wait until the session runtime reports that start should no longer be
+    // deferred. For hosts this means: all expected peers connected + READY.
+    if (multiplayer::ShouldDeferStart())
         return;
 
     host_waiting_for_peers = false;

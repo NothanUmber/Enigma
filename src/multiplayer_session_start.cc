@@ -82,6 +82,19 @@ void configure_input_session(unsigned expected_players) {
 
 namespace {
 
+void log_enet_socket_address(const char *tag, ENetHost *host) {
+    if (!debug_enabled() || !host)
+        return;
+    ENetAddress a;
+    if (enet_socket_get_address(host->socket, &a) != 0)
+        return;
+    char ipbuf[64];
+    ipbuf[0] = '\0';
+    if (enet_address_get_host_ip(&a, ipbuf, sizeof(ipbuf)) != 0)
+        std::snprintf(ipbuf, sizeof(ipbuf), "<unknown>");
+    debug_log("mp %s local=%s:%u", tag, ipbuf, static_cast<unsigned>(a.port));
+}
+
 struct ConnectStrategy {
     bool enabled;
     const char *disabled_log;
@@ -240,6 +253,7 @@ bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_co
                                              0, 0);
     if (g_session.host_handle == nullptr)
         return false;
+    log_enet_socket_address("client: enet socket", g_session.host_handle);
 
     ENetAddress addr;
     if (enet_address_set_host(&addr, host.c_str()) != 0) {
@@ -507,6 +521,7 @@ bool host_open_direct_listener(Uint16 port, unsigned expected_players) {
     }
     if (debug_enabled())
         debug_log("mp host: direct listener port=%u", static_cast<unsigned>(port));
+    log_enet_socket_address("host: direct listener", g_session.host_handle);
     // Do not tweak ENet-managed sockets. ENet already configures non-blocking
     // mode and buffering; overriding this can break connect/handshake on some
     // platform builds.
@@ -638,6 +653,7 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
                                              0, 0);
     if (g_session.host_handle == nullptr)
         return false;
+    log_enet_socket_address("client: enet socket", g_session.host_handle);
 
     ENetAddress addr;
     if (enet_address_set_host(&addr, target_host.c_str()) != 0) {
