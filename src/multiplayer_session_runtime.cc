@@ -281,6 +281,24 @@ void SessionSetupExtraPlayerStartPositions() {
         }
     }
     auto_place_extra_players();
+
+    // Some levels have no valid placement tiles (or no meaningful base actor to place near),
+    // so auto placement can fail and leave the host waiting forever. We intentionally do not
+    // try to "solve" such esoteric levels: instead, fail open and start the session. The extra
+    // actors remain at their deterministic initial spawn position, which is consistent across
+    // peers as long as level loading is deterministic.
+    if (g_session.host && g_session.expected_players > g_session.level_players &&
+        g_session.level_players > 0) {
+        for (unsigned player = g_session.level_players; player < g_session.expected_players;
+             ++player) {
+            if (player < g_session.placement_received.size() && !g_session.placement_received[player]) {
+                if (debug_enabled())
+                    debug_log("mp extra actors: placement failed for player=%u; starting anyway",
+                              player);
+                g_session.placement_received[player] = true;
+            }
+        }
+    }
     debug_dump_steerable_actors("post-place");
 }
 
