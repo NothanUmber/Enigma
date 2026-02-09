@@ -274,7 +274,8 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
     buf.assign(const_cast<char *>(data), len);
     Uint32 session_id = 0;
     Uint32 epoch = 0;
-    if (!protocol::decode_ready(buf, session_id, epoch))
+    Uint32 load_id = 0;
+    if (!protocol::decode_ready(buf, session_id, epoch, load_id))
         return false;
     if (session_id != g_session.session_id) {
         if (debug_enabled())
@@ -290,11 +291,31 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
                       static_cast<unsigned>(g_session.input_epoch));
         return true;
     }
+    if (load_id != g_session.load_id) {
+        if (debug_enabled())
+            debug_log("mp host: drop ready (load mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(load_id),
+                      static_cast<unsigned>(g_session.load_id));
+        return true;
+    }
     unsigned player_id = 0;
     if (lookup_remote_player(source, peer, relay_client_id, player_id)) {
-        debug_log("mp host: ready player=%u source=%s", player_id, host_source_name(source));
-        mark_remote_ready(source, peer, relay_client_id);
-        debug_log("mp host: peer ready");
+        bool already_ready = false;
+        if (source == HostSource::UDP_RELAY) {
+            auto it = g_session.relay_ready.find(relay_client_id);
+            already_ready = (it != g_session.relay_ready.end() && it->second);
+        } else if (source == HostSource::TCP_RELAY) {
+            auto it = g_session.tcp_relay_ready.find(relay_client_id);
+            already_ready = (it != g_session.tcp_relay_ready.end() && it->second);
+        } else {
+            auto it = g_session.peer_ready.find(peer);
+            already_ready = (it != g_session.peer_ready.end() && it->second);
+        }
+        if (!already_ready) {
+            debug_log("mp host: ready player=%u source=%s", player_id, host_source_name(source));
+            mark_remote_ready(source, peer, relay_client_id);
+            debug_log("mp host: peer ready");
+        }
     }
     return true;
 }
@@ -485,8 +506,16 @@ bool handle_client_start_packet(const char *data, size_t len) {
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
     Uint32 epoch = 0;
-    if (!protocol::decode_start(buf, epoch))
+    Uint32 load_id = 0;
+    if (!protocol::decode_start(buf, epoch, load_id))
         return false;
+    if (load_id != g_session.last_load_id) {
+        if (debug_enabled())
+            debug_log("mp client: drop start (load mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(load_id),
+                      static_cast<unsigned>(g_session.last_load_id));
+        return true;
+    }
     g_session.input_epoch = epoch;
     g_session.debug_state_dumped = false;
     configure_input_session(g_session.expected_players);

@@ -369,36 +369,38 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
     return true;
 }
 
-inline void encode_ready(ecl::Buffer &buf, Uint32 session_id, Uint32 epoch) {
-    buf << Uint8(NET_READY) << Uint32(session_id) << Uint32(epoch);
+inline void encode_ready(ecl::Buffer &buf, Uint32 session_id, Uint32 epoch, Uint32 load_id) {
+    buf << Uint8(NET_READY) << Uint32(session_id) << Uint32(epoch) << Uint32(load_id);
 }
 
-inline bool decode_ready(ecl::Buffer &buf, Uint32 &session_id, Uint32 &epoch) {
+inline bool decode_ready(ecl::Buffer &buf, Uint32 &session_id, Uint32 &epoch, Uint32 &load_id) {
     Uint8 type = 0;
     Uint32 parsed_session = 0;
     Uint32 parsed_epoch = 0;
+    Uint32 parsed_load_id = 0;
     if (!(buf >> type))
         return false;
     if (type != NET_READY)
         return false;
-    if (!(buf >> parsed_session >> parsed_epoch))
+    if (!(buf >> parsed_session >> parsed_epoch >> parsed_load_id))
         return false;
     session_id = parsed_session;
     epoch = parsed_epoch;
+    load_id = parsed_load_id;
     return true;
 }
 
-inline void encode_start(ecl::Buffer &buf, Uint32 epoch) {
-    buf << Uint8(NET_START) << Uint32(epoch);
+inline void encode_start(ecl::Buffer &buf, Uint32 epoch, Uint32 load_id) {
+    buf << Uint8(NET_START) << Uint32(epoch) << Uint32(load_id);
 }
 
-inline bool decode_start(ecl::Buffer &buf, Uint32 &epoch) {
+inline bool decode_start(ecl::Buffer &buf, Uint32 &epoch, Uint32 &load_id) {
     Uint8 type = 0;
     if (!(buf >> type))
         return false;
     if (type != NET_START)
         return false;
-    if (!(buf >> epoch))
+    if (!(buf >> epoch >> load_id))
         return false;
     return true;
 }

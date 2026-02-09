@@ -755,12 +755,13 @@ void apply_resync_state(const protocol::ResyncState &state) {
 }
 
 void send_ready_to_host() {
-    debug_log("mp send ready via=%s session=%u epoch=%u",
+    debug_log("mp send ready via=%s session=%u epoch=%u load=%u",
               transport_name(g_session.active_transport),
               static_cast<unsigned>(g_session.session_id),
-              static_cast<unsigned>(g_session.input_epoch));
+              static_cast<unsigned>(g_session.input_epoch),
+              static_cast<unsigned>(g_session.last_load_id));
     ecl::Buffer buf;
-    protocol::encode_ready(buf, g_session.session_id, g_session.input_epoch);
+    protocol::encode_ready(buf, g_session.session_id, g_session.input_epoch, g_session.last_load_id);
     g_transport.ClientSend(buf);
 }
 
@@ -786,7 +787,7 @@ void send_abort_to_host() {
 
 void send_start_to_peers() {
     ecl::Buffer buf;
-    protocol::encode_start(buf, g_session.input_epoch);
+    protocol::encode_start(buf, g_session.input_epoch, g_session.load_id);
     g_transport.HostBroadcast(buf);
     g_transport.Flush();
 }
