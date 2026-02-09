@@ -30,7 +30,7 @@ h1 { margin: 0 0 8px; }
 </style>
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
-<div class="small">Generated 2026-02-09 06:00:16. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD aed0c5d7). Diff hash: <code>1f15646f0467</code>.</div>
+<div class="small">Generated 2026-02-09 06:07:54. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD ff0edf18). Diff hash: <code>619045740a37</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 
 
@@ -9366,10 +9366,10 @@ h1 { margin: 0 0 8px; }
 <div class="diff">
 <div class="line meta"><span class="code">diff --git a/src/multiplayer_session_runtime.cc b/src/multiplayer_session_runtime.cc</span></div>
 <div class="line meta"><span class="code">new file mode 100644</span></div>
-<div class="line meta"><span class="code">index 00000000..fe3db362</span></div>
+<div class="line meta"><span class="code">index 00000000..8380111e</span></div>
 <div class="line meta"><span class="code">--- /dev/null</span></div>
 <div class="line meta"><span class="code">+++ b/src/multiplayer_session_runtime.cc</span></div>
-<div class="line hunkhdr"><span class="code">@@ -0,0 +1,524 @@</span></div>
+<div class="line hunkhdr"><span class="code">@@ -0,0 +1,531 @@</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">1</span><span class="code">/*</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">2</span><span class="code"> * Copyright (C) 2026 Ferdinand Strixner (LLM collaboration)</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">3</span><span class="code"> *</span></div>
@@ -9465,435 +9465,442 @@ h1 { margin: 0 0 8px; }
 <div class="line add"><span class="ln old"></span><span class="ln new">93</span><span class="code">                  g_session.local_player, g_session.expected_players);</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">94</span><span class="code">    if (g_session.phase != SessionState::Phase::RUNNING)</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">95</span><span class="code">        g_session.phase = SessionState::Phase::WAITING_FOR_READY;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">96</span><span class="code">    if (!g_session.host &amp;&amp; local_can_send_ready() &amp;&amp; !g_session.local_ready_sent) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">97</span><span class="code">        send_ready_to_host();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">98</span><span class="code">        g_session.local_ready_sent = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">99</span><span class="code">        g_session.ready_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">100</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">101</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">102</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">103</span><span class="code">void SessionNotifyRestart(bool level_restart) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">104</span><span class="code">    if (!g_session.active || !g_session.host)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">105</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">106</span><span class="code">    // If someone had the multiplayer ESC menu open, force-unpause before restarting.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">107</span><span class="code">    if (g_session.paused) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">108</span><span class="code">        g_session.paused = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">109</span><span class="code">        if (!g_session.menu_open.empty())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">110</span><span class="code">            std::fill(g_session.menu_open.begin(), g_session.menu_open.end(), false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">111</span><span class="code">        server::Msg_Pause(false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">112</span><span class="code">        send_pause_to_peers(false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">113</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">114</span><span class="code">    g_session.restart_id += 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">115</span><span class="code">    g_session.last_restart_id = g_session.restart_id;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">116</span><span class="code">    send_restart_to_peers(level_restart);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">117</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">118</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">119</span><span class="code">bool SessionIsPaused() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">120</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">121</span><span class="code">        return false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">122</span><span class="code">    return g_session.paused;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">123</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">124</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">125</span><span class="code">void SessionRequestPause(bool paused) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">126</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">127</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">128</span><span class="code">    if (g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">129</span><span class="code">        if (g_session.paused == paused)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">130</span><span class="code">            return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">131</span><span class="code">        g_session.paused = paused;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">132</span><span class="code">        server::Msg_Pause(paused);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">133</span><span class="code">        send_pause_to_peers(paused);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">134</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">135</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">136</span><span class="code">    send_pause_to_host(paused);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">137</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">138</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">139</span><span class="code">namespace {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">140</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">141</span><span class="code">void debug_dump_steerable_actors(const char *tag) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">142</span><span class="code">    if (!debug_enabled())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">143</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">144</span><span class="code">    std::vector&lt;Actor *&gt; actors;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">145</span><span class="code">    GetActors(actors);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">146</span><span class="code">    unsigned dumped = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">147</span><span class="code">    for (auto *a : actors) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">148</span><span class="code">        if (!a || !a-&gt;isSteerable())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">149</span><span class="code">            continue;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">150</span><span class="code">        if (dumped &gt;= 32) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">151</span><span class="code">            debug_log(&quot;mp actors(%s): ... (truncated)&quot;, tag);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">152</span><span class="code">            return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">153</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">154</span><span class="code">        Value owner = a-&gt;getAttr(&quot;owner&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">155</span><span class="code">        Value color = a-&gt;getAttr(&quot;color&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">156</span><span class="code">        debug_log(&quot;mp actor(%s): kind=%s pos=(%.2f,%.2f) ctrl=%d owner=%s color=%s&quot;, tag,</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">157</span><span class="code">                  a-&gt;getKind().c_str(), a-&gt;get_pos()[0], a-&gt;get_pos()[1], a-&gt;get_controllers(),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">158</span><span class="code">                  owner ? owner.to_string().c_str() : &quot;nil&quot;,</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">159</span><span class="code">                  color ? color.to_string().c_str() : &quot;nil&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">160</span><span class="code">        dumped += 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">161</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">162</span><span class="code">    if (dumped == 0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">163</span><span class="code">        debug_log(&quot;mp actors(%s): none steerable&quot;, tag);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">164</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">165</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">166</span><span class="code">bool any_menu_open() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">167</span><span class="code">    for (bool open : g_session.menu_open) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">168</span><span class="code">        if (open)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">169</span><span class="code">            return true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">170</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">171</span><span class="code">    return false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">172</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">173</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">174</span><span class="code">void host_update_pause_from_menu_state() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">175</span><span class="code">    bool want_pause = any_menu_open();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">176</span><span class="code">    if (g_session.paused == want_pause)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">177</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">178</span><span class="code">    g_session.paused = want_pause;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">179</span><span class="code">    server::Msg_Pause(want_pause);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">180</span><span class="code">    send_pause_to_peers(want_pause);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">181</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">182</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">183</span><span class="code">void tick_abort_grace(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">184</span><span class="code">    if (!g_session.abort_pending)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">185</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">186</span><span class="code">    g_session.abort_timer += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">187</span><span class="code">    if (g_session.abort_timer &lt; kAbortDeliveryGrace)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">188</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">189</span><span class="code">    const std::string message = g_session.abort_message;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">190</span><span class="code">    g_session.abort_pending = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">191</span><span class="code">    g_session.abort_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">192</span><span class="code">    g_session.abort_message.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">193</span><span class="code">    abort_session_with_message(message.c_str());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">194</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">195</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">196</span><span class="code">}  // namespace</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">197</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">198</span><span class="code">void begin_abort_after_grace(const char *message) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">199</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">200</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">201</span><span class="code">    if (g_session.abort_pending)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">202</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">203</span><span class="code">    g_session.abort_pending = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">204</span><span class="code">    g_session.abort_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">205</span><span class="code">    g_session.abort_message = message ? message : &quot;Game aborted. Ending session.&quot;;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">206</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">207</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">208</span><span class="code">void SessionSetMenuOpen(bool open) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">209</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">210</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">211</span><span class="code">    if (g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">212</span><span class="code">        unsigned player = g_session.local_player;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">213</span><span class="code">        if (player &lt; g_session.menu_open.size() &amp;&amp; g_session.menu_open[player] != open) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">214</span><span class="code">            g_session.menu_open[player] = open;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">215</span><span class="code">            host_update_pause_from_menu_state();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">216</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">217</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">218</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">219</span><span class="code">    if (!g_session.local_player_known)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">220</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">221</span><span class="code">    send_menu_to_host(open);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">222</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">223</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">224</span><span class="code">void SessionRequestAbort() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">225</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">226</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">227</span><span class="code">    if (g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">228</span><span class="code">        send_abort_to_peers();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">229</span><span class="code">        begin_abort_after_grace(&quot;Game aborted. Ending session.&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">230</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">231</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">232</span><span class="code">    send_abort_to_host();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">233</span><span class="code">    begin_abort_after_grace(&quot;Game aborted. Ending session.&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">234</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">235</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">236</span><span class="code">void SessionPrepareExtraActors() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">237</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">238</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">239</span><span class="code">    g_session.level_players = compute_level_players();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">240</span><span class="code">    if (g_session.level_players &lt; 1)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">241</span><span class="code">        g_session.level_players = 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">242</span><span class="code">    add_extra_actors(g_session.level_players, g_session.expected_players);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">243</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">244</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">245</span><span class="code">void SessionSetupExtraPlayerStartPositions() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">246</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">247</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">248</span><span class="code">    if (g_session.level_players == 0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">249</span><span class="code">        g_session.level_players = compute_level_players();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">250</span><span class="code">    if (g_session.level_players &lt; 1)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">251</span><span class="code">        g_session.level_players = 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">252</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">253</span><span class="code">    // Some levels run Lua/setup logic during WorldInitLevel that can overwrite</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">254</span><span class="code">    // controllers/owner for steerable actors (notably meditation pearls). Run a</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">255</span><span class="code">    // post-init rebalance to ensure authored multi-ball levels are distributed</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">256</span><span class="code">    // across session players as intended.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">257</span><span class="code">    rebalance_authored_multi_ball_levels(g_session.level_players, g_session.expected_players);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">258</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">259</span><span class="code">    g_session.placement_received.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">260</span><span class="code">    if (g_session.expected_players &gt; 0) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">261</span><span class="code">        g_session.placement_received.resize(g_session.expected_players, false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">262</span><span class="code">        for (unsigned player = 0; player &lt; g_session.expected_players; ++player) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">263</span><span class="code">            if (!placement_required_for_player(player))</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">264</span><span class="code">                g_session.placement_received[player] = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">265</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">266</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">267</span><span class="code">    auto_place_extra_players();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">268</span><span class="code">    debug_dump_steerable_actors(&quot;post-place&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">269</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">270</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">271</span><span class="code">void SessionPrimeInputQueueForNewLevel() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">272</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">273</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">274</span><span class="code">    // A new level/restart starts unpaused; any open menus from the prior run are discarded.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">275</span><span class="code">    bool was_paused = g_session.paused;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">276</span><span class="code">    g_session.paused = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">277</span><span class="code">    if (!g_session.menu_open.empty())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">278</span><span class="code">        std::fill(g_session.menu_open.begin(), g_session.menu_open.end(), false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">279</span><span class="code">    server::Msg_Pause(false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">280</span><span class="code">    if (was_paused &amp;&amp; g_session.host)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">281</span><span class="code">        send_pause_to_peers(false);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">282</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">283</span><span class="code">    configure_input_session(g_session.expected_players);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">284</span><span class="code">    g_session.desync_reported = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">285</span><span class="code">    g_session.phase = SessionState::Phase::WAITING_FOR_START;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">286</span><span class="code">    g_session.local_ready_sent = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">287</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">288</span><span class="code">    g_session.has_pending_sync = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">289</span><span class="code">    g_session.last_world_checksum = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">290</span><span class="code">    g_session.checksum_history.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">291</span><span class="code">    g_session.last_checksum_tick = UINT32_MAX;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">292</span><span class="code">    g_session.resync_inflight = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">293</span><span class="code">    g_session.resync_inflight_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">294</span><span class="code">    g_session.resync_cooldown = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">295</span><span class="code">    g_session.resync_attempts = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">296</span><span class="code">    g_session.desync_streak = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">297</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">298</span><span class="code">    g_session.level_players = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">299</span><span class="code">    g_session.placement_received.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">300</span><span class="code">    g_session.needs_placement.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">301</span><span class="code">    g_session.last_defer_start_log = -1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">302</span><span class="code">    if (g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">303</span><span class="code">        for (auto &amp;entry : g_session.peer_ready)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">304</span><span class="code">            entry.second = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">305</span><span class="code">        for (auto &amp;entry : g_session.relay_ready)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">306</span><span class="code">            entry.second = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">307</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">308</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">309</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">310</span><span class="code">namespace {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">311</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">312</span><span class="code">void tick_advance_input_clock(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">313</span><span class="code">    g_session.input_clock_accu += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">314</span><span class="code">    if (g_session.input_clock_accu &gt; 1.0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">315</span><span class="code">        g_session.input_clock_accu = 1.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">316</span><span class="code">    while (g_session.input_clock_accu &gt;= kInputTimestep) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">317</span><span class="code">        g_session.input_clock_accu -= kInputTimestep;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">318</span><span class="code">        g_session.input_clock_tick += 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">319</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">320</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">321</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">322</span><span class="code">void tick_apply_pending_sync() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">323</span><span class="code">    if (!g_session.has_pending_sync)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">324</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">325</span><span class="code">    uint32_t local_tick = input::CurrentTick();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">326</span><span class="code">    if (local_tick == g_session.pending_sync.tick) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">327</span><span class="code">        protocol::SyncPacket sync = g_session.pending_sync;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">328</span><span class="code">        g_session.has_pending_sync = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">329</span><span class="code">        handle_sync_current(sync);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">330</span><span class="code">    } else if (local_tick &gt; g_session.pending_sync.tick) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">331</span><span class="code">        protocol::SyncPacket sync = g_session.pending_sync;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">332</span><span class="code">        SessionState::ChecksumSample sample;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">333</span><span class="code">        if (lookup_checksum_sample(sync.tick, sample))</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">334</span><span class="code">            handle_sync_sample(sync, sample);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">335</span><span class="code">        g_session.has_pending_sync = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">336</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">337</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">338</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">339</span><span class="code">void tick_update_resync_cooldown(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">340</span><span class="code">    if (g_session.resync_cooldown &lt;= 0.0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">341</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">342</span><span class="code">    g_session.resync_cooldown -= dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">343</span><span class="code">    if (g_session.resync_cooldown &lt; 0.0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">344</span><span class="code">        g_session.resync_cooldown = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">345</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">346</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">347</span><span class="code">void tick_update_resync_inflight_timeout(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">348</span><span class="code">    if (!g_session.resync_inflight)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">349</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">350</span><span class="code">    g_session.resync_inflight_timer += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">351</span><span class="code">    if (g_session.resync_inflight_timer &lt; kResyncInflightTimeout)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">352</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">353</span><span class="code">    debug_log(&quot;mp resync timeout: local tick=%u attempts=%u via=%s&quot;, input::CurrentTick(),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">354</span><span class="code">              static_cast&lt;unsigned&gt;(g_session.resync_attempts),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">355</span><span class="code">              transport_name(g_session.active_transport));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">356</span><span class="code">    g_session.telemetry.resync_inflight_timeouts += 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">357</span><span class="code">    g_session.resync_inflight = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">358</span><span class="code">    g_session.resync_inflight_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">359</span><span class="code">    // Allow a retry on the next mismatch observation.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">360</span><span class="code">    g_session.resync_cooldown = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">361</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">362</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">363</span><span class="code">void tick_send_periodic_ready(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">364</span><span class="code">    if (g_session.host || g_session.phase != SessionState::Phase::WAITING_FOR_READY)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">365</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">366</span><span class="code">    g_session.ready_timer += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">367</span><span class="code">    if (g_session.ready_timer &lt; 0.5)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">368</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">369</span><span class="code">    if (local_can_send_ready()) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">370</span><span class="code">        send_ready_to_host();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">371</span><span class="code">        g_session.local_ready_sent = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">372</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">373</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">374</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">375</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">376</span><span class="code">void tick_debug_report_missing_input() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">377</span><span class="code">    if (!debug_enabled() || !g_session.local_player_known || !input::IsNetworked())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">378</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">379</span><span class="code">    static uint32_t last_missing_tick = UINT32_MAX;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">380</span><span class="code">    uint32_t tick = input::CurrentTick();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">381</span><span class="code">    if (tick == last_missing_tick)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">382</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">383</span><span class="code">    bool missing = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">384</span><span class="code">    for (unsigned player = 0; player &lt; g_session.expected_players; ++player) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">385</span><span class="code">        if (!input::HasInput(tick, player)) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">386</span><span class="code">            debug_log(&quot;mp missing input: tick=%u player=%u&quot;, tick, player);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">387</span><span class="code">            missing = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">388</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">389</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">390</span><span class="code">    if (missing)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">391</span><span class="code">        last_missing_tick = tick;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">392</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">393</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">394</span><span class="code">void tick_update_start_phase() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">395</span><span class="code">    if (g_session.phase == SessionState::Phase::WAITING_FOR_READY &amp;&amp; g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">396</span><span class="code">        if (!host_ready_to_start())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">397</span><span class="code">            return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">398</span><span class="code">        if (debug_enabled())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">399</span><span class="code">            debug_log(&quot;mp host: start allowed&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">400</span><span class="code">        g_session.input_epoch += 1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">401</span><span class="code">        g_session.debug_state_dumped = false;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">402</span><span class="code">        configure_input_session(g_session.expected_players);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">403</span><span class="code">        send_start_to_peers();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">404</span><span class="code">        g_session.phase = SessionState::Phase::READY_TO_START;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">405</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">406</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">407</span><span class="code">    if (g_session.phase != SessionState::Phase::READY_TO_START)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">408</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">409</span><span class="code">    server::Msg_StartGame();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">410</span><span class="code">    // Msg_StartGame can still be deferred (e.g. host has not observed connected peers yet).</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">411</span><span class="code">    // Only transition to RUNNING once the session logic says we can actually start.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">412</span><span class="code">    if (SessionShouldDeferStart())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">413</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">414</span><span class="code">    g_session.phase = SessionState::Phase::RUNNING;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">415</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">416</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">417</span><span class="code">void tick_host_periodic_sync(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">418</span><span class="code">    if (!g_session.host)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">419</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">420</span><span class="code">    g_session.sync_timer += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">421</span><span class="code">    if (g_session.sync_timer &lt; kSyncInterval)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">422</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">423</span><span class="code">    g_session.sync_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">424</span><span class="code">    send_sync_to_peers();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">425</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">426</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">427</span><span class="code">void shutdown_enet_host_state() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">428</span><span class="code">    if (g_session.relay_peer) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">429</span><span class="code">        enet_peer_disconnect(g_session.relay_peer, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">430</span><span class="code">        g_session.relay_peer = nullptr;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">431</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">432</span><span class="code">    if (g_session.relay_handle) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">433</span><span class="code">        enet_host_destroy(g_session.relay_handle);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">434</span><span class="code">        g_session.relay_handle = nullptr;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">435</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">436</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">437</span><span class="code">    if (!g_session.host_handle)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">438</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">439</span><span class="code">    if (g_session.host) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">440</span><span class="code">        for (const auto &amp;entry : g_session.peer_players)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">441</span><span class="code">            enet_peer_disconnect(entry.first, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">442</span><span class="code">    } else if (g_session.server_peer) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">443</span><span class="code">        enet_peer_disconnect(g_session.server_peer, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">444</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">445</span><span class="code">    enet_host_destroy(g_session.host_handle);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">446</span><span class="code">    g_session.host_handle = nullptr;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">447</span><span class="code">    g_session.server_peer = nullptr;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">448</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">449</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">450</span><span class="code">}  // namespace</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">451</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">452</span><span class="code">void SessionTick(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">453</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">454</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">455</span><span class="code">    if (g_session.abort_pending) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">456</span><span class="code">        process_network_events();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">457</span><span class="code">        tick_abort_grace(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">458</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">459</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">460</span><span class="code">    // While paused we still need to pump the network (for unpause / disconnect),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">461</span><span class="code">    // but we must not advance the input clock or emit inputs.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">462</span><span class="code">    if (g_session.paused) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">96</span><span class="code">    // READY must mean &quot;the level is fully initialized and the client is waiting</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">97</span><span class="code">    // for NET_START&quot;. During level loading, server::PrepareLevel() sets</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">98</span><span class="code">    // sv_waiting_for_clients early, so Msg_StartGame() can be invoked before the</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">99</span><span class="code">    // world is initialized; guard against sending READY too early.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">100</span><span class="code">    if (!g_session.host &amp;&amp; server::WorldInitialized &amp;&amp; local_can_send_ready() &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">101</span><span class="code">        !g_session.local_ready_sent) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">102</span><span class="code">        send_ready_to_host();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">103</span><span class="code">        g_session.local_ready_sent = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">104</span><span class="code">        g_session.ready_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">105</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">106</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">107</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">108</span><span class="code">void SessionNotifyRestart(bool level_restart) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">109</span><span class="code">    if (!g_session.active || !g_session.host)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">110</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">111</span><span class="code">    // If someone had the multiplayer ESC menu open, force-unpause before restarting.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">112</span><span class="code">    if (g_session.paused) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">113</span><span class="code">        g_session.paused = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">114</span><span class="code">        if (!g_session.menu_open.empty())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">115</span><span class="code">            std::fill(g_session.menu_open.begin(), g_session.menu_open.end(), false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">116</span><span class="code">        server::Msg_Pause(false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">117</span><span class="code">        send_pause_to_peers(false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">118</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">119</span><span class="code">    g_session.restart_id += 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">120</span><span class="code">    g_session.last_restart_id = g_session.restart_id;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">121</span><span class="code">    send_restart_to_peers(level_restart);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">122</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">123</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">124</span><span class="code">bool SessionIsPaused() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">125</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">126</span><span class="code">        return false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">127</span><span class="code">    return g_session.paused;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">128</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">129</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">130</span><span class="code">void SessionRequestPause(bool paused) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">131</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">132</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">133</span><span class="code">    if (g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">134</span><span class="code">        if (g_session.paused == paused)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">135</span><span class="code">            return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">136</span><span class="code">        g_session.paused = paused;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">137</span><span class="code">        server::Msg_Pause(paused);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">138</span><span class="code">        send_pause_to_peers(paused);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">139</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">140</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">141</span><span class="code">    send_pause_to_host(paused);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">142</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">143</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">144</span><span class="code">namespace {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">145</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">146</span><span class="code">void debug_dump_steerable_actors(const char *tag) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">147</span><span class="code">    if (!debug_enabled())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">148</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">149</span><span class="code">    std::vector&lt;Actor *&gt; actors;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">150</span><span class="code">    GetActors(actors);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">151</span><span class="code">    unsigned dumped = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">152</span><span class="code">    for (auto *a : actors) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">153</span><span class="code">        if (!a || !a-&gt;isSteerable())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">154</span><span class="code">            continue;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">155</span><span class="code">        if (dumped &gt;= 32) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">156</span><span class="code">            debug_log(&quot;mp actors(%s): ... (truncated)&quot;, tag);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">157</span><span class="code">            return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">158</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">159</span><span class="code">        Value owner = a-&gt;getAttr(&quot;owner&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">160</span><span class="code">        Value color = a-&gt;getAttr(&quot;color&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">161</span><span class="code">        debug_log(&quot;mp actor(%s): kind=%s pos=(%.2f,%.2f) ctrl=%d owner=%s color=%s&quot;, tag,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">162</span><span class="code">                  a-&gt;getKind().c_str(), a-&gt;get_pos()[0], a-&gt;get_pos()[1], a-&gt;get_controllers(),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">163</span><span class="code">                  owner ? owner.to_string().c_str() : &quot;nil&quot;,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">164</span><span class="code">                  color ? color.to_string().c_str() : &quot;nil&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">165</span><span class="code">        dumped += 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">166</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">167</span><span class="code">    if (dumped == 0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">168</span><span class="code">        debug_log(&quot;mp actors(%s): none steerable&quot;, tag);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">169</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">170</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">171</span><span class="code">bool any_menu_open() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">172</span><span class="code">    for (bool open : g_session.menu_open) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">173</span><span class="code">        if (open)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">174</span><span class="code">            return true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">175</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">176</span><span class="code">    return false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">177</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">178</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">179</span><span class="code">void host_update_pause_from_menu_state() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">180</span><span class="code">    bool want_pause = any_menu_open();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">181</span><span class="code">    if (g_session.paused == want_pause)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">182</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">183</span><span class="code">    g_session.paused = want_pause;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">184</span><span class="code">    server::Msg_Pause(want_pause);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">185</span><span class="code">    send_pause_to_peers(want_pause);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">186</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">187</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">188</span><span class="code">void tick_abort_grace(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">189</span><span class="code">    if (!g_session.abort_pending)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">190</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">191</span><span class="code">    g_session.abort_timer += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">192</span><span class="code">    if (g_session.abort_timer &lt; kAbortDeliveryGrace)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">193</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">194</span><span class="code">    const std::string message = g_session.abort_message;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">195</span><span class="code">    g_session.abort_pending = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">196</span><span class="code">    g_session.abort_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">197</span><span class="code">    g_session.abort_message.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">198</span><span class="code">    abort_session_with_message(message.c_str());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">199</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">200</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">201</span><span class="code">}  // namespace</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">202</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">203</span><span class="code">void begin_abort_after_grace(const char *message) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">204</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">205</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">206</span><span class="code">    if (g_session.abort_pending)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">207</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">208</span><span class="code">    g_session.abort_pending = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">209</span><span class="code">    g_session.abort_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">210</span><span class="code">    g_session.abort_message = message ? message : &quot;Game aborted. Ending session.&quot;;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">211</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">212</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">213</span><span class="code">void SessionSetMenuOpen(bool open) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">214</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">215</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">216</span><span class="code">    if (g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">217</span><span class="code">        unsigned player = g_session.local_player;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">218</span><span class="code">        if (player &lt; g_session.menu_open.size() &amp;&amp; g_session.menu_open[player] != open) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">219</span><span class="code">            g_session.menu_open[player] = open;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">220</span><span class="code">            host_update_pause_from_menu_state();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">221</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">222</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">223</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">224</span><span class="code">    if (!g_session.local_player_known)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">225</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">226</span><span class="code">    send_menu_to_host(open);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">227</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">228</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">229</span><span class="code">void SessionRequestAbort() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">230</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">231</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">232</span><span class="code">    if (g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">233</span><span class="code">        send_abort_to_peers();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">234</span><span class="code">        begin_abort_after_grace(&quot;Game aborted. Ending session.&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">235</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">236</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">237</span><span class="code">    send_abort_to_host();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">238</span><span class="code">    begin_abort_after_grace(&quot;Game aborted. Ending session.&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">239</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">240</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">241</span><span class="code">void SessionPrepareExtraActors() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">242</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">243</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">244</span><span class="code">    g_session.level_players = compute_level_players();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">245</span><span class="code">    if (g_session.level_players &lt; 1)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">246</span><span class="code">        g_session.level_players = 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">247</span><span class="code">    add_extra_actors(g_session.level_players, g_session.expected_players);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">248</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">249</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">250</span><span class="code">void SessionSetupExtraPlayerStartPositions() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">251</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">252</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">253</span><span class="code">    if (g_session.level_players == 0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">254</span><span class="code">        g_session.level_players = compute_level_players();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">255</span><span class="code">    if (g_session.level_players &lt; 1)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">256</span><span class="code">        g_session.level_players = 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">257</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">258</span><span class="code">    // Some levels run Lua/setup logic during WorldInitLevel that can overwrite</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">259</span><span class="code">    // controllers/owner for steerable actors (notably meditation pearls). Run a</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">260</span><span class="code">    // post-init rebalance to ensure authored multi-ball levels are distributed</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">261</span><span class="code">    // across session players as intended.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">262</span><span class="code">    rebalance_authored_multi_ball_levels(g_session.level_players, g_session.expected_players);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">263</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">264</span><span class="code">    g_session.placement_received.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">265</span><span class="code">    if (g_session.expected_players &gt; 0) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">266</span><span class="code">        g_session.placement_received.resize(g_session.expected_players, false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">267</span><span class="code">        for (unsigned player = 0; player &lt; g_session.expected_players; ++player) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">268</span><span class="code">            if (!placement_required_for_player(player))</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">269</span><span class="code">                g_session.placement_received[player] = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">270</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">271</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">272</span><span class="code">    auto_place_extra_players();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">273</span><span class="code">    debug_dump_steerable_actors(&quot;post-place&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">274</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">275</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">276</span><span class="code">void SessionPrimeInputQueueForNewLevel() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">277</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">278</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">279</span><span class="code">    // A new level/restart starts unpaused; any open menus from the prior run are discarded.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">280</span><span class="code">    bool was_paused = g_session.paused;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">281</span><span class="code">    g_session.paused = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">282</span><span class="code">    if (!g_session.menu_open.empty())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">283</span><span class="code">        std::fill(g_session.menu_open.begin(), g_session.menu_open.end(), false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">284</span><span class="code">    server::Msg_Pause(false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">285</span><span class="code">    if (was_paused &amp;&amp; g_session.host)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">286</span><span class="code">        send_pause_to_peers(false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">287</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">288</span><span class="code">    configure_input_session(g_session.expected_players);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">289</span><span class="code">    g_session.desync_reported = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">290</span><span class="code">    g_session.phase = SessionState::Phase::WAITING_FOR_START;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">291</span><span class="code">    g_session.local_ready_sent = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">292</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">293</span><span class="code">    g_session.has_pending_sync = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">294</span><span class="code">    g_session.last_world_checksum = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">295</span><span class="code">    g_session.checksum_history.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">296</span><span class="code">    g_session.last_checksum_tick = UINT32_MAX;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">297</span><span class="code">    g_session.resync_inflight = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">298</span><span class="code">    g_session.resync_inflight_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">299</span><span class="code">    g_session.resync_cooldown = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">300</span><span class="code">    g_session.resync_attempts = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">301</span><span class="code">    g_session.desync_streak = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">302</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">303</span><span class="code">    g_session.level_players = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">304</span><span class="code">    g_session.placement_received.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">305</span><span class="code">    g_session.needs_placement.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">306</span><span class="code">    g_session.last_defer_start_log = -1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">307</span><span class="code">    if (g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">308</span><span class="code">        for (auto &amp;entry : g_session.peer_ready)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">309</span><span class="code">            entry.second = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">310</span><span class="code">        for (auto &amp;entry : g_session.relay_ready)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">311</span><span class="code">            entry.second = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">312</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">313</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">314</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">315</span><span class="code">namespace {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">316</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">317</span><span class="code">void tick_advance_input_clock(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">318</span><span class="code">    g_session.input_clock_accu += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">319</span><span class="code">    if (g_session.input_clock_accu &gt; 1.0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">320</span><span class="code">        g_session.input_clock_accu = 1.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">321</span><span class="code">    while (g_session.input_clock_accu &gt;= kInputTimestep) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">322</span><span class="code">        g_session.input_clock_accu -= kInputTimestep;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">323</span><span class="code">        g_session.input_clock_tick += 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">324</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">325</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">326</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">327</span><span class="code">void tick_apply_pending_sync() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">328</span><span class="code">    if (!g_session.has_pending_sync)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">329</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">330</span><span class="code">    uint32_t local_tick = input::CurrentTick();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">331</span><span class="code">    if (local_tick == g_session.pending_sync.tick) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">332</span><span class="code">        protocol::SyncPacket sync = g_session.pending_sync;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">333</span><span class="code">        g_session.has_pending_sync = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">334</span><span class="code">        handle_sync_current(sync);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">335</span><span class="code">    } else if (local_tick &gt; g_session.pending_sync.tick) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">336</span><span class="code">        protocol::SyncPacket sync = g_session.pending_sync;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">337</span><span class="code">        SessionState::ChecksumSample sample;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">338</span><span class="code">        if (lookup_checksum_sample(sync.tick, sample))</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">339</span><span class="code">            handle_sync_sample(sync, sample);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">340</span><span class="code">        g_session.has_pending_sync = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">341</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">342</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">343</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">344</span><span class="code">void tick_update_resync_cooldown(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">345</span><span class="code">    if (g_session.resync_cooldown &lt;= 0.0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">346</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">347</span><span class="code">    g_session.resync_cooldown -= dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">348</span><span class="code">    if (g_session.resync_cooldown &lt; 0.0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">349</span><span class="code">        g_session.resync_cooldown = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">350</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">351</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">352</span><span class="code">void tick_update_resync_inflight_timeout(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">353</span><span class="code">    if (!g_session.resync_inflight)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">354</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">355</span><span class="code">    g_session.resync_inflight_timer += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">356</span><span class="code">    if (g_session.resync_inflight_timer &lt; kResyncInflightTimeout)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">357</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">358</span><span class="code">    debug_log(&quot;mp resync timeout: local tick=%u attempts=%u via=%s&quot;, input::CurrentTick(),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">359</span><span class="code">              static_cast&lt;unsigned&gt;(g_session.resync_attempts),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">360</span><span class="code">              transport_name(g_session.active_transport));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">361</span><span class="code">    g_session.telemetry.resync_inflight_timeouts += 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">362</span><span class="code">    g_session.resync_inflight = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">363</span><span class="code">    g_session.resync_inflight_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">364</span><span class="code">    // Allow a retry on the next mismatch observation.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">365</span><span class="code">    g_session.resync_cooldown = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">366</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">367</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">368</span><span class="code">void tick_send_periodic_ready(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">369</span><span class="code">    if (g_session.host || g_session.phase != SessionState::Phase::WAITING_FOR_READY)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">370</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">371</span><span class="code">    if (!server::WorldInitialized)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">372</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">373</span><span class="code">    g_session.ready_timer += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">374</span><span class="code">    if (g_session.ready_timer &lt; 0.5)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">375</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">376</span><span class="code">    if (local_can_send_ready()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">377</span><span class="code">        send_ready_to_host();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">378</span><span class="code">        g_session.local_ready_sent = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">379</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">380</span><span class="code">    g_session.ready_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">381</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">382</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">383</span><span class="code">void tick_debug_report_missing_input() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">384</span><span class="code">    if (!debug_enabled() || !g_session.local_player_known || !input::IsNetworked())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">385</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">386</span><span class="code">    static uint32_t last_missing_tick = UINT32_MAX;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">387</span><span class="code">    uint32_t tick = input::CurrentTick();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">388</span><span class="code">    if (tick == last_missing_tick)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">389</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">390</span><span class="code">    bool missing = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">391</span><span class="code">    for (unsigned player = 0; player &lt; g_session.expected_players; ++player) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">392</span><span class="code">        if (!input::HasInput(tick, player)) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">393</span><span class="code">            debug_log(&quot;mp missing input: tick=%u player=%u&quot;, tick, player);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">394</span><span class="code">            missing = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">395</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">396</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">397</span><span class="code">    if (missing)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">398</span><span class="code">        last_missing_tick = tick;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">399</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">400</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">401</span><span class="code">void tick_update_start_phase() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">402</span><span class="code">    if (g_session.phase == SessionState::Phase::WAITING_FOR_READY &amp;&amp; g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">403</span><span class="code">        if (!host_ready_to_start())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">404</span><span class="code">            return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">405</span><span class="code">        if (debug_enabled())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">406</span><span class="code">            debug_log(&quot;mp host: start allowed&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">407</span><span class="code">        g_session.input_epoch += 1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">408</span><span class="code">        g_session.debug_state_dumped = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">409</span><span class="code">        configure_input_session(g_session.expected_players);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">410</span><span class="code">        send_start_to_peers();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">411</span><span class="code">        g_session.phase = SessionState::Phase::READY_TO_START;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">412</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">413</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">414</span><span class="code">    if (g_session.phase != SessionState::Phase::READY_TO_START)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">415</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">416</span><span class="code">    server::Msg_StartGame();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">417</span><span class="code">    // Msg_StartGame can still be deferred (e.g. host has not observed connected peers yet).</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">418</span><span class="code">    // Only transition to RUNNING once the session logic says we can actually start.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">419</span><span class="code">    if (SessionShouldDeferStart())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">420</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">421</span><span class="code">    g_session.phase = SessionState::Phase::RUNNING;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">422</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">423</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">424</span><span class="code">void tick_host_periodic_sync(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">425</span><span class="code">    if (!g_session.host)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">426</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">427</span><span class="code">    g_session.sync_timer += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">428</span><span class="code">    if (g_session.sync_timer &lt; kSyncInterval)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">429</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">430</span><span class="code">    g_session.sync_timer = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">431</span><span class="code">    send_sync_to_peers();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">432</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">433</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">434</span><span class="code">void shutdown_enet_host_state() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">435</span><span class="code">    if (g_session.relay_peer) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">436</span><span class="code">        enet_peer_disconnect(g_session.relay_peer, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">437</span><span class="code">        g_session.relay_peer = nullptr;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">438</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">439</span><span class="code">    if (g_session.relay_handle) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">440</span><span class="code">        enet_host_destroy(g_session.relay_handle);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">441</span><span class="code">        g_session.relay_handle = nullptr;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">442</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">443</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">444</span><span class="code">    if (!g_session.host_handle)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">445</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">446</span><span class="code">    if (g_session.host) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">447</span><span class="code">        for (const auto &amp;entry : g_session.peer_players)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">448</span><span class="code">            enet_peer_disconnect(entry.first, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">449</span><span class="code">    } else if (g_session.server_peer) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">450</span><span class="code">        enet_peer_disconnect(g_session.server_peer, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">451</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">452</span><span class="code">    enet_host_destroy(g_session.host_handle);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">453</span><span class="code">    g_session.host_handle = nullptr;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">454</span><span class="code">    g_session.server_peer = nullptr;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">455</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">456</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">457</span><span class="code">}  // namespace</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">458</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">459</span><span class="code">void SessionTick(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">460</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">461</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">462</span><span class="code">    if (g_session.abort_pending) {</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">463</span><span class="code">        process_network_events();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">464</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">465</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">466</span><span class="code">    g_session.no_payload_timer += dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">467</span><span class="code">    tick_advance_input_clock(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">468</span><span class="code">    process_network_events();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">469</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">470</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">471</span><span class="code">    if (g_session.paused)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">472</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">473</span><span class="code">    if (g_session.abort_pending)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">474</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">475</span><span class="code">    if (!g_session.host &amp;&amp; g_session.phase == SessionState::Phase::RUNNING &amp;&amp;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">476</span><span class="code">        g_session.no_payload_timer &gt;= kClientNoPayloadDisconnectTimeout) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">477</span><span class="code">        abort_session_with_message(&quot;Lost connection to host. Ending session.&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">478</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">479</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">480</span><span class="code">    tick_apply_pending_sync();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">481</span><span class="code">    record_checksum_sample();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">482</span><span class="code">    tick_update_resync_cooldown(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">483</span><span class="code">    tick_update_resync_inflight_timeout(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">484</span><span class="code">    tick_send_periodic_ready(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">485</span><span class="code">    tick_debug_report_missing_input();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">486</span><span class="code">    tick_update_start_phase();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">487</span><span class="code">    send_local_inputs();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">488</span><span class="code">    tick_host_periodic_sync(dtime);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">489</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">490</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">491</span><span class="code">void SessionShutdown() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">492</span><span class="code">    if (!g_session.active)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">493</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">494</span><span class="code">    if (debug_enabled()) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">495</span><span class="code">        const auto &amp;t = g_session.telemetry;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">496</span><span class="code">        debug_log(&quot;mp telemetry: sync_current=%llu sync_sample=%llu &quot;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">497</span><span class="code">                  &quot;mismatch(pos=%llu rand=%llu actor=%llu world=%llu) &quot;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">498</span><span class="code">                  &quot;classified(diag_only=%llu rng_only=%llu soft_candidate=%llu) &quot;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">499</span><span class="code">                  &quot;rng_fixed=%llu resync(req=%llu resp=%llu applied=%llu timeout=%llu giveup=%llu)&quot;,</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">500</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.sync_current_total),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">501</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.sync_sample_total),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">502</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_pos),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">503</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_rand),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">504</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_actor),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">505</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_world),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">506</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_diagnostic_only),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">507</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_rng_only),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">508</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_soft_resync_candidate),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">509</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.rng_resync_applied),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">510</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_requests_sent),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">511</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_responses_recv),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">512</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_applied),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">513</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_inflight_timeouts),</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">514</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_giveups));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">515</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">516</span><span class="code">    shutdown_enet_host_state();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">517</span><span class="code">    tcp_close(g_session.tcp_relay_socket);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">518</span><span class="code">    g_session = SessionState();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">519</span><span class="code">    input::Reset();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">520</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">521</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">522</span><span class="code">}  // namespace internal</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">523</span><span class="code">}  // namespace multiplayer</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">524</span><span class="code">}  // namespace enigma</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">464</span><span class="code">        tick_abort_grace(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">465</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">466</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">467</span><span class="code">    // While paused we still need to pump the network (for unpause / disconnect),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">468</span><span class="code">    // but we must not advance the input clock or emit inputs.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">469</span><span class="code">    if (g_session.paused) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">470</span><span class="code">        process_network_events();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">471</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">472</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">473</span><span class="code">    g_session.no_payload_timer += dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">474</span><span class="code">    tick_advance_input_clock(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">475</span><span class="code">    process_network_events();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">476</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">477</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">478</span><span class="code">    if (g_session.paused)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">479</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">480</span><span class="code">    if (g_session.abort_pending)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">481</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">482</span><span class="code">    if (!g_session.host &amp;&amp; g_session.phase == SessionState::Phase::RUNNING &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">483</span><span class="code">        g_session.no_payload_timer &gt;= kClientNoPayloadDisconnectTimeout) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">484</span><span class="code">        abort_session_with_message(&quot;Lost connection to host. Ending session.&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">485</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">486</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">487</span><span class="code">    tick_apply_pending_sync();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">488</span><span class="code">    record_checksum_sample();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">489</span><span class="code">    tick_update_resync_cooldown(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">490</span><span class="code">    tick_update_resync_inflight_timeout(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">491</span><span class="code">    tick_send_periodic_ready(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">492</span><span class="code">    tick_debug_report_missing_input();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">493</span><span class="code">    tick_update_start_phase();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">494</span><span class="code">    send_local_inputs();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">495</span><span class="code">    tick_host_periodic_sync(dtime);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">496</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">497</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">498</span><span class="code">void SessionShutdown() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">499</span><span class="code">    if (!g_session.active)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">500</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">501</span><span class="code">    if (debug_enabled()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">502</span><span class="code">        const auto &amp;t = g_session.telemetry;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">503</span><span class="code">        debug_log(&quot;mp telemetry: sync_current=%llu sync_sample=%llu &quot;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">504</span><span class="code">                  &quot;mismatch(pos=%llu rand=%llu actor=%llu world=%llu) &quot;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">505</span><span class="code">                  &quot;classified(diag_only=%llu rng_only=%llu soft_candidate=%llu) &quot;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">506</span><span class="code">                  &quot;rng_fixed=%llu resync(req=%llu resp=%llu applied=%llu timeout=%llu giveup=%llu)&quot;,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">507</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.sync_current_total),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">508</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.sync_sample_total),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">509</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_pos),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">510</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_rand),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">511</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_actor),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">512</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_world),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">513</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_diagnostic_only),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">514</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_rng_only),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">515</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.mismatch_soft_resync_candidate),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">516</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.rng_resync_applied),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">517</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_requests_sent),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">518</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_responses_recv),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">519</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_applied),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">520</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_inflight_timeouts),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">521</span><span class="code">                  static_cast&lt;unsigned long long&gt;(t.resync_giveups));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">522</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">523</span><span class="code">    shutdown_enet_host_state();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">524</span><span class="code">    tcp_close(g_session.tcp_relay_socket);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">525</span><span class="code">    g_session = SessionState();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">526</span><span class="code">    input::Reset();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">527</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">528</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">529</span><span class="code">}  // namespace internal</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">530</span><span class="code">}  // namespace multiplayer</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">531</span><span class="code">}  // namespace enigma</span></div>
 </div>
 </div>
 <div class="section" id="src_multiplayer_session_start_cc">
