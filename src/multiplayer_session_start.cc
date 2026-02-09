@@ -97,12 +97,14 @@ enum class JoinPhase {
 struct ClientJoinState {
     bool active = false;
     protocol::LobbyStart start;
-    std::string host_ip;
+    // Candidate IPs for direct-connect attempts (multi-homed hosts, VMs).
+    std::vector<std::string> host_ips;
     MultiplayerConfig cfg;
 
     // Ordered list of strategies to try (filtered by cfg).
     std::vector<TransportKind> strategies;
     size_t strategy_index = 0;
+    size_t direct_host_index = 0;
 
     // Current attempt.
     TransportKind attempt_kind = TransportKind::NONE;
@@ -271,20 +273,27 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
 
 bool join_begin_next_attempt() {
     while (g_join.strategy_index < g_join.strategies.size()) {
-        TransportKind kind = g_join.strategies[g_join.strategy_index++];
+        TransportKind kind = g_join.strategies[g_join.strategy_index];
         g_join.attempt_kind = kind;
 
         if (kind == TransportKind::DIRECT) {
-            if (debug_enabled())
-                debug_log("mp client: connect %s:%u relay=0", g_join.host_ip.c_str(),
-                          static_cast<unsigned>(g_join.start.host_port));
-            if (join_begin_enet_attempt(g_join.host_ip, g_join.start.host_port, false, 3000,
-                                        kJoinTimeoutMs)) {
-                return true;
+            while (g_join.direct_host_index < g_join.host_ips.size()) {
+                const std::string &host = g_join.host_ips[g_join.direct_host_index++];
+                if (host.empty())
+                    continue;
+                if (debug_enabled())
+                    debug_log("mp client: connect %s:%u relay=0", host.c_str(),
+                              static_cast<unsigned>(g_join.start.host_port));
+                if (join_begin_enet_attempt(host, g_join.start.host_port, false, 3000,
+                                            kJoinTimeoutMs)) {
+                    return true;
+                }
             }
+            g_join.strategy_index++;
             continue;
         }
         if (kind == TransportKind::UDP_RELAY) {
+            g_join.strategy_index++;
             if (g_relay_server.empty())
                 continue;
             if (debug_enabled())
@@ -299,6 +308,7 @@ bool join_begin_next_attempt() {
             continue;
         }
         if (kind == TransportKind::TCP_RELAY) {
+            g_join.strategy_index++;
             if (g_tcp_relay_server.empty())
                 continue;
             if (debug_enabled())
@@ -323,7 +333,7 @@ void join_build_strategy_list() {
     const bool enable_tcp_relay = g_join.cfg.enable_tcp_relay;
     const bool force_relay = g_join.cfg.force_relay;
 
-    if (enable_direct && !force_relay)
+    if (enable_direct && !force_relay && !g_join.host_ips.empty())
         g_join.strategies.push_back(TransportKind::DIRECT);
     if (enable_udp_relay)
         g_join.strategies.push_back(TransportKind::UDP_RELAY);
@@ -779,6 +789,14 @@ bool SessionStartClient(const protocol::LobbyStart &start, const std::string &ho
 }
 
 bool SessionBeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip) {
+    std::vector<std::string> hosts;
+    if (!host_ip.empty())
+        hosts.push_back(host_ip);
+    return SessionBeginClientJoin(start, hosts);
+}
+
+bool SessionBeginClientJoin(const protocol::LobbyStart &start,
+                            const std::vector<std::string> &host_ips) {
     if (g_session.active || g_join.active)
         return false;
     if (debug_enabled())
@@ -792,10 +810,23 @@ bool SessionBeginClientJoin(const protocol::LobbyStart &start, const std::string
     g_join = ClientJoinState();
     g_join.active = true;
     g_join.start = start;
-    g_join.host_ip = host_ip;
+    g_join.host_ips = host_ips;
     g_join.cfg = multiplayer::LoadMultiplayerConfig();
+    if (debug_enabled()) {
+        std::string hosts;
+        for (size_t i = 0; i < g_join.host_ips.size(); ++i) {
+            if (i)
+                hosts += ",";
+            hosts += g_join.host_ips[i];
+        }
+        debug_log("mp client: join begin session=%u port=%u hosts=%s",
+                  static_cast<unsigned>(start.session_id),
+                  static_cast<unsigned>(start.host_port),
+                  hosts.c_str());
+    }
     join_build_strategy_list();
     g_join.strategy_index = 0;
+    g_join.direct_host_index = 0;
 
     if (!join_begin_next_attempt()) {
         SessionShutdown();

@@ -187,7 +187,33 @@ void poll_lobby_socket() {
             if (start.session_id == g_lobby.last_session_id)
                 continue;
             g_lobby.pending_start = start;
-            g_lobby.pending_host_ip = ip;
+            g_lobby.pending_host_ips.clear();
+
+            // Prefer the IP we last observed from the host's periodic announces.
+            // In multi-homed setups (WiFi + VM bridge/NAT), the START sender address
+            // may not be the address that is reachable for a direct connect.
+            auto it = g_lobby.peers.find(start.host_id);
+            if (it != g_lobby.peers.end()) {
+                const std::string &announce_ip = it->second.peer.address;
+                if (!announce_ip.empty())
+                    g_lobby.pending_host_ips.push_back(announce_ip);
+            }
+            if (g_lobby.pending_host_ips.empty() || g_lobby.pending_host_ips[0] != ip)
+                g_lobby.pending_host_ips.push_back(ip);
+
+            if (debug_enabled()) {
+                std::string hosts;
+                for (size_t i = 0; i < g_lobby.pending_host_ips.size(); ++i) {
+                    if (i)
+                        hosts += ",";
+                    hosts += g_lobby.pending_host_ips[i];
+                }
+                debug_log("mp lobby: start received session=%u host_id=%s port=%u hosts=%s",
+                          static_cast<unsigned>(start.session_id),
+                          start.host_id.c_str(),
+                          static_cast<unsigned>(start.host_port),
+                          hosts.c_str());
+            }
             g_lobby.has_pending_start = true;
             g_lobby.last_session_id = start.session_id;
         }
@@ -240,7 +266,7 @@ void LobbyStart() {
     g_lobby.announce_timer = 0.0;
     g_lobby.peers.clear();
     g_lobby.has_pending_start = false;
-    g_lobby.pending_host_ip.clear();
+    g_lobby.pending_host_ips.clear();
     g_lobby.last_session_id = 0;
 
     g_lobby.socket = enet_socket_create_compat(ENET_SOCKET_TYPE_DATAGRAM);
@@ -321,12 +347,20 @@ std::string LobbySelectedLevel() {
     return g_lobby.selected_level;
 }
 
-bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
+bool LobbyPollStart(protocol::LobbyStart &start, std::vector<std::string> &host_ips) {
     if (!g_lobby.has_pending_start)
         return false;
     start = g_lobby.pending_start;
-    host_ip = g_lobby.pending_host_ip;
+    host_ips = g_lobby.pending_host_ips;
     g_lobby.has_pending_start = false;
+    return true;
+}
+
+bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
+    std::vector<std::string> hosts;
+    if (!LobbyPollStart(start, hosts))
+        return false;
+    host_ip = hosts.empty() ? std::string() : hosts[0];
     return true;
 }
 

@@ -26,6 +26,7 @@ unsigned LobbySize();
 void LobbySetSelectedLevel(const std::string &level_id);
 std::string LobbySelectedLevel();
 bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip);
+bool LobbyPollStart(protocol::LobbyStart &start, std::vector<std::string> &host_ips);
 protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned expected_players,
                                        unsigned filter_min_players);
 void LobbyBroadcastStart(const protocol::LobbyStart &start);
@@ -76,6 +77,7 @@ enum class ClientJoinStatus {
 };
 
 bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip);
+bool BeginClientJoin(const protocol::LobbyStart &start, const std::vector<std::string> &host_ips);
 ClientJoinStatus PollClientJoin();
 void CancelClientJoin();
 

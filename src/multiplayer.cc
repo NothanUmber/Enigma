@@ -77,6 +77,10 @@ bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_
     return internal::SessionBeginClientJoin(start, host_ip);
 }
 
+bool BeginClientJoin(const protocol::LobbyStart &start, const std::vector<std::string> &host_ips) {
+    return internal::SessionBeginClientJoin(start, host_ips);
+}
+
 ClientJoinStatus PollClientJoin() {
     return internal::SessionPollClientJoin();
 }

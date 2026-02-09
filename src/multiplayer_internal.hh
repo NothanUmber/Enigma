@@ -138,20 +138,22 @@ struct LobbyPeerEntry {
     double last_unicast_sent = 0.0;
 };
 
-struct LobbyState {
-    bool active = false;
-    ENetSocket socket = ENET_SOCKET_NULL;
-    double time = 0.0;
-    double announce_timer = 0.0;
-    std::string local_id;
-    std::string local_name;
-    std::string selected_level;
-    std::unordered_map<std::string, LobbyPeerEntry> peers;
-    bool has_pending_start = false;
-    protocol::LobbyStart pending_start;
-    std::string pending_host_ip;
-    Uint32 last_session_id = 0;
-};
+	struct LobbyState {
+	    bool active = false;
+	    ENetSocket socket = ENET_SOCKET_NULL;
+	    double time = 0.0;
+	    double announce_timer = 0.0;
+	    std::string local_id;
+	    std::string local_name;
+	    std::string selected_level;
+	    std::unordered_map<std::string, LobbyPeerEntry> peers;
+	    bool has_pending_start = false;
+	    protocol::LobbyStart pending_start;
+	    // Candidate host IPs to try for direct connect (multi-homed hosts, VMs).
+	    // The first entry is the preferred address; additional entries are fallbacks.
+	    std::vector<std::string> pending_host_ips;
+	    Uint32 last_session_id = 0;
+	};
 
 struct SessionState {
     bool active = false;

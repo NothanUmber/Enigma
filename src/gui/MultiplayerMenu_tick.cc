@@ -128,12 +128,12 @@ bool MultiplayerMenu::start_host_and_enter_game(const multiplayer::protocol::Lob
 }
 
 bool MultiplayerMenu::begin_client_join(const multiplayer::protocol::LobbyStart &start,
-                                        const std::string &host_ip) {
+                                        const std::vector<std::string> &host_ips) {
     if (!set_level_by_id(start.level_id)) {
         show_info(_("Selected level not available."));
         return false;
     }
-    if (!multiplayer::BeginClientJoin(start, host_ip)) {
+    if (!multiplayer::BeginClientJoin(start, host_ips)) {
         return false;
     }
     return true;
@@ -178,7 +178,7 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
     if (lan_join_in_progress) {
         multiplayer::ClientJoinStatus st = poll_client_join_and_maybe_enter_game();
         if (st == multiplayer::ClientJoinStatus::FAILED) {
-            show_info(_("Failed to join host."));
+            show_info(_("Failed to join host. LAN play requires direct UDP connectivity."));
             lan_last_join_failed = true;
             lan_join_in_progress = false;
         } else if (st == multiplayer::ClientJoinStatus::JOINED) {
@@ -187,8 +187,8 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
     }
 
     multiplayer::protocol::LobbyStart start;
-    std::string host_ip;
-    if (!multiplayer::LobbyPollStart(start, host_ip))
+    std::vector<std::string> host_ips;
+    if (!multiplayer::LobbyPollStart(start, host_ips))
         return;
 
     if (start.session_id != lan_last_join_session_id) {
@@ -202,9 +202,9 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
 
     apply_start_selection(start);
     lan_join_start = start;
-    lan_join_host_ip = host_ip;
-    if (!begin_client_join(start, host_ip)) {
-        show_info(_("Failed to join host."));
+    lan_join_host_ip = host_ips.empty() ? std::string() : host_ips[0];
+    if (!begin_client_join(start, host_ips)) {
+        show_info(_("Failed to join host. LAN play requires direct UDP connectivity."));
         lan_last_join_failed = true;
         lan_join_in_progress = false;
     } else {
@@ -284,7 +284,10 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
         set_internet_connecting(true);
         internet_join_start = start;
         internet_join_host_ip = host_ip;
-        if (!begin_client_join(start, host_ip)) {
+        std::vector<std::string> host_ips;
+        if (!host_ip.empty())
+            host_ips.push_back(host_ip);
+        if (!begin_client_join(start, host_ips)) {
             show_info(_("Failed to join host."));
             internet_last_join_failed = true;
             internet_join_in_progress = false;

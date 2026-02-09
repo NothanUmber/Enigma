@@ -31,6 +31,7 @@
 #include "multiplayer_state.hh"
 
 #include <string>
+#include <vector>
 
 namespace enigma {
 namespace multiplayer {
@@ -65,6 +66,8 @@ bool SessionStartHost(const protocol::LobbyStart &start);
 bool SessionStartClient(const protocol::LobbyStart &start, const std::string &host_ip);
 
 bool SessionBeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip);
+bool SessionBeginClientJoin(const protocol::LobbyStart &start,
+                            const std::vector<std::string> &host_ips);
 multiplayer::ClientJoinStatus SessionPollClientJoin();
 void SessionCancelClientJoin();
 
