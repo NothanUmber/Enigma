@@ -24,6 +24,8 @@
 
 #include "SDL.h"
 
+#include "lev/Index.hh"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -93,6 +95,9 @@ void send_lobby_announce() {
     msg.id = g_lobby.local_id;
     msg.name = g_lobby.local_name;
     msg.level_id = g_lobby.selected_level;
+    // Best-effort: include the currently selected pack for easier debugging/UI.
+    lev::Index *cur = lev::Index::getCurrentIndex();
+    msg.pack_name = cur ? cur->getName() : "";
     msg.player_count = static_cast<Uint8>(g_lobby.peers.size() + 1);
 
     ecl::Buffer buf;
@@ -118,6 +123,8 @@ void send_lobby_announce_to(const ENetAddress &dst) {
     msg.id = g_lobby.local_id;
     msg.name = g_lobby.local_name;
     msg.level_id = g_lobby.selected_level;
+    lev::Index *cur = lev::Index::getCurrentIndex();
+    msg.pack_name = cur ? cur->getName() : "";
     msg.player_count = static_cast<Uint8>(g_lobby.peers.size() + 1);
 
     ecl::Buffer buf;
@@ -367,13 +374,14 @@ bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
 }
 
 protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned expected_players,
-                                       unsigned filter_min_players) {
+                                       const std::string &pack_name, unsigned filter_min_players) {
     protocol::LobbyStart start;
     std::random_device rd;
     Uint32 seed = static_cast<Uint32>(rd() ^ SDL_GetTicks());
     Uint32 session_id = static_cast<Uint32>((rd() << 16) ^ SDL_GetTicks());
     start.session_id = session_id;
     start.level_id = level_id;
+    start.pack_name = pack_name;
     start.seed = seed;
     start.expected_players = static_cast<Uint8>(expected_players);
     start.host_port = kGamePort;

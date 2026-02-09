@@ -39,12 +39,16 @@ struct LobbyAnnounce {
     std::string id;
     std::string name;
     std::string level_id;
+    // Optional: human-readable pack name (best-effort, used for UI/debug only).
+    std::string pack_name;
     Uint8 player_count;
 };
 
 struct LobbyStart {
     Uint32 session_id;
     std::string level_id;
+    // Fully qualifies `level_id` across packs (clients switch to this pack before loading).
+    std::string pack_name;
     Uint32 seed;
     Uint8 expected_players;
     Uint16 host_port;
@@ -114,7 +118,7 @@ struct PlacementPacket {
 
 inline void encode_lobby_announce(ecl::Buffer &buf, const LobbyAnnounce &msg) {
     buf << kLobbyMagic << kLobbyVersion << Uint8(LOBBY_ANNOUNCE)
-        << msg.id << msg.name << msg.level_id << Uint8(msg.player_count);
+        << msg.id << msg.name << msg.level_id << Uint8(msg.player_count) << msg.pack_name;
 }
 
 inline bool decode_lobby_announce(ecl::Buffer &buf, LobbyAnnounce &msg) {
@@ -131,6 +135,11 @@ inline bool decode_lobby_announce(ecl::Buffer &buf, LobbyAnnounce &msg) {
     if (!(buf >> msg.id >> msg.name >> msg.level_id >> count))
         return false;
     msg.player_count = count;
+    msg.pack_name.clear();
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        if (!(buf >> msg.pack_name))
+            return false;
+    }
     return true;
 }
 
@@ -138,7 +147,7 @@ inline void encode_lobby_start(ecl::Buffer &buf, const LobbyStart &msg) {
     buf << kLobbyMagic << kLobbyVersion << Uint8(LOBBY_START)
         << Uint32(msg.session_id) << msg.level_id << Uint32(msg.seed)
         << Uint8(msg.expected_players) << Uint16(msg.host_port) << msg.host_id
-        << Uint8(msg.filter_optimized);
+        << Uint8(msg.filter_optimized) << msg.pack_name;
 }
 
 inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {
@@ -161,6 +170,11 @@ inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {
     msg.host_port = host_port;
     if (!(buf >> msg.filter_optimized))
         return false;
+    msg.pack_name.clear();
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        if (!(buf >> msg.pack_name))
+            return false;
+    }
     return true;
 }
 

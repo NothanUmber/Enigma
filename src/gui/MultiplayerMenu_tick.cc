@@ -103,7 +103,12 @@ void MultiplayerMenu::apply_start_selection(const multiplayer::protocol::LobbySt
     filter_min_players = start.filter_optimized;
     update_filter_button();
     selected_level_id = start.level_id;
-    select_pack_for_level(start.level_id);
+    if (!start.pack_name.empty()) {
+        selected_pack_name = start.pack_name;
+    } else {
+        // Backward compat with older peers/servers: best-effort lookup by level id.
+        select_pack_for_level(start.level_id);
+    }
     rebuild_index();
 }
 

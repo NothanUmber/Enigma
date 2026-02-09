@@ -28,7 +28,7 @@ std::string LobbySelectedLevel();
 bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip);
 bool LobbyPollStart(protocol::LobbyStart &start, std::vector<std::string> &host_ips);
 protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned expected_players,
-                                       unsigned filter_min_players);
+                                       const std::string &pack_name, unsigned filter_min_players);
 void LobbyBroadcastStart(const protocol::LobbyStart &start);
 std::string EncodeStartToken(const protocol::LobbyStart &start);
 bool DecodeStartToken(const std::string &token, protocol::LobbyStart &start);

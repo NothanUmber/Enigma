@@ -106,6 +106,7 @@ Internet discovery (room codes):
 
 - `session_id`
 - `seed` (for deterministic RNG)
+- `pack_name` (fully qualifies the map across level packs; clients switch to this pack before loading)
 - `expected_players`
 - `host_port`
 - `host_id`
