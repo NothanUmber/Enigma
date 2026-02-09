@@ -62,8 +62,17 @@ TransportKind SessionActiveTransport() {
 bool SessionShouldDeferStart() {
     if (!g_session.active)
         return false;
-    bool can_start = (g_session.phase == SessionState::Phase::READY_TO_START ||
-                      g_session.phase == SessionState::Phase::RUNNING);
+    // For the host we must be stricter than "phase says RUNNING": on some networks
+    // (notably VM NAT setups) a lobby START can be seen but the direct ENet connect
+    // never succeeds. In that case the host must keep the simulation deferred until
+    // the expected number of peers have actually connected and reported READY.
+    bool can_start = false;
+    if (g_session.host) {
+        can_start = (g_session.phase == SessionState::Phase::RUNNING) || host_ready_to_start();
+    } else {
+        can_start = (g_session.phase == SessionState::Phase::READY_TO_START ||
+                     g_session.phase == SessionState::Phase::RUNNING);
+    }
     if (debug_enabled()) {
         int v = can_start ? 0 : 1;
         if (g_session.last_defer_start_log != v) {
@@ -395,8 +404,12 @@ void tick_update_start_phase() {
 
     if (g_session.phase != SessionState::Phase::READY_TO_START)
         return;
-    g_session.phase = SessionState::Phase::RUNNING;
     server::Msg_StartGame();
+    // Msg_StartGame can still be deferred (e.g. host has not observed connected peers yet).
+    // Only transition to RUNNING once the session logic says we can actually start.
+    if (SessionShouldDeferStart())
+        return;
+    g_session.phase = SessionState::Phase::RUNNING;
 }
 
 void tick_host_periodic_sync(double dtime) {

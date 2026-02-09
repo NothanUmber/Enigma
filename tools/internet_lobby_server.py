@@ -94,6 +94,9 @@ def parse_start(payload):
         filter_optimized, offset = read_u8(payload, offset)
         level_id, offset = read_str(payload, offset)
         host_id, offset = read_str(payload, offset)
+        pack_name = ""
+        if offset < len(payload):
+            pack_name, offset = read_str(payload, offset)
         return {
             "session_id": session_id,
             "seed": seed,
@@ -102,6 +105,7 @@ def parse_start(payload):
             "filter_optimized": filter_optimized,
             "level_id": level_id,
             "host_id": host_id,
+            "pack_name": pack_name,
         }
     except Exception:
         pass
@@ -125,6 +129,9 @@ def parse_start(payload):
     filter_optimized = 1
     if offset < len(payload):
         filter_optimized, offset = read_u8(payload, offset)
+    pack_name = ""
+    if offset < len(payload):
+        pack_name, offset = read_str(payload, offset)
     return {
         "session_id": session_id,
         "seed": seed,
@@ -133,6 +140,7 @@ def parse_start(payload):
         "filter_optimized": filter_optimized,
         "level_id": level_id,
         "host_id": host_id,
+        "pack_name": pack_name,
     }
 
 
@@ -204,6 +212,7 @@ def handle_request(data, addr, rooms, ttl):
             + build_start(room.start)
             + write_str(room.host_ip)
             + write_u8(len(room.members))
+            + write_str(room.start.get("pack_name", ""))
         )
         return resp
 
@@ -258,6 +267,7 @@ def handle_request(data, addr, rooms, ttl):
             + write_u8(len(room.members))
             + build_start(room.start)
             + write_str(room.host_ip)
+            + write_str(room.start.get("pack_name", ""))
         )
 
     if msg_type == INET_LEAVE:

@@ -481,7 +481,15 @@ void Msg_JumpBack() {
 
 void Msg_StartGame() {
     if (state == sv_waiting_for_clients) {
-        if (multiplayer::ShouldDeferStart()) {
+        bool defer = multiplayer::ShouldDeferStart();
+        if (!defer && multiplayer::IsActive() && multiplayer::IsHost() &&
+            multiplayer::ExpectedPlayers() > 1 && !multiplayer::HasRemotePeers()) {
+            // Guard against cases where the session hasn't observed a remote peer yet
+            // (for example VM networking quirks). The host must not start the
+            // simulation until at least one peer is connected/ready.
+            defer = true;
+        }
+        if (defer) {
             // In Internet play it can take a moment until all peers have connected and
             // reported "ready". While we wait, the level may already be visible but
             // simulation/input is intentionally deferred to keep everyone in sync.

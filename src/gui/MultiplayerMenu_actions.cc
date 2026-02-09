@@ -51,8 +51,11 @@ void MultiplayerMenu::handle_level_activated() {
             return;
         }
 
+        // Ensure the start message fully qualifies the level across packs.
+        if (selected_pack_name.empty())
+            select_pack_for_level(selected_level_id);
         multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
-            selected_level_id, desired_players(), filter_min_players);
+            selected_level_id, desired_players(), selected_pack_name, filter_min_players);
         std::string error;
         std::string server = mp_menu::multiplayer_server_host_from_options();
         std::string room = current_room_code();
@@ -78,8 +81,10 @@ void MultiplayerMenu::handle_level_activated() {
         show_info(_("Need matching players to start."));
         return;
     }
+    if (selected_pack_name.empty())
+        select_pack_for_level(selected_level_id);
     multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
-        selected_level_id, desired_players(), filter_min_players);
+        selected_level_id, desired_players(), selected_pack_name, filter_min_players);
     start_host_and_enter_game(start, true);
 }
 
@@ -143,8 +148,10 @@ void MultiplayerMenu::handle_create_room() {
     }
     multiplayer::SetRelayServer(servers.udp_relay);
     multiplayer::SetTcpRelayServer(servers.tcp_relay);
+    if (selected_pack_name.empty())
+        select_pack_for_level(selected_level_id);
     multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
-        selected_level_id, players, filter_min_players);
+        selected_level_id, players, selected_pack_name, filter_min_players);
     std::string error;
     if (!multiplayer::InternetCreateRoom(servers.lobby, room_code, start, error)) {
         show_info(error.empty() ? _("Failed to create room.") : error);

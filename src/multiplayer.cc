@@ -21,6 +21,10 @@ unsigned ExpectedPlayers() {
     return internal::SessionExpectedPlayers();
 }
 
+bool HasRemotePeers() {
+    return internal::SessionHasRemotePeers();
+}
+
 bool ShouldDeferStart() {
     return internal::SessionShouldDeferStart();
 }
@@ -75,6 +79,10 @@ bool StartClientSession(const protocol::LobbyStart &start, const std::string &ho
 
 bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip) {
     return internal::SessionBeginClientJoin(start, host_ip);
+}
+
+bool BeginClientJoin(const protocol::LobbyStart &start, const std::vector<std::string> &host_ips) {
+    return internal::SessionBeginClientJoin(start, host_ips);
 }
 
 ClientJoinStatus PollClientJoin() {

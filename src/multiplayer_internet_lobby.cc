@@ -222,7 +222,7 @@ bool InternetCreateRoom(const std::string &server, const std::string &room_code,
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_CREATE)
             << room_code << Uint32(start.session_id) << Uint32(start.seed)
             << Uint8(start.expected_players) << Uint16(start.host_port)
-            << Uint8(start.filter_optimized) << start.level_id << start.host_id;
+            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name;
 
     ecl::Buffer response;
     if (!internet_exchange(server, request, response, error))
@@ -283,10 +283,18 @@ bool InternetJoinRoom(const std::string &server, const std::string &room_code,
           >> start.expected_players >> start.host_port >> start.host_id
           >> start.filter_optimized >> host_ip))
         return false;
+    // Optional fields for newer servers:
+    // - player_count (u8)
+    // - pack_name (string)
     if (response.get_rpos() < static_cast<std::ptrdiff_t>(response.size())) {
         Uint8 count = 0;
         if (response >> count)
             player_count = count;
+    }
+    start.pack_name.clear();
+    if (response.get_rpos() < static_cast<std::ptrdiff_t>(response.size())) {
+        if (!(response >> start.pack_name))
+            return false;
     }
     return true;
 }
@@ -298,7 +306,7 @@ bool InternetStartRoom(const std::string &server, const std::string &room_code,
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_START)
             << room_code << Uint32(start.session_id) << Uint32(start.seed)
             << Uint8(start.expected_players) << Uint16(start.host_port)
-            << Uint8(start.filter_optimized) << start.level_id << start.host_id;
+            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name;
 
     ecl::Buffer response;
     if (!internet_exchange(server, request, response, error))
@@ -364,6 +372,12 @@ bool InternetPollRoom(const std::string &server, const std::string &room_code,
           >> start.expected_players >> start.host_port >> start.host_id
           >> start.filter_optimized >> host_ip))
         return false;
+    start.pack_name.clear();
+    if (response.get_rpos() < static_cast<std::ptrdiff_t>(response.size())) {
+        // Pack name may be appended after host_ip.
+        if (!(response >> start.pack_name))
+            return false;
+    }
     return true;
 }
 

@@ -24,6 +24,8 @@
 
 #include "SDL.h"
 
+#include "lev/Index.hh"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -87,18 +89,49 @@ bool decode_hex(const std::string &text, ecl::Buffer &out) {
 void send_lobby_announce() {
     if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
         return;
+    // Username can change in Options; refresh before broadcasting.
+    ensure_lobby_identity();
     protocol::LobbyAnnounce msg;
     msg.id = g_lobby.local_id;
     msg.name = g_lobby.local_name;
     msg.level_id = g_lobby.selected_level;
+    // Best-effort: include the currently selected pack for easier debugging/UI.
+    lev::Index *cur = lev::Index::getCurrentIndex();
+    msg.pack_name = cur ? cur->getName() : "";
     msg.player_count = static_cast<Uint8>(g_lobby.peers.size() + 1);
 
     ecl::Buffer buf;
     protocol::encode_lobby_announce(buf, msg);
 
+    ENetBuffer eb;
+    eb.data = const_cast<char *>(buf.data());
+    eb.dataLength = buf.size();
+
     ENetAddress addr;
     addr.host = ENET_HOST_BROADCAST;
     addr.port = kLobbyPort;
+    enet_socket_send(g_lobby.socket, &addr, &eb, 1);
+}
+
+void send_lobby_announce_to(const ENetAddress &dst) {
+    if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
+        return;
+    // Username can change in Options; refresh before sending.
+    ensure_lobby_identity();
+
+    protocol::LobbyAnnounce msg;
+    msg.id = g_lobby.local_id;
+    msg.name = g_lobby.local_name;
+    msg.level_id = g_lobby.selected_level;
+    lev::Index *cur = lev::Index::getCurrentIndex();
+    msg.pack_name = cur ? cur->getName() : "";
+    msg.player_count = static_cast<Uint8>(g_lobby.peers.size() + 1);
+
+    ecl::Buffer buf;
+    protocol::encode_lobby_announce(buf, msg);
+
+    ENetAddress addr = dst;
+    addr.port = kLobbyPort;  // announces are always listened for on the lobby port
     ENetBuffer eb;
     eb.data = const_cast<char *>(buf.data());
     eb.dataLength = buf.size();
@@ -129,13 +162,25 @@ void poll_lobby_socket() {
         if (protocol::decode_lobby_announce(buf, announce)) {
             if (announce.id == g_lobby.local_id)
                 continue;
+            // Some networks deliver broadcasts asymmetrically (or filter
+            // broadcast but allow unicast). If we heard a peer's announce,
+            // send a direct unicast announce back once so they can discover us
+            // even if they didn't receive our broadcast.
+            bool newly_seen = g_lobby.peers.find(announce.id) == g_lobby.peers.end();
             LobbyPeerEntry &entry = g_lobby.peers[announce.id];
             entry.peer.id = announce.id;
             entry.peer.name = announce.name;
             entry.peer.level_id = announce.level_id;
             entry.peer.address = ip;
             entry.peer.is_self = false;
+            entry.addr = src;
+            entry.addr.port = kLobbyPort;
             entry.last_seen = g_lobby.time;
+            if (newly_seen) {
+                debug_log("mp lobby: saw peer id=%s name=%s ip=%s (announce-back)",
+                          announce.id.c_str(), announce.name.c_str(), ip.c_str());
+                send_lobby_announce_to(src);
+            }
             continue;
         }
 
@@ -149,7 +194,37 @@ void poll_lobby_socket() {
             if (start.session_id == g_lobby.last_session_id)
                 continue;
             g_lobby.pending_start = start;
-            g_lobby.pending_host_ip = ip;
+            g_lobby.pending_host_ips.clear();
+
+            // Prefer the START sender address first: it's the address that just
+            // delivered the packet to us, so it is usually the most routable for
+            // a direct connect (notably across VMs / NAT).
+            auto it = g_lobby.peers.find(start.host_id);
+            if (!ip.empty())
+                g_lobby.pending_host_ips.push_back(ip);
+            if (it != g_lobby.peers.end()) {
+                const std::string &announce_ip = it->second.peer.address;
+                if (!announce_ip.empty() &&
+                    (g_lobby.pending_host_ips.empty() || g_lobby.pending_host_ips[0] != announce_ip)) {
+                    g_lobby.pending_host_ips.push_back(announce_ip);
+                }
+            }
+
+            if (debug_enabled()) {
+                std::string hosts;
+                for (size_t i = 0; i < g_lobby.pending_host_ips.size(); ++i) {
+                    if (i)
+                        hosts += ",";
+                    hosts += g_lobby.pending_host_ips[i];
+                }
+                debug_log("mp lobby: start received session=%u pack=%s level_id=%s host_id=%s port=%u hosts=%s",
+                          static_cast<unsigned>(start.session_id),
+                          start.pack_name.c_str(),
+                          start.level_id.c_str(),
+                          start.host_id.c_str(),
+                          static_cast<unsigned>(start.host_port),
+                          hosts.c_str());
+            }
             g_lobby.has_pending_start = true;
             g_lobby.last_session_id = start.session_id;
         }
@@ -162,6 +237,23 @@ void cleanup_lobby_peers() {
             it = g_lobby.peers.erase(it);
         else
             ++it;
+    }
+}
+
+void send_unicast_announces() {
+    // Broadcast delivery can be flaky or asymmetric (notably across VMs). Once we
+    // know a peer's unicast address, also send announces directly to keep LAN
+    // discovery stable.
+    if (!g_lobby.active || g_lobby.socket == ENET_SOCKET_NULL)
+        return;
+    for (auto &kv : g_lobby.peers) {
+        LobbyPeerEntry &entry = kv.second;
+        if (entry.addr.host == 0)
+            continue;
+        if (g_lobby.time - entry.last_unicast_sent < kAnnounceInterval)
+            continue;
+        send_lobby_announce_to(entry.addr);
+        entry.last_unicast_sent = g_lobby.time;
     }
 }
 
@@ -185,7 +277,7 @@ void LobbyStart() {
     g_lobby.announce_timer = 0.0;
     g_lobby.peers.clear();
     g_lobby.has_pending_start = false;
-    g_lobby.pending_host_ip.clear();
+    g_lobby.pending_host_ips.clear();
     g_lobby.last_session_id = 0;
 
     g_lobby.socket = enet_socket_create_compat(ENET_SOCKET_TYPE_DATAGRAM);
@@ -227,6 +319,7 @@ void LobbyTick(double dtime) {
     if (g_lobby.announce_timer >= kAnnounceInterval) {
         g_lobby.announce_timer = 0.0;
         send_lobby_announce();
+        send_unicast_announces();
     }
     poll_lobby_socket();
     cleanup_lobby_peers();
@@ -236,6 +329,8 @@ std::vector<LobbyPeer> LobbyPeers() {
     std::vector<LobbyPeer> result;
     if (!g_lobby.active)
         return result;
+    // Username can change in Options; keep UI up to date.
+    ensure_lobby_identity();
     LobbyPeer self;
     self.id = g_lobby.local_id;
     self.name = g_lobby.local_name;
@@ -263,23 +358,32 @@ std::string LobbySelectedLevel() {
     return g_lobby.selected_level;
 }
 
-bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
+bool LobbyPollStart(protocol::LobbyStart &start, std::vector<std::string> &host_ips) {
     if (!g_lobby.has_pending_start)
         return false;
     start = g_lobby.pending_start;
-    host_ip = g_lobby.pending_host_ip;
+    host_ips = g_lobby.pending_host_ips;
     g_lobby.has_pending_start = false;
     return true;
 }
 
+bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
+    std::vector<std::string> hosts;
+    if (!LobbyPollStart(start, hosts))
+        return false;
+    host_ip = hosts.empty() ? std::string() : hosts[0];
+    return true;
+}
+
 protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned expected_players,
-                                       unsigned filter_min_players) {
+                                       const std::string &pack_name, unsigned filter_min_players) {
     protocol::LobbyStart start;
     std::random_device rd;
     Uint32 seed = static_cast<Uint32>(rd() ^ SDL_GetTicks());
     Uint32 session_id = static_cast<Uint32>((rd() << 16) ^ SDL_GetTicks());
     start.session_id = session_id;
     start.level_id = level_id;
+    start.pack_name = pack_name;
     start.seed = seed;
     start.expected_players = static_cast<Uint8>(expected_players);
     start.host_port = kGamePort;
@@ -297,13 +401,27 @@ void LobbyBroadcastStart(const protocol::LobbyStart &start) {
         return;
     ecl::Buffer buf;
     protocol::encode_lobby_start(buf, start);
-    ENetAddress addr;
-    addr.host = ENET_HOST_BROADCAST;
-    addr.port = kLobbyPort;
+
     ENetBuffer eb;
     eb.data = const_cast<char *>(buf.data());
     eb.dataLength = buf.size();
+
+    // Broadcast for the "normal" LAN case.
+    ENetAddress addr;
+    addr.host = ENET_HOST_BROADCAST;
+    addr.port = kLobbyPort;
     enet_socket_send(g_lobby.socket, &addr, &eb, 1);
+
+    // Some networks deliver broadcasts asymmetrically (notably across VMs). If we
+    // already know peers' unicast addresses, also send the start message directly.
+    for (const auto &kv : g_lobby.peers) {
+        const LobbyPeerEntry &entry = kv.second;
+        if (entry.addr.host == 0)
+            continue;
+        ENetAddress dst = entry.addr;
+        dst.port = kLobbyPort;
+        enet_socket_send(g_lobby.socket, &dst, &eb, 1);
+    }
 }
 
 std::string EncodeStartToken(const protocol::LobbyStart &start) {

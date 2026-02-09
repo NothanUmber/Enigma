@@ -50,9 +50,10 @@ std::string resolve_local_name() {
 }
 
 void ensure_lobby_identity() {
-    if (!g_lobby.local_id.empty())
-        return;
-    g_lobby.local_id = make_id();
+    if (g_lobby.local_id.empty())
+        g_lobby.local_id = make_id();
+    // UserName can change while the process is running (Options menu). Keep the
+    // lobby display name fresh so announces and UI reflect the current setting.
     g_lobby.local_name = resolve_local_name();
 }
 

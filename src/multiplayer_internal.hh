@@ -48,7 +48,9 @@ constexpr Uint16 kLobbyPort = 12346;
 constexpr Uint16 kGamePort = 12345;
 constexpr Uint16 kInternetLobbyPort = 12347;
 constexpr double kAnnounceInterval = 0.5;
-constexpr double kPeerTimeout = 2.0;
+// Drop peers from the LAN lobby after a short absence of announces. Keep this
+// tolerant enough for WiFi/VM broadcast loss so the UI doesn't flicker.
+constexpr double kPeerTimeout = 5.0;
 constexpr uint32_t kInputDelay = 4;
 // TCP relay adds latency and jitter compared to direct/UDP. Use a larger input
 // delay to reduce "missing input" situations that otherwise force frequent
@@ -57,6 +59,10 @@ constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
 constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
+// Allow extra time for direct connect handshakes while the host is still
+// transitioning/loading the level and not pumping ENet yet (common on slower
+// machines / VMs). ENet server replies are application-driven.
+constexpr Uint32 kDirectConnectTimeoutMs = 12000;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
 // If a resync request is in-flight for too long (packet loss, transport stall),
@@ -131,7 +137,9 @@ constexpr TcpSocket kInvalidTcpSocket = -1;
 
 struct LobbyPeerEntry {
     LobbyPeer peer;
-    double last_seen;
+    ENetAddress addr = {0, 0};  // last seen source address (for unicast announces)
+    double last_seen = 0.0;
+    double last_unicast_sent = 0.0;
 };
 
 struct LobbyState {
@@ -145,7 +153,9 @@ struct LobbyState {
     std::unordered_map<std::string, LobbyPeerEntry> peers;
     bool has_pending_start = false;
     protocol::LobbyStart pending_start;
-    std::string pending_host_ip;
+    // Candidate host IPs to try for direct connect (multi-homed hosts, VMs).
+    // The first entry is the preferred address; additional entries are fallbacks.
+    std::vector<std::string> pending_host_ips;
     Uint32 last_session_id = 0;
 };
 
