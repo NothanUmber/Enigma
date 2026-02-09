@@ -189,7 +189,14 @@ struct SessionState {
     uint32_t tcp_relay_frame_len = 0;
     std::unordered_map<Uint32, unsigned> tcp_relay_players;
     std::unordered_map<Uint32, bool> tcp_relay_ready;
-    unsigned next_player_id = 1;
+    // Host-side player id allocation.
+    //
+    // We deliberately do not assume that direct connects succeed bidirectionally:
+    // on some LAN/VM setups the host can observe an ENet CONNECT event while the
+    // client never receives WELCOME. To allow retries (and to avoid getting
+    // stuck forever in "waiting for players"), we allocate player ids from a
+    // reusable pool and can replace unready peers during the pre-start phase.
+    std::vector<bool> player_in_use;
     uint32_t next_local_tick = 0;
     uint32_t next_send_tick = 0;
     std::unordered_map<uint32_t, input::PlayerInput> local_history;

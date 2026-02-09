@@ -546,6 +546,9 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
     g_session.session_id = start.session_id;
     g_session.seed = start.seed;
     g_session.menu_open.assign(expected_players, false);
+    g_session.player_in_use.assign(expected_players, false);
+    if (is_host && expected_players > 0)
+        g_session.player_in_use[0] = true;
 
     enigma::Randomize(start.seed, true);
     configure_input_session(expected_players);
@@ -555,7 +558,13 @@ bool host_open_direct_listener(Uint16 port, unsigned expected_players) {
     ENetAddress address;
     address.host = ENET_HOST_ANY;
     address.port = port;
-    g_session.host_handle = enet_host_create(&address, expected_players - 1,
+    unsigned peer_capacity = 0;
+    if (expected_players > 1) {
+        // Allow a few extra peers so clients can retry with alternate host IPs
+        // without the host getting "stuck" on a half-connected attempt.
+        peer_capacity = std::max<unsigned>(expected_players - 1, 8);
+    }
+    g_session.host_handle = enet_host_create(&address, peer_capacity,
 #ifdef ENET_VER_EQ_GT_13
                                              2 /* channels */,
 #endif
