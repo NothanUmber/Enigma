@@ -394,7 +394,8 @@ void Client::on_mousebutton(SDL_Event &e) {
             input::SubmitActivateItem(player::CurrentPlayer());
         } else if (e.button.button == SDL_BUTTON_RIGHT) {
             // right mousebutton -> rotate inventory
-            input::SubmitRotateInventory(player::CurrentPlayer(), +1);
+            // Keep upstream behavior: this also stops scrolling status/toast text.
+            rotate_inventory(+1);
         } else if (e.button.button == SDL_BUTTON_MIDDLE) {
             switch (options::GetInt("MiddleMouseButtonMode")) {
             case options::MIDDLEMOUSEBUTTON_NoOp: {
