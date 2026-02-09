@@ -207,8 +207,24 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
                               Uint32 relay_client_id) {
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
-    if (!protocol::decode_ready(buf))
+    Uint32 session_id = 0;
+    Uint32 epoch = 0;
+    if (!protocol::decode_ready(buf, session_id, epoch))
         return false;
+    if (session_id != g_session.session_id) {
+        if (debug_enabled())
+            debug_log("mp host: drop ready (session mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(session_id),
+                      static_cast<unsigned>(g_session.session_id));
+        return true;
+    }
+    if (epoch != g_session.input_epoch) {
+        if (debug_enabled())
+            debug_log("mp host: drop ready (epoch mismatch remote=%u local=%u)",
+                      static_cast<unsigned>(epoch),
+                      static_cast<unsigned>(g_session.input_epoch));
+        return true;
+    }
     unsigned player_id = 0;
     if (lookup_remote_player(source, peer, relay_client_id, player_id)) {
         debug_log("mp host: ready player=%u source=%s", player_id, host_source_name(source));

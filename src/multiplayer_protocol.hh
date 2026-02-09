@@ -49,6 +49,9 @@ struct LobbyStart {
     std::string level_id;
     // Fully qualifies `level_id` across packs (clients switch to this pack before loading).
     std::string pack_name;
+    // Optional: list of host IP addresses clients can try for direct connect.
+    // This helps with multi-homed hosts (VPNs, VMs, multiple NICs).
+    std::vector<std::string> host_ips;
     Uint32 seed;
     Uint8 expected_players;
     Uint16 host_port;
@@ -148,6 +151,12 @@ inline void encode_lobby_start(ecl::Buffer &buf, const LobbyStart &msg) {
         << Uint32(msg.session_id) << msg.level_id << Uint32(msg.seed)
         << Uint8(msg.expected_players) << Uint16(msg.host_port) << msg.host_id
         << Uint8(msg.filter_optimized) << msg.pack_name;
+    // Optional extension: additional host IP candidates. Older decoders ignore
+    // trailing bytes, so extending the payload keeps LAN interop with older builds.
+    Uint8 count = static_cast<Uint8>(std::min<size_t>(msg.host_ips.size(), 255));
+    buf << count;
+    for (Uint8 i = 0; i < count; ++i)
+        buf << msg.host_ips[i];
 }
 
 inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {
@@ -171,9 +180,22 @@ inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {
     if (!(buf >> msg.filter_optimized))
         return false;
     msg.pack_name.clear();
+    msg.host_ips.clear();
     if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
         if (!(buf >> msg.pack_name))
             return false;
+    }
+    // Optional extension: host IP candidates.
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        Uint8 count = 0;
+        if (!(buf >> count))
+            return false;
+        for (Uint8 i = 0; i < count; ++i) {
+            std::string ip;
+            if (!(buf >> ip))
+                return false;
+            msg.host_ips.push_back(ip);
+        }
     }
     return true;
 }
@@ -337,15 +359,23 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
     return true;
 }
 
-inline void encode_ready(ecl::Buffer &buf) {
-    buf << Uint8(NET_READY);
+inline void encode_ready(ecl::Buffer &buf, Uint32 session_id, Uint32 epoch) {
+    buf << Uint8(NET_READY) << Uint32(session_id) << Uint32(epoch);
 }
 
-inline bool decode_ready(ecl::Buffer &buf) {
+inline bool decode_ready(ecl::Buffer &buf, Uint32 &session_id, Uint32 &epoch) {
     Uint8 type = 0;
+    Uint32 parsed_session = 0;
+    Uint32 parsed_epoch = 0;
     if (!(buf >> type))
         return false;
-    return type == NET_READY;
+    if (type != NET_READY)
+        return false;
+    if (!(buf >> parsed_session >> parsed_epoch))
+        return false;
+    session_id = parsed_session;
+    epoch = parsed_epoch;
+    return true;
 }
 
 inline void encode_start(ecl::Buffer &buf, Uint32 epoch) {

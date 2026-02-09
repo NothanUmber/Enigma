@@ -107,6 +107,7 @@ Internet discovery (room codes):
 - `session_id`
 - `seed` (for deterministic RNG)
 - `pack_name` (fully qualifies the map across level packs; clients switch to this pack before loading)
+- `host_ips` (optional list of IPv4 candidates the client can try for direct connect on multi-homed hosts, VMs, VPNs)
 - `expected_players`
 - `host_port`
 - `host_id`
@@ -120,6 +121,9 @@ session can begin. To avoid desync and avoid "flashing" the world for a single f
 - The host and clients enter a dedicated waiting screen (`cls_waiting_for_network_start`).
 - The level is only shown once `SessionState::Phase` allows start.
 - The game timer only starts ticking once all players are ready.
+
+`READY` is validated against the current `session_id` and `epoch` to avoid stale packets from
+previous runs accidentally unblocking a new session.
 
 ### Session transport options
 

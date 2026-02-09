@@ -1117,6 +1117,11 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
         g_join.last_enet_event = static_cast<int>(event.type);
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
             g_session.server_peer = event.peer;
+            if (debug_enabled())
+                debug_log("mp client: connected %s:%u relay=%d",
+                          g_join.target_host.c_str(),
+                          static_cast<unsigned>(g_join.target_port),
+                          g_join.relay_connect ? 1 : 0);
             if (g_join.relay_connect) {
                 ecl::Buffer buf;
                 encode_relay_header(buf, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
@@ -1134,6 +1139,14 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
             Uint8 expected_players = 0;
             Uint32 seed = 0;
             if (protocol::decode_welcome(buf, player_id, expected_players, seed)) {
+                if (seed != g_join.start.seed) {
+                    if (debug_enabled())
+                        debug_log("mp client: welcome ignored (seed mismatch remote=%u local=%u)",
+                                  static_cast<unsigned>(seed),
+                                  static_cast<unsigned>(g_join.start.seed));
+                    enet_packet_destroy(event.packet);
+                    continue;
+                }
                 if (debug_enabled())
                     debug_log("mp client: welcome player=%u expected=%u seed=%u",
                               static_cast<unsigned>(player_id),
