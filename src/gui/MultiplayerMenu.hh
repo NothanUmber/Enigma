@@ -46,10 +46,10 @@ private:
     void enter_game_from_lobby();
     void apply_start_selection(const multiplayer::protocol::LobbyStart &start);
     void set_internet_connecting(bool connecting);
-	    bool start_host_and_enter_game(const multiplayer::protocol::LobbyStart &start,
-	                                   bool broadcast_start);
-	    bool begin_client_join(const multiplayer::protocol::LobbyStart &start,
-	                           const std::vector<std::string> &host_ips);
+    bool start_host_and_enter_game(const multiplayer::protocol::LobbyStart &start,
+                                   bool broadcast_start);
+    bool begin_client_join(const multiplayer::protocol::LobbyStart &start,
+                           const std::vector<std::string> &host_ips);
     multiplayer::ClientJoinStatus poll_client_join_and_maybe_enter_game();
     void handle_level_activated();
     void handle_level_pack();

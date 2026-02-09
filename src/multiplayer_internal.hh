@@ -62,9 +62,6 @@ constexpr Uint32 kJoinTimeoutMs = 15000;
 // Allow extra time for direct connect handshakes while the host is still
 // transitioning/loading the level and not pumping ENet yet (common on slower
 // machines / VMs). ENet server replies are application-driven.
-// Direct connect join attempts can race with slow level loads (especially on
-// Windows / VMs). Keep this above a few seconds, but not so large that trying
-// multiple candidate host IPs stalls the join UI for too long.
 constexpr Uint32 kDirectConnectTimeoutMs = 12000;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
@@ -145,22 +142,22 @@ struct LobbyPeerEntry {
     double last_unicast_sent = 0.0;
 };
 
-	struct LobbyState {
-	    bool active = false;
-	    ENetSocket socket = ENET_SOCKET_NULL;
-	    double time = 0.0;
-	    double announce_timer = 0.0;
-	    std::string local_id;
-	    std::string local_name;
-	    std::string selected_level;
-	    std::unordered_map<std::string, LobbyPeerEntry> peers;
-	    bool has_pending_start = false;
-	    protocol::LobbyStart pending_start;
-	    // Candidate host IPs to try for direct connect (multi-homed hosts, VMs).
-	    // The first entry is the preferred address; additional entries are fallbacks.
-	    std::vector<std::string> pending_host_ips;
-	    Uint32 last_session_id = 0;
-	};
+struct LobbyState {
+    bool active = false;
+    ENetSocket socket = ENET_SOCKET_NULL;
+    double time = 0.0;
+    double announce_timer = 0.0;
+    std::string local_id;
+    std::string local_name;
+    std::string selected_level;
+    std::unordered_map<std::string, LobbyPeerEntry> peers;
+    bool has_pending_start = false;
+    protocol::LobbyStart pending_start;
+    // Candidate host IPs to try for direct connect (multi-homed hosts, VMs).
+    // The first entry is the preferred address; additional entries are fallbacks.
+    std::vector<std::string> pending_host_ips;
+    Uint32 last_session_id = 0;
+};
 
 struct SessionState {
     bool active = false;

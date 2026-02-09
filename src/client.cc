@@ -110,7 +110,7 @@ const char HSEP = '^';  // history separator (use character that user cannot use
 
 Client::Client()
 : m_state(cls_idle), m_state_before_teatime(cls_idle), m_levelname(),
-	  m_hunt_against_time(0), m_cheater(false), m_user_input() {
+  m_hunt_against_time(0), m_cheater(false), m_user_input() {
     m_ignore_mouse_movement = false;
     m_ignore_mouse_movement_until_ticks = 0;
     m_window_has_focus = true;
