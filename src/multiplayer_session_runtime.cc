@@ -121,6 +121,17 @@ void SessionNotifyRestart(bool level_restart) {
     send_restart_to_peers(level_restart);
 }
 
+void SessionNotifyLoadLevel(const std::string &pack_name, const std::string &level_id) {
+    if (!g_session.active || !g_session.host)
+        return;
+    g_session.load_id += 1;
+    if (debug_enabled())
+        debug_log("mp host: load level id=%u pack=%s level_id=%s",
+                  static_cast<unsigned>(g_session.load_id),
+                  pack_name.c_str(), level_id.c_str());
+    send_load_level_to_peers(pack_name, level_id);
+}
+
 bool SessionIsPaused() {
     if (!g_session.active)
         return false;
@@ -270,6 +281,24 @@ void SessionSetupExtraPlayerStartPositions() {
         }
     }
     auto_place_extra_players();
+
+    // Some levels have no valid placement tiles (or no meaningful base actor to place near),
+    // so auto placement can fail and leave the host waiting forever. We intentionally do not
+    // try to "solve" such esoteric levels: instead, fail open and start the session. The extra
+    // actors remain at their deterministic initial spawn position, which is consistent across
+    // peers as long as level loading is deterministic.
+    if (g_session.host && g_session.expected_players > g_session.level_players &&
+        g_session.level_players > 0) {
+        for (unsigned player = g_session.level_players; player < g_session.expected_players;
+             ++player) {
+            if (player < g_session.placement_received.size() && !g_session.placement_received[player]) {
+                if (debug_enabled())
+                    debug_log("mp extra actors: placement failed for player=%u; starting anyway",
+                              player);
+                g_session.placement_received[player] = true;
+            }
+        }
+    }
     debug_dump_steerable_actors("post-place");
 }
 
@@ -308,6 +337,8 @@ void SessionPrimeInputQueueForNewLevel() {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;
         for (auto &entry : g_session.relay_ready)
+            entry.second = false;
+        for (auto &entry : g_session.tcp_relay_ready)
             entry.second = false;
     }
 }
@@ -400,8 +431,68 @@ void tick_debug_report_missing_input() {
 
 void tick_update_start_phase() {
     if (g_session.phase == SessionState::Phase::WAITING_FOR_READY && g_session.host) {
-        if (!host_ready_to_start())
+        if (!host_ready_to_start()) {
+            if (debug_enabled()) {
+                static Uint32 last_sid = 0;
+                static Uint32 last_epoch = 0;
+                static Uint32 last_load = 0;
+                static double wait_accu = 0.0;
+                if (g_session.session_id != last_sid || g_session.input_epoch != last_epoch ||
+                    g_session.load_id != last_load) {
+                    last_sid = g_session.session_id;
+                    last_epoch = g_session.input_epoch;
+                    last_load = g_session.load_id;
+                    wait_accu = 0.0;
+                }
+                wait_accu += kInputTimestep;
+                if (wait_accu >= 2.0) {
+                    wait_accu = 0.0;
+                    unsigned direct = static_cast<unsigned>(g_session.peer_players.size());
+                    unsigned udp = static_cast<unsigned>(g_session.relay_players.size());
+                    unsigned tcp = static_cast<unsigned>(g_session.tcp_relay_players.size());
+                    debug_log("mp host: waiting for ready (session=%u epoch=%u load=%u expected=%u have=%u direct=%u udp=%u tcp=%u)",
+                              static_cast<unsigned>(g_session.session_id),
+                              static_cast<unsigned>(g_session.input_epoch),
+                              static_cast<unsigned>(g_session.load_id),
+                              g_session.expected_players,
+                              direct + udp + tcp + 1,
+                              direct, udp, tcp);
+                    if (g_session.expected_players > 1) {
+                        for (const auto &entry : g_session.peer_players) {
+                            auto it = g_session.peer_ready.find(entry.first);
+                            if (it == g_session.peer_ready.end() || !it->second)
+                                debug_log("mp host: missing ready (direct peer=%p player=%u)",
+                                          static_cast<void *>(entry.first), entry.second);
+                        }
+                        for (const auto &entry : g_session.relay_players) {
+                            auto it = g_session.relay_ready.find(entry.first);
+                            if (it == g_session.relay_ready.end() || !it->second)
+                                debug_log("mp host: missing ready (udp relay client=%u player=%u)",
+                                          static_cast<unsigned>(entry.first), entry.second);
+                        }
+                        for (const auto &entry : g_session.tcp_relay_players) {
+                            auto it = g_session.tcp_relay_ready.find(entry.first);
+                            if (it == g_session.tcp_relay_ready.end() || !it->second)
+                                debug_log("mp host: missing ready (tcp relay client=%u player=%u)",
+                                          static_cast<unsigned>(entry.first), entry.second);
+                        }
+                    }
+                    if (g_session.expected_players > g_session.level_players && g_session.level_players > 0) {
+                        if (g_session.placement_received.size() < g_session.expected_players) {
+                            debug_log("mp host: missing placements (vector size=%u expected=%u)",
+                                      static_cast<unsigned>(g_session.placement_received.size()),
+                                      g_session.expected_players);
+                        } else {
+                            for (unsigned player = g_session.level_players; player < g_session.expected_players; ++player) {
+                                if (!g_session.placement_received[player])
+                                    debug_log("mp host: missing placement player=%u", player);
+                            }
+                        }
+                    }
+                }
+            }
             return;
+        }
         if (debug_enabled())
             debug_log("mp host: start allowed");
         g_session.input_epoch += 1;

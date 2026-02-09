@@ -156,8 +156,14 @@ session can begin. To avoid desync and avoid "flashing" the world for a single f
 - The level is only shown once `SessionState::Phase` allows start.
 - The game timer only starts ticking once all players are ready.
 
-`READY` is validated against the current `session_id` and `epoch` to avoid stale packets from
-previous runs accidentally unblocking a new session.
+The host gates the simulation on explicit client readiness:
+
+- Clients send `NET_READY` only once the level pack is switched and the new level is fully loaded.
+- The host waits until all peers have reported READY (and any extra-player placement is complete).
+
+To avoid stale packets from previous levels/restarts accidentally unblocking the current run, READY
+and START are validated against the current `session_id`, `epoch`, and a per-session monotonic
+`load_id` (see "Restarts / next level" below).
 
 ### Session transport options
 
@@ -323,6 +329,10 @@ The host broadcasts placements so all instances spawn identically.
 
 Notes:
 
+- If auto-placement cannot find a valid free tile for an extra spawned actor (rare; typically only in
+  very constrained or script-heavy levels), the session will still start. In that case the extra
+  actor remains at its deterministic initial spawn position and the host logs a debug message.
+
 - Control assignment uses the explicit `controllers` bitmask on each actor. The legacy engine also
   supports control-by-`color` for old levels that never set controllers. In multiplayer we rely on
   controllers to be authoritative, so `Actor::controlled_by()` only falls back to `color` when
@@ -342,6 +352,28 @@ Restarts are host-authoritative:
 - Clients restart via network-specific entry points (avoids host-only guards).
 
 This ensures all instances restart in lockstep.
+
+Next-level transitions are also host-authoritative.
+
+Historically, the single-player engine advances the current index locally and calls
+`client::Msg_AdvanceLevel(...)`. In multiplayer, doing this independently on each peer is fragile:
+if a client misses a transition signal (especially via relays), it can remain on the old level while
+the host advances.
+
+To keep transitions reliable and deterministic, the host broadcasts a fully qualified load command:
+
+- Host advances the current index locally and broadcasts `NET_LOAD_LEVEL` with:
+  - `load_id` (monotonic per session)
+  - `pack_name` (level pack name)
+  - `level_id` (normalized level path)
+- Clients do not advance their index locally; they wait for `NET_LOAD_LEVEL`, switch to the named
+  pack, resolve the level proxy by normalized path, and load it.
+- After loading, clients send `NET_READY(session_id, epoch, load_id)`.
+- Once all peers are READY, the host increments `epoch` and broadcasts
+  `NET_START(epoch, load_id)` to begin simulation.
+
+The `load_id` is intentionally included in READY/START so late packets from the previous level do
+not unblock the next level's start barrier.
 
 ## Key code locations
 

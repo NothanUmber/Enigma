@@ -176,6 +176,10 @@ struct SessionState {
     Uint32 input_epoch = 0;
     Uint32 restart_id = 0;
     Uint32 last_restart_id = 0;
+    // Host-incrementing id for level loads (advance to next level). Used by clients to
+    // ignore duplicates/out-of-order load notifications.
+    Uint32 load_id = 0;
+    Uint32 last_load_id = 0;
     ENetHost *host_handle = nullptr;
     ENetPeer *server_peer = nullptr;
     ENetHost *relay_handle = nullptr;

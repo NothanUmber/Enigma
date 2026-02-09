@@ -32,7 +32,11 @@ enum NetMessageType : Uint8 {
     NET_PLACE = 9,
     NET_PAUSE = 10,
     NET_MENU = 11,
-    NET_ABORT = 12
+    NET_ABORT = 12,
+    // Host -> clients: instruct clients to load a fully-qualified level.
+    // Used for level transitions (advance to next level) to avoid relying on
+    // each client advancing locally (which can diverge across level packs).
+    NET_LOAD_LEVEL = 13
 };
 
 struct LobbyAnnounce {
@@ -110,6 +114,12 @@ struct ResyncState {
 struct RestartPacket {
     Uint32 restart_id;
     Uint8 level_restart;
+};
+
+struct LoadLevelPacket {
+    Uint32 load_id;
+    std::string pack_name;
+    std::string level_id;
 };
 
 struct PlacementPacket {
@@ -359,36 +369,38 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
     return true;
 }
 
-inline void encode_ready(ecl::Buffer &buf, Uint32 session_id, Uint32 epoch) {
-    buf << Uint8(NET_READY) << Uint32(session_id) << Uint32(epoch);
+inline void encode_ready(ecl::Buffer &buf, Uint32 session_id, Uint32 epoch, Uint32 load_id) {
+    buf << Uint8(NET_READY) << Uint32(session_id) << Uint32(epoch) << Uint32(load_id);
 }
 
-inline bool decode_ready(ecl::Buffer &buf, Uint32 &session_id, Uint32 &epoch) {
+inline bool decode_ready(ecl::Buffer &buf, Uint32 &session_id, Uint32 &epoch, Uint32 &load_id) {
     Uint8 type = 0;
     Uint32 parsed_session = 0;
     Uint32 parsed_epoch = 0;
+    Uint32 parsed_load_id = 0;
     if (!(buf >> type))
         return false;
     if (type != NET_READY)
         return false;
-    if (!(buf >> parsed_session >> parsed_epoch))
+    if (!(buf >> parsed_session >> parsed_epoch >> parsed_load_id))
         return false;
     session_id = parsed_session;
     epoch = parsed_epoch;
+    load_id = parsed_load_id;
     return true;
 }
 
-inline void encode_start(ecl::Buffer &buf, Uint32 epoch) {
-    buf << Uint8(NET_START) << Uint32(epoch);
+inline void encode_start(ecl::Buffer &buf, Uint32 epoch, Uint32 load_id) {
+    buf << Uint8(NET_START) << Uint32(epoch) << Uint32(load_id);
 }
 
-inline bool decode_start(ecl::Buffer &buf, Uint32 &epoch) {
+inline bool decode_start(ecl::Buffer &buf, Uint32 &epoch, Uint32 &load_id) {
     Uint8 type = 0;
     if (!(buf >> type))
         return false;
     if (type != NET_START)
         return false;
-    if (!(buf >> epoch))
+    if (!(buf >> epoch >> load_id))
         return false;
     return true;
 }
@@ -466,6 +478,23 @@ inline bool decode_restart(ecl::Buffer &buf, RestartPacket &msg) {
         return false;
     msg.restart_id = restart_id;
     msg.level_restart = level_restart;
+    return true;
+}
+
+inline void encode_load_level(ecl::Buffer &buf, const LoadLevelPacket &msg) {
+    buf << Uint8(NET_LOAD_LEVEL) << Uint32(msg.load_id) << msg.pack_name << msg.level_id;
+}
+
+inline bool decode_load_level(ecl::Buffer &buf, LoadLevelPacket &msg) {
+    Uint8 type = 0;
+    Uint32 load_id = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_LOAD_LEVEL)
+        return false;
+    if (!(buf >> load_id >> msg.pack_name >> msg.level_id))
+        return false;
+    msg.load_id = load_id;
     return true;
 }
 

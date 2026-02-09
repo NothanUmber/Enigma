@@ -50,11 +50,12 @@ TransportKind SessionActiveTransport();
 // While connecting/joining, peers must not advance the deterministic simulation. When this returns
 // true, the client/UI should show a dedicated "waiting for players" screen and keep pumping SDL
 // events + multiplayer transport until the session reaches READY/RUNNING.
-bool SessionShouldDeferStart();
-void SessionNotifyStartRequested();
-void SessionNotifyRestart(bool level_restart);
-bool SessionIsPaused();
-void SessionRequestPause(bool paused);
+	bool SessionShouldDeferStart();
+	void SessionNotifyStartRequested();
+	void SessionNotifyRestart(bool level_restart);
+	void SessionNotifyLoadLevel(const std::string &pack_name, const std::string &level_id);
+	bool SessionIsPaused();
+	void SessionRequestPause(bool paused);
 // Multiplayer pause is derived from "any player has their ESC menu open": the local instance
 // reports menu-open changes and the host broadcasts the resulting pause/unpause decision.
 void SessionSetMenuOpen(bool open);

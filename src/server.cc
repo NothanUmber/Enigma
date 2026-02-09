@@ -25,6 +25,7 @@
 #include "client.hh"
 #include "lua.hh"
 #include "lev/Index.hh"
+#include "lev/PersistentIndex.hh"
 #include "lev/Proxy.hh"
 #include "main.hh"
 #include "nls.hh"
@@ -442,8 +443,33 @@ void Tick(double dtime) {
         if (current_state_dtime <= 2.5)
             gametick(dtime);
         else {
-            client::Msg_AdvanceLevel(lev::ADVANCE_NEXT_MODE);
-            state = sv_waiting_for_clients;
+            if (multiplayer::IsActive()) {
+                if (multiplayer::IsHost()) {
+                    lev::Index *level_index = lev::Index::getCurrentIndex();
+                    // Mirror the single-player path: record the finished level in history.
+                    lev::PersistentIndex::addCurrentToHistory();
+                    if (level_index && level_index->advanceLevel(lev::ADVANCE_NEXT_MODE)) {
+                        lev::Proxy *next = level_index->getCurrent();
+                        if (next) {
+                            multiplayer::NotifyLoadLevel(level_index->getName(),
+                                                         next->getNormLevelPath());
+                            Msg_LoadLevel(next, false);
+                        } else {
+                            multiplayer::RequestAbort();
+                            client::Msg_Command("abort");
+                        }
+                    } else {
+                        multiplayer::RequestAbort();
+                        client::Msg_Command("abort");
+                    }
+                }
+                // Clients do not advance locally. The host will broadcast a fully qualified
+                // level load message (pack + level_id) so everyone transitions in lockstep.
+                state = sv_waiting_for_clients;
+            } else {
+                client::Msg_AdvanceLevel(lev::ADVANCE_NEXT_MODE);
+                state = sv_waiting_for_clients;
+            }
         }
         break;
     }
