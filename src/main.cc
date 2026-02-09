@@ -590,6 +590,19 @@ void Application::initSysDatapaths(const std::string &prefFilename)
             }
         userStdPath = prefPath; // default if pref is a path
         prefPath = prefPath + ecl::PathSeparator + "." + PREFFILENAME; // include pref in user data path
+#ifdef __MINGW32__
+    } else if (!winAppDataPath.empty()) {
+        // On Windows, prefer %APPDATA% over HOME. HOME is often set by MSYS/Cygwin
+        // and would otherwise create multiple independent preference locations
+        // depending on how Enigma is launched (Explorer vs MSYS shell).
+        if (!ecl::FolderExists(winAppDataPath))
+            if(!ecl::FolderCreate(winAppDataPath)) {
+                fprintf(stderr, "%s", _("Error: Application Data directory does not exist.\n"));
+                exit(1);
+            }
+        userStdPath = winAppDataPath;
+        prefPath = winAppDataPath + ecl::PathSeparator + "." + prefFilename;
+#endif
     } else if (haveHome) {
         prefPath = ecl::ExpandPath("~");
         if (!ecl::FolderExists(prefPath))
@@ -605,18 +618,6 @@ void Application::initSysDatapaths(const std::string &prefFilename)
         userStdPath = prefPath + "/.enigma";
 #endif
         prefPath = prefPath + ecl::PathSeparator + "." + prefFilename;
-#ifdef __MINGW32__
-    } else if (!winAppDataPath.empty()) {
-        if (!ecl::FolderExists(winAppDataPath))
-            // may happen on Windows
-            if(!ecl::FolderCreate(winAppDataPath)) {
-                fprintf(stderr, "%s", _("Error: Application Data directory does not exist.\n"));
-                exit(1);
-            }
-//        Log << "winAppDataPath " << winAppDataPath << "\n";
-        userStdPath = winAppDataPath;
-        prefPath = winAppDataPath + ecl::PathSeparator + "." + prefFilename;
-#endif
     } else {
         fprintf(stderr, "%s", _("Error: Home directory does not exist.\n"));
         exit(1);
