@@ -28,6 +28,7 @@
 #include "SDL.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -272,6 +273,34 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
 }
 
 bool join_begin_next_attempt() {
+    auto direct_connect_timeout_ms_for_host = [](const std::string &host) -> Uint32 {
+        auto ends_with = [](const std::string &s, const char *suffix) -> bool {
+            size_t n = std::strlen(suffix);
+            if (s.size() < n)
+                return false;
+            return s.compare(s.size() - n, n, suffix) == 0;
+        };
+
+        if (host == "localhost" || ends_with(host, ".local") || ends_with(host, ".localdomain"))
+            return kDirectConnectTimeoutMsLan;
+
+        // If the host is a numeric IPv4, treat public addresses as "Internet" and
+        // use a short timeout so we fall back to relays quickly when NAT blocks.
+        unsigned a = 0, b = 0, c = 0, d = 0;
+        if (std::sscanf(host.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a <= 255 && b <= 255 &&
+            c <= 255 && d <= 255) {
+            const bool is_private =
+                (a == 10) ||
+                (a == 172 && b >= 16 && b <= 31) ||
+                (a == 192 && b == 168) ||
+                (a == 127) ||
+                (a == 169 && b == 254);
+            return is_private ? kDirectConnectTimeoutMsLan : kDirectConnectTimeoutMsInternet;
+        }
+
+        return kDirectConnectTimeoutMsLan;
+    };
+
     while (g_join.strategy_index < g_join.strategies.size()) {
         TransportKind kind = g_join.strategies[g_join.strategy_index];
         g_join.attempt_kind = kind;
@@ -284,8 +313,9 @@ bool join_begin_next_attempt() {
                 if (debug_enabled())
                     debug_log("mp client: connect %s:%u relay=0", host.c_str(),
                               static_cast<unsigned>(g_join.start.host_port));
+                Uint32 connect_timeout_ms = direct_connect_timeout_ms_for_host(host);
                 if (join_begin_enet_attempt(host, g_join.start.host_port, false,
-                                            kDirectConnectTimeoutMs,
+                                            connect_timeout_ms,
                                             kJoinTimeoutMs)) {
                     return true;
                 }
@@ -600,7 +630,19 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
 bool client_try_connect_direct(const protocol::LobbyStart &start, const std::string &host_ip) {
     // Keep the actual connect timeout short, but allow a longer welcome window
     // in case the host is still loading/binding when the client attempts to join.
-    return client_connect_and_wait_enet(host_ip, start.host_port, false, kDirectConnectTimeoutMs,
+    Uint32 connect_timeout_ms = kDirectConnectTimeoutMsLan;
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(host_ip.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a <= 255 && b <= 255 &&
+        c <= 255 && d <= 255) {
+        const bool is_private =
+            (a == 10) ||
+            (a == 172 && b >= 16 && b <= 31) ||
+            (a == 192 && b == 168) ||
+            (a == 127) ||
+            (a == 169 && b == 254);
+        connect_timeout_ms = is_private ? kDirectConnectTimeoutMsLan : kDirectConnectTimeoutMsInternet;
+    }
+    return client_connect_and_wait_enet(host_ip, start.host_port, false, connect_timeout_ms,
                                         kJoinTimeoutMs, start.session_id);
 }
 

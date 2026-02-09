@@ -107,7 +107,14 @@ void MultiplayerMenu::apply_start_selection(const multiplayer::protocol::LobbySt
         selected_pack_name = start.pack_name;
         // Ensure the pack index is active/known before rebuilding the filtered lobby index.
         // This mirrors what the host did when selecting the pack via LevelPackMenu.
-        lev::Index::setCurrentIndex(selected_pack_name);
+        if (!lev::Index::setCurrentIndex(selected_pack_name)) {
+            // If pack selection fails (different installation, renamed pack), fall back to
+            // best-effort lookup by level id. This keeps LAN play usable even when the
+            // pack name differs across machines.
+            select_pack_for_level(start.level_id);
+            if (!selected_pack_name.empty())
+                lev::Index::setCurrentIndex(selected_pack_name);
+        }
     } else {
         // Backward compat with older peers/servers: best-effort lookup by level id.
         select_pack_for_level(start.level_id);

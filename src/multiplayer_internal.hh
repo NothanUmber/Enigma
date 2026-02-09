@@ -62,7 +62,11 @@ constexpr Uint32 kJoinTimeoutMs = 15000;
 // Allow extra time for direct connect handshakes while the host is still
 // transitioning/loading the level and not pumping ENet yet (common on slower
 // machines / VMs). ENet server replies are application-driven.
-constexpr Uint32 kDirectConnectTimeoutMs = 12000;
+// Direct ENet connect can be slow to fail on some networks. For Internet play we
+// prefer a fast fallback to relays, while LAN play can tolerate a longer window
+// (clients may still be switching packs / loading after receiving START).
+constexpr Uint32 kDirectConnectTimeoutMsLan = 12000;
+constexpr Uint32 kDirectConnectTimeoutMsInternet = 1200;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
 // If a resync request is in-flight for too long (packet loss, transport stall),

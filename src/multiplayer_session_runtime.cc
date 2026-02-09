@@ -62,13 +62,15 @@ TransportKind SessionActiveTransport() {
 bool SessionShouldDeferStart() {
     if (!g_session.active)
         return false;
-    // For the host we must be stricter than "phase says RUNNING": on some networks
-    // (notably VM NAT setups) a lobby START can be seen but the direct ENet connect
-    // never succeeds. In that case the host must keep the simulation deferred until
-    // the expected number of peers have actually connected and reported READY.
+    // For hosts, "ready" means that all expected peers have connected and reported READY
+    // (and that any extra-actor placement is complete). This must gate simulation start,
+    // otherwise the host can run ahead while a client is still switching packs / loading.
     bool can_start = false;
     if (g_session.host) {
-        can_start = (g_session.phase == SessionState::Phase::RUNNING) || host_ready_to_start();
+        if (g_session.expected_players <= 1)
+            can_start = true;
+        else
+            can_start = host_ready_to_start();
     } else {
         can_start = (g_session.phase == SessionState::Phase::READY_TO_START ||
                      g_session.phase == SessionState::Phase::RUNNING);
