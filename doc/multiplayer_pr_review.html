@@ -30,7 +30,7 @@ h1 { margin: 0 0 8px; }
 </style>
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
-<div class="small">Generated 2026-02-09 04:56:13. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD eda3adbe). Diff hash: <code>863801542b99</code>.</div>
+<div class="small">Generated 2026-02-09 06:00:16. Base: <code>upstream/master</code> (085e2bda) &rarr; Working tree (HEAD aed0c5d7). Diff hash: <code>1f15646f0467</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 
 
@@ -12234,7 +12234,7 @@ h1 { margin: 0 0 8px; }
 <div class="diff">
 <div class="line meta"><span class="code">diff --git a/src/multiplayer_session_transport.cc b/src/multiplayer_session_transport.cc</span></div>
 <div class="line meta"><span class="code">new file mode 100644</span></div>
-<div class="line meta"><span class="code">index 00000000..fb777970</span></div>
+<div class="line meta"><span class="code">index 00000000..f897427c</span></div>
 <div class="line meta"><span class="code">--- /dev/null</span></div>
 <div class="line meta"><span class="code">+++ b/src/multiplayer_session_transport.cc</span></div>
 <div class="line hunkhdr"><span class="code">@@ -0,0 +1,791 @@</span></div>
@@ -12589,11 +12589,11 @@ h1 { margin: 0 0 8px; }
 <div class="line add"><span class="ln old"></span><span class="ln new">349</span><span class="code">    debug_log(&quot;mp client: welcome player=%u expected=%u seed=%u&quot;, player_id, expected_players, seed);</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">350</span><span class="code">    if (debug_enabled())</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">351</span><span class="code">        debug_log(&quot;mp client: transport=%s&quot;, transport_name(g_session.active_transport));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">352</span><span class="code">    if (g_session.phase == SessionState::Phase::WAITING_FOR_READY &amp;&amp; !g_session.local_ready_sent) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">353</span><span class="code">        send_ready_to_host();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">354</span><span class="code">        g_session.local_ready_sent = true;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">355</span><span class="code">        g_session.ready_timer = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">356</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">352</span><span class="code">    // Do not send READY here.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">353</span><span class="code">    //</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">354</span><span class="code">    // READY must mean &quot;level pack switched + level loaded, waiting for NET_START&quot;.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">355</span><span class="code">    // If we send READY immediately after WELCOME, the host can start running while</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">356</span><span class="code">    // the client is still switching packs (or even failing to load the level).</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">357</span><span class="code">    return true;</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">358</span><span class="code">}</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">359</span><span class="code"></span></div>

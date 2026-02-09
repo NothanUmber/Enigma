@@ -349,11 +349,11 @@ bool handle_client_welcome_packet(const char *data, size_t len) {
     debug_log("mp client: welcome player=%u expected=%u seed=%u", player_id, expected_players, seed);
     if (debug_enabled())
         debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
-    if (g_session.phase == SessionState::Phase::WAITING_FOR_READY && !g_session.local_ready_sent) {
-        send_ready_to_host();
-        g_session.local_ready_sent = true;
-        g_session.ready_timer = 0.0;
-    }
+    // Do not send READY here.
+    //
+    // READY must mean "level pack switched + level loaded, waiting for NET_START".
+    // If we send READY immediately after WELCOME, the host can start running while
+    // the client is still switching packs (or even failing to load the level).
     return true;
 }
 
