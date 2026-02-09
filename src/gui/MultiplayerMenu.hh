@@ -48,6 +48,7 @@ private:
     void set_internet_connecting(bool connecting);
     bool start_host_and_enter_game(const multiplayer::protocol::LobbyStart &start,
                                    bool broadcast_start);
+    void tick_host_waiting_for_peers(double dtime);
     bool begin_client_join(const multiplayer::protocol::LobbyStart &start,
                            const std::vector<std::string> &host_ips);
     multiplayer::ClientJoinStatus poll_client_join_and_maybe_enter_game();
@@ -105,6 +106,9 @@ private:
     bool internet_join_in_progress;
     multiplayer::protocol::LobbyStart internet_join_start;
     std::string internet_join_host_ip;
+    bool host_waiting_for_peers;
+    multiplayer::protocol::LobbyStart host_pending_start;
+    unsigned host_pending_expected;
     int internet_form_x;
     int internet_form_y;
     int internet_buttons_x;

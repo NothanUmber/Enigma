@@ -80,6 +80,13 @@ bool SessionHasRemotePeers() {
     return has_remote_peers();
 }
 
+unsigned SessionConnectedRemotePlayers() {
+    if (!g_session.active || !g_session.host)
+        return 0;
+    return static_cast<unsigned>(g_session.peer_players.size() + g_session.relay_players.size() +
+                                 g_session.tcp_relay_players.size());
+}
+
 bool can_accept_more_remote_players() {
     return g_session.next_player_id < g_session.expected_players;
 }

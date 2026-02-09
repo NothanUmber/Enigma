@@ -36,6 +36,10 @@ namespace enigma {
 namespace gui {
 
 void MultiplayerMenu::handle_level_activated() {
+    if (host_waiting_for_peers) {
+        show_info(_("Waiting for other players to connect..."));
+        return;
+    }
     refresh_selection();
     if (internet_mode) {
         if (!internet_in_room) {
@@ -202,6 +206,9 @@ void MultiplayerMenu::handle_join_room() {
 
 void MultiplayerMenu::handle_leave_room() {
     leave_current_internet_room();
+    if (multiplayer::IsActive())
+        multiplayer::Shutdown();
+    host_waiting_for_peers = false;
     show_info(_("Left room."));
 }
 
@@ -234,8 +241,12 @@ void MultiplayerMenu::on_action(gui::Widget *w) {
         handle_leave_room();
         return;
     }
-    if (w == back_button)
+    if (w == back_button) {
+        if (multiplayer::IsActive())
+            multiplayer::Shutdown();
+        host_waiting_for_peers = false;
         Menu::quit();
+    }
 }
 
 }  // namespace gui

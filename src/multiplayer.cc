@@ -21,6 +21,10 @@ unsigned ExpectedPlayers() {
     return internal::SessionExpectedPlayers();
 }
 
+unsigned ConnectedRemotePlayers() {
+    return internal::SessionConnectedRemotePlayers();
+}
+
 bool HasRemotePeers() {
     return internal::SessionHasRemotePeers();
 }

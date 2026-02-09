@@ -138,8 +138,33 @@ bool MultiplayerMenu::start_host_and_enter_game(const multiplayer::protocol::Lob
         // where clients attempt to connect before the host socket is bound.
         multiplayer::LobbyBroadcastStart(start);
     }
-    enter_game_from_lobby();
+    host_pending_start = start;
+    host_pending_expected = std::max<unsigned>(1, start.expected_players);
+    host_waiting_for_peers = (host_pending_expected > 1);
+    if (!host_waiting_for_peers) {
+        enter_game_from_lobby();
+        return true;
+    }
+    show_info(_("Waiting for other players to connect..."));
     return true;
+}
+
+void MultiplayerMenu::tick_host_waiting_for_peers(double dtime) {
+    if (!host_waiting_for_peers)
+        return;
+
+    // Pump the multiplayer transport while still in the lobby UI. This allows
+    // clients to complete the connect+WELCOME handshake before the host begins
+    // loading the level (which can take a while for some packs).
+    multiplayer::Tick(dtime);
+
+    const unsigned needed = host_pending_expected > 0 ? (host_pending_expected - 1) : 0;
+    const unsigned connected = multiplayer::ConnectedRemotePlayers();
+    if (needed > 0 && connected < needed)
+        return;
+
+    host_waiting_for_peers = false;
+    enter_game_from_lobby();
 }
 
 bool MultiplayerMenu::begin_client_join(const multiplayer::protocol::LobbyStart &start,
@@ -165,6 +190,7 @@ multiplayer::ClientJoinStatus MultiplayerMenu::poll_client_join_and_maybe_enter_
 
 void MultiplayerMenu::tick(double dtime) {
     update_filter_button();
+    tick_host_waiting_for_peers(dtime);
     if (!internet_mode)
         tick_lan_mode(dtime);
     else
