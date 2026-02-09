@@ -59,6 +59,13 @@ constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
 constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
+// Allow extra time for direct connect handshakes while the host is still
+// transitioning/loading the level and not pumping ENet yet (common on slower
+// machines / VMs). ENet server replies are application-driven.
+// Direct connect join attempts can race with slow level loads (especially on
+// Windows / VMs). Keep this above a few seconds, but not so large that trying
+// multiple candidate host IPs stalls the join UI for too long.
+constexpr Uint32 kDirectConnectTimeoutMs = 12000;
 constexpr double kSyncInterval = 0.5;
 constexpr double kResyncCooldown = 1.0;
 // If a resync request is in-flight for too long (packet loss, transport stall),

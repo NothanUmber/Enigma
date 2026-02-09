@@ -284,7 +284,8 @@ bool join_begin_next_attempt() {
                 if (debug_enabled())
                     debug_log("mp client: connect %s:%u relay=0", host.c_str(),
                               static_cast<unsigned>(g_join.start.host_port));
-                if (join_begin_enet_attempt(host, g_join.start.host_port, false, 3000,
+                if (join_begin_enet_attempt(host, g_join.start.host_port, false,
+                                            kDirectConnectTimeoutMs,
                                             kJoinTimeoutMs)) {
                     return true;
                 }
@@ -599,8 +600,8 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
 bool client_try_connect_direct(const protocol::LobbyStart &start, const std::string &host_ip) {
     // Keep the actual connect timeout short, but allow a longer welcome window
     // in case the host is still loading/binding when the client attempts to join.
-    return client_connect_and_wait_enet(host_ip, start.host_port, false, 3000, kJoinTimeoutMs,
-                                        start.session_id);
+    return client_connect_and_wait_enet(host_ip, start.host_port, false, kDirectConnectTimeoutMs,
+                                        kJoinTimeoutMs, start.session_id);
 }
 
 bool client_try_connect_udp_relay(Uint32 session_id) {

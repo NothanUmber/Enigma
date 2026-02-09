@@ -189,17 +189,19 @@ void poll_lobby_socket() {
             g_lobby.pending_start = start;
             g_lobby.pending_host_ips.clear();
 
-            // Prefer the IP we last observed from the host's periodic announces.
-            // In multi-homed setups (WiFi + VM bridge/NAT), the START sender address
-            // may not be the address that is reachable for a direct connect.
+            // Prefer the START sender address first: it's the address that just
+            // delivered the packet to us, so it is usually the most routable for
+            // a direct connect (notably across VMs / NAT).
             auto it = g_lobby.peers.find(start.host_id);
+            if (!ip.empty())
+                g_lobby.pending_host_ips.push_back(ip);
             if (it != g_lobby.peers.end()) {
                 const std::string &announce_ip = it->second.peer.address;
-                if (!announce_ip.empty())
+                if (!announce_ip.empty() &&
+                    (g_lobby.pending_host_ips.empty() || g_lobby.pending_host_ips[0] != announce_ip)) {
                     g_lobby.pending_host_ips.push_back(announce_ip);
+                }
             }
-            if (g_lobby.pending_host_ips.empty() || g_lobby.pending_host_ips[0] != ip)
-                g_lobby.pending_host_ips.push_back(ip);
 
             if (debug_enabled()) {
                 std::string hosts;
