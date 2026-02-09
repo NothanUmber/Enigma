@@ -355,13 +355,27 @@ void LobbyBroadcastStart(const protocol::LobbyStart &start) {
         return;
     ecl::Buffer buf;
     protocol::encode_lobby_start(buf, start);
-    ENetAddress addr;
-    addr.host = ENET_HOST_BROADCAST;
-    addr.port = kLobbyPort;
+
     ENetBuffer eb;
     eb.data = const_cast<char *>(buf.data());
     eb.dataLength = buf.size();
+
+    // Broadcast for the "normal" LAN case.
+    ENetAddress addr;
+    addr.host = ENET_HOST_BROADCAST;
+    addr.port = kLobbyPort;
     enet_socket_send(g_lobby.socket, &addr, &eb, 1);
+
+    // Some networks deliver broadcasts asymmetrically (notably across VMs). If we
+    // already know peers' unicast addresses, also send the start message directly.
+    for (const auto &kv : g_lobby.peers) {
+        const LobbyPeerEntry &entry = kv.second;
+        if (entry.addr.host == 0)
+            continue;
+        ENetAddress dst = entry.addr;
+        dst.port = kLobbyPort;
+        enet_socket_send(g_lobby.socket, &dst, &eb, 1);
+    }
 }
 
 std::string EncodeStartToken(const protocol::LobbyStart &start) {

@@ -222,7 +222,6 @@ void Client::handle_focus_gained() {
     // Restore the desired state so mouse deltas behave consistently again.
     if (m_state == cls_game) {
         video_engine->SetInputGrab(!enigma::Nograb);
-        video_engine->HideMouse();
         warp_mouse_to_window_center_if_in_game();
     }
 
