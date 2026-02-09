@@ -28,6 +28,8 @@
 #include "options.hh"
 #include "player.hh"
 #include "server.hh"
+#include "lev/Index.hh"
+#include "lev/Proxy.hh"
 #include "world.hh"
 
 #include <algorithm>
@@ -102,6 +104,28 @@ bool can_accept_more_remote_players() {
 }
 
 namespace {
+
+lev::Proxy *find_level_proxy_in_current_index(const std::string &level_id) {
+    lev::Index *ind = lev::Index::getCurrentIndex();
+    if (!ind)
+        return nullptr;
+    for (int i = 0; i < ind->size(); ++i) {
+        lev::Proxy *proxy = ind->getProxy(i);
+        if (proxy && proxy->getNormLevelPath() == level_id)
+            return proxy;
+    }
+    return nullptr;
+}
+
+lev::Proxy *find_level_proxy_anywhere(const std::string &level_id) {
+    // Best-effort fallback for cases where pack names differ across installations.
+    // This can be expensive, but it only triggers on network load-level control messages.
+    for (lev::Proxy *proxy : lev::Proxy::getProxies()) {
+        if (proxy && proxy->getNormLevelPath() == level_id)
+            return proxy;
+    }
+    return nullptr;
+}
 
 bool allocate_remote_player_id(unsigned &out_player_id) {
     out_player_id = 0;
@@ -515,6 +539,35 @@ bool handle_client_restart_packet(const char *data, size_t len) {
     return true;
 }
 
+bool handle_client_load_level_packet(const char *data, size_t len) {
+    if (g_session.abort_pending)
+        return true;
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::LoadLevelPacket msg;
+    if (!protocol::decode_load_level(buf, msg))
+        return false;
+    if (msg.load_id <= g_session.last_load_id)
+        return true;
+    g_session.last_load_id = msg.load_id;
+    debug_log("mp client: load level id=%u pack=%s level_id=%s",
+              static_cast<unsigned>(msg.load_id),
+              msg.pack_name.c_str(),
+              msg.level_id.c_str());
+
+    if (!msg.pack_name.empty())
+        server::Msg_SetLevelPack(msg.pack_name);
+
+    lev::Proxy *proxy = find_level_proxy_in_current_index(msg.level_id);
+    if (!proxy)
+        proxy = find_level_proxy_anywhere(msg.level_id);
+    if (!proxy)
+        return abort_session_with_message("Selected level not available. Ending session.");
+
+    server::Msg_LoadLevel(proxy, false);
+    return true;
+}
+
 bool handle_client_placement_packet(const char *data, size_t len) {
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
@@ -532,6 +585,8 @@ void handle_client_payload(const char *data, size_t len) {
     if (handle_client_input_packet(data, len))
         return;
     if (handle_client_welcome_packet(data, len))
+        return;
+    if (handle_client_load_level_packet(data, len))
         return;
     if (handle_client_sync_packet(data, len))
         return;

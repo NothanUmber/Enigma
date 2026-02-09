@@ -808,6 +808,17 @@ void send_restart_to_peers(bool level_restart) {
     g_transport.Flush();
 }
 
+void send_load_level_to_peers(const std::string &pack_name, const std::string &level_id) {
+    protocol::LoadLevelPacket msg;
+    msg.load_id = g_session.load_id;
+    msg.pack_name = pack_name;
+    msg.level_id = level_id;
+    ecl::Buffer buf;
+    protocol::encode_load_level(buf, msg);
+    g_transport.HostBroadcast(buf);
+    g_transport.Flush();
+}
+
 void send_abort_to_peers() {
     ecl::Buffer buf;
     protocol::encode_abort(buf, g_session.input_epoch);

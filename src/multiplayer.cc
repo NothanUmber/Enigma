@@ -41,6 +41,10 @@ void NotifyRestart(bool level_restart) {
     internal::SessionNotifyRestart(level_restart);
 }
 
+void NotifyLoadLevel(const std::string &pack_name, const std::string &level_id) {
+    internal::SessionNotifyLoadLevel(pack_name, level_id);
+}
+
 bool IsPaused() {
     return internal::SessionIsPaused();
 }

@@ -121,6 +121,17 @@ void SessionNotifyRestart(bool level_restart) {
     send_restart_to_peers(level_restart);
 }
 
+void SessionNotifyLoadLevel(const std::string &pack_name, const std::string &level_id) {
+    if (!g_session.active || !g_session.host)
+        return;
+    g_session.load_id += 1;
+    if (debug_enabled())
+        debug_log("mp host: load level id=%u pack=%s level_id=%s",
+                  static_cast<unsigned>(g_session.load_id),
+                  pack_name.c_str(), level_id.c_str());
+    send_load_level_to_peers(pack_name, level_id);
+}
+
 bool SessionIsPaused() {
     if (!g_session.active)
         return false;

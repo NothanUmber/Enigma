@@ -32,7 +32,11 @@ enum NetMessageType : Uint8 {
     NET_PLACE = 9,
     NET_PAUSE = 10,
     NET_MENU = 11,
-    NET_ABORT = 12
+    NET_ABORT = 12,
+    // Host -> clients: instruct clients to load a fully-qualified level.
+    // Used for level transitions (advance to next level) to avoid relying on
+    // each client advancing locally (which can diverge across level packs).
+    NET_LOAD_LEVEL = 13
 };
 
 struct LobbyAnnounce {
@@ -110,6 +114,12 @@ struct ResyncState {
 struct RestartPacket {
     Uint32 restart_id;
     Uint8 level_restart;
+};
+
+struct LoadLevelPacket {
+    Uint32 load_id;
+    std::string pack_name;
+    std::string level_id;
 };
 
 struct PlacementPacket {
@@ -466,6 +476,23 @@ inline bool decode_restart(ecl::Buffer &buf, RestartPacket &msg) {
         return false;
     msg.restart_id = restart_id;
     msg.level_restart = level_restart;
+    return true;
+}
+
+inline void encode_load_level(ecl::Buffer &buf, const LoadLevelPacket &msg) {
+    buf << Uint8(NET_LOAD_LEVEL) << Uint32(msg.load_id) << msg.pack_name << msg.level_id;
+}
+
+inline bool decode_load_level(ecl::Buffer &buf, LoadLevelPacket &msg) {
+    Uint8 type = 0;
+    Uint32 load_id = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_LOAD_LEVEL)
+        return false;
+    if (!(buf >> load_id >> msg.pack_name >> msg.level_id))
+        return false;
+    msg.load_id = load_id;
     return true;
 }
 
