@@ -28,6 +28,7 @@
 #include "SDL.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -140,6 +141,41 @@ struct ClientJoinState {
 
 ClientJoinState g_join;
 
+bool is_numeric_private_ipv4(const std::string &host) {
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(host.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) != 4)
+        return false;
+    if (a > 255 || b > 255 || c > 255 || d > 255)
+        return false;
+    return (a == 10) ||
+           (a == 172 && b >= 16 && b <= 31) ||
+           (a == 192 && b == 168) ||
+           (a == 127) ||
+           (a == 169 && b == 254);
+}
+
+bool should_bind_local_interface_for_enet(const std::string &host) {
+    // Binding a UDP socket to a specific local interface can improve behavior on
+    // multi-homed machines (VPNs), but it can also break in VM/NAT setups where
+    // the OS/network stack rewrites or routes differently than our probe expects.
+    // Default: do not bind for LAN/private targets; allow opting in via env var.
+    if (std::getenv("ENIGMA_MP_BIND_LOCAL") != nullptr)
+        return true;
+
+    auto ends_with = [](const std::string &s, const char *suffix) -> bool {
+        size_t n = std::strlen(suffix);
+        if (s.size() < n)
+            return false;
+        return s.compare(s.size() - n, n, suffix) == 0;
+    };
+
+    if (host == "localhost" || ends_with(host, ".local") || ends_with(host, ".localdomain"))
+        return false;
+    if (is_numeric_private_ipv4(host))
+        return false;
+    return true;
+}
+
 bool probe_local_bind_ipv4_for_remote(const std::string &remote_host, Uint16 remote_port,
                                       std::string &out_local_ip) {
     out_local_ip.clear();
@@ -230,19 +266,22 @@ bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_co
     g_join.target_port = port;
     g_join.last_enet_event = -1;
 
-    // On multi-homed systems (VMs, VPNs), the OS may pick an unexpected source
-    // address for outgoing UDP if we bind to ENET_HOST_ANY. Probe the route the
-    // OS would take to the selected host and bind ENet to that local interface.
+    // On multi-homed systems, the OS may pick an unexpected source address for
+    // outgoing UDP if we bind to ENET_HOST_ANY. We can probe the route and bind
+    // ENet to that local interface, but do this only when it is expected to help
+    // (see should_bind_local_interface_for_enet()).
     ENetAddress local_bind_addr;
     ENetAddress *local_bind_ptr = nullptr;
     std::string local_bind_ip;
-    if (probe_local_bind_ipv4_for_remote(host, port, local_bind_ip)) {
-        if (enet_address_set_host(&local_bind_addr, local_bind_ip.c_str()) == 0) {
-            local_bind_addr.port = 0;  // ephemeral
-            local_bind_ptr = &local_bind_addr;
-            if (debug_enabled())
-                debug_log("mp client: bind %s for connect to %s:%u", local_bind_ip.c_str(),
-                          host.c_str(), static_cast<unsigned>(port));
+    if (should_bind_local_interface_for_enet(host)) {
+        if (probe_local_bind_ipv4_for_remote(host, port, local_bind_ip)) {
+            if (enet_address_set_host(&local_bind_addr, local_bind_ip.c_str()) == 0) {
+                local_bind_addr.port = 0;  // ephemeral
+                local_bind_ptr = &local_bind_addr;
+                if (debug_enabled())
+                    debug_log("mp client: bind %s for connect to %s:%u", local_bind_ip.c_str(),
+                              host.c_str(), static_cast<unsigned>(port));
+            }
         }
     }
 
@@ -405,6 +444,14 @@ bool join_begin_next_attempt() {
                     debug_log("mp client: connect %s:%u relay=0", host.c_str(),
                               static_cast<unsigned>(g_join.start.host_port));
                 Uint32 connect_timeout_ms = direct_connect_timeout_ms_for_host(host);
+                // If we have multiple host IP candidates (multi-homed/VPN/VM),
+                // cycle through them quickly. A long ENet connect timeout on a
+                // single unreachable interface makes LAN joins feel stuck.
+                if (g_join.host_ips.size() > 1 &&
+                    connect_timeout_ms == kDirectConnectTimeoutMsLan &&
+                    is_numeric_private_ipv4(host)) {
+                    connect_timeout_ms = 5000;
+                }
                 if (join_begin_enet_attempt(host, g_join.start.host_port, false,
                                             connect_timeout_ms,
                                             kJoinTimeoutMs)) {
@@ -1118,10 +1165,18 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
             g_session.server_peer = event.peer;
             if (debug_enabled())
-                debug_log("mp client: connected %s:%u relay=%d",
+            {
+                char rip[64];
+                rip[0] = '\0';
+                if (enet_address_get_host_ip(&event.peer->address, rip, sizeof(rip)) != 0)
+                    std::snprintf(rip, sizeof(rip), "<unknown>");
+                debug_log("mp client: connected target=%s:%u remote=%s:%u relay=%d",
                           g_join.target_host.c_str(),
                           static_cast<unsigned>(g_join.target_port),
+                          rip,
+                          static_cast<unsigned>(event.peer->address.port),
                           g_join.relay_connect ? 1 : 0);
+            }
             if (g_join.relay_connect) {
                 ecl::Buffer buf;
                 encode_relay_header(buf, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
