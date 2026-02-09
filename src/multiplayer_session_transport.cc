@@ -563,11 +563,17 @@ bool handle_direct_connect_event(ENetPeer *peer) {
         return true;
     }
 
+    char host_ip[64];
+    host_ip[0] = '\0';
+    if (enet_address_get_host_ip(&peer->address, host_ip, sizeof(host_ip)) != 0)
+        std::snprintf(host_ip, sizeof(host_ip), "<unknown>");
+
     unsigned player_id = g_session.next_player_id++;
     g_session.peer_players[peer] = player_id;
     g_session.peer_ready[peer] = false;
     peer->data = reinterpret_cast<void *>(static_cast<uintptr_t>(player_id));
-    debug_log("mp host: peer connected -> player %u", player_id);
+    debug_log("mp host: peer connected -> player %u ip=%s:%u", player_id, host_ip,
+              static_cast<unsigned>(peer->address.port));
 
     ecl::Buffer buf;
     protocol::encode_welcome(buf, static_cast<Uint8>(player_id),

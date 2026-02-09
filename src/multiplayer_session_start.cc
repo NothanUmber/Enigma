@@ -422,8 +422,14 @@ bool host_open_direct_listener(Uint16 port, unsigned expected_players) {
                                              2 /* channels */,
 #endif
                                              0, 0);
-    if (g_session.host_handle == nullptr)
+    if (g_session.host_handle == nullptr) {
+        if (debug_enabled())
+            debug_log("mp host: failed to open direct listener port=%u",
+                      static_cast<unsigned>(port));
         return false;
+    }
+    if (debug_enabled())
+        debug_log("mp host: direct listener port=%u", static_cast<unsigned>(port));
     // Do not tweak ENet-managed sockets. ENet already configures non-blocking
     // mode and buffering; overriding this can break connect/handshake on some
     // platform builds.
@@ -544,7 +550,13 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
         return false;
 
     ENetAddress addr;
-    enet_address_set_host(&addr, target_host.c_str());
+    if (enet_address_set_host(&addr, target_host.c_str()) != 0) {
+        if (debug_enabled())
+            debug_log("mp client: invalid host '%s'", target_host.c_str());
+        enet_host_destroy(g_session.host_handle);
+        g_session.host_handle = nullptr;
+        return false;
+    }
     addr.port = target_port;
     g_session.server_peer = enet_host_connect(g_session.host_handle, &addr, 2
 #ifdef ENET_VER_EQ_GT_13
@@ -556,11 +568,12 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
         return false;
 
     ENetEvent event;
-    if (!(enet_host_service(g_session.host_handle, &event, connect_timeout_ms) > 0 &&
-          event.type == ENET_EVENT_TYPE_CONNECT)) {
+    const int serviced = enet_host_service(g_session.host_handle, &event, connect_timeout_ms);
+    if (!(serviced > 0 && event.type == ENET_EVENT_TYPE_CONNECT)) {
         if (debug_enabled())
-            debug_log("mp client: connect failed %s:%u", target_host.c_str(),
-                      static_cast<unsigned>(target_port));
+            debug_log("mp client: connect failed %s:%u service=%d event=%d", target_host.c_str(),
+                      static_cast<unsigned>(target_port), serviced,
+                      serviced > 0 ? static_cast<int>(event.type) : -1);
         enet_host_destroy(g_session.host_handle);
         g_session.host_handle = nullptr;
         g_session.server_peer = nullptr;
