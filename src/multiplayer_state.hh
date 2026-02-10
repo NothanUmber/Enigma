@@ -23,6 +23,7 @@ bool IsPaused();
 void RequestPause(bool paused);
 void SetMenuOpen(bool open);
 void RequestAbort();
+void SetInputClockFrozen(bool frozen);
 
 }  // namespace multiplayer
 }  // namespace enigma

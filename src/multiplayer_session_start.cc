@@ -20,6 +20,7 @@
 
 #include "multiplayer_session_impl.hh"
 #include "multiplayer_config.hh"
+#include "multiplayer_wait_settings.hh"
 
 #include "enigma.hh"
 #include "input.hh"
@@ -630,6 +631,11 @@ void host_try_connect_udp_relay() {
     if (enet_host_service(g_session.relay_handle, &event, 3000) > 0 &&
         event.type == ENET_EVENT_TYPE_CONNECT) {
         g_session.relay_peer = event.peer;
+#ifdef ENET_VER_EQ_GT_13
+        enet_peer_timeout(g_session.relay_peer, ENET_PEER_TIMEOUT_LIMIT,
+                          static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs),
+                          static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs));
+#endif
         ecl::Buffer buf;
         encode_relay_header(buf, RELAY_HELLO_HOST, g_session.session_id, 0);
         ENetPacket *packet = enet_packet_create(buf.data(), buf.size(),
@@ -745,6 +751,11 @@ bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_
         return false;
     }
     g_session.server_peer = event.peer;
+#ifdef ENET_VER_EQ_GT_13
+    enet_peer_timeout(g_session.server_peer, ENET_PEER_TIMEOUT_LIMIT,
+                      static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs),
+                      static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs));
+#endif
     if (relay_connect) {
         ecl::Buffer buf;
         encode_relay_header(buf, RELAY_HELLO_CLIENT, session_id, 0);
@@ -1176,6 +1187,11 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
         g_join.last_enet_event = static_cast<int>(event.type);
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
             g_session.server_peer = event.peer;
+#ifdef ENET_VER_EQ_GT_13
+            enet_peer_timeout(g_session.server_peer, ENET_PEER_TIMEOUT_LIMIT,
+                              static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs),
+                              static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs));
+#endif
             if (debug_enabled())
             {
                 char rip[64];

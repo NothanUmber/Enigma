@@ -15,3 +15,4 @@ lib-src/zipios++/compile
 lib-src/tinygettext/libtinygettext.a
 .DS_Store
 /local/
+__pycache__/

@@ -5,15 +5,6 @@ This document covers the full multiplayer feature set. It is split into:
 - **User Guide**: how to use LAN/Internet multiplayer.
 - **Architecture**: how it works internally and how we avoid desync.
 
-It is not a changelog.
-
-Maintainer note:
-
-- `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
-  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
-- The generator intentionally excludes this architecture document and cache artifacts
-  (`__pycache__`, `*.pyc`) so the review stays focused on source changes.
-
 ## User Guide
 
 ### Opening multiplayer
@@ -325,6 +316,46 @@ implemented as a replicated state derived from menu-open state:
   still polled so unpause/leave/disconnect is handled promptly.
 - All instances show a pause screen (`cls_multiplayer_paused`) while any player has the menu open.
 
+### Lockstep stall wait dialog ("waiting for player...")
+
+In lockstep, if an instance cannot advance a tick because it is missing inputs from some peer, the
+simulation would otherwise appear "frozen". This can happen transiently during short network outages
+or relay hiccups (especially over Internet play), even if the underlying transport connection is
+still technically up.
+
+To make this visible and to avoid buffered-input side effects when the stall clears, the client shows
+a dedicated waiting screen:
+
+- Trigger: if the session is active and `input::CanAdvanceTick()` stays false for
+  `wait::kStallDialogDelaySeconds` (currently 2s).
+- State: `cls_multiplayer_waiting_for_players` with `gui::MultiplayerWaitMenu` and a countdown.
+- Recovery: as soon as `input::CanAdvanceTick()` becomes true again, the dialog closes automatically
+  and the game continues.
+- Abort: if the countdown reaches 0 or the player presses **Leave**, the client requests a
+  multiplayer abort (`multiplayer::RequestAbort()`), which ends the game for everyone.
+
+This is not a "true reconnect" flow. If the transport reports an actual disconnect, the session
+aborts immediately; the wait dialog only covers the window where the connection is alive but inputs
+stop arriving.
+
+#### Timeout alignment and input mitigation
+
+To reduce cases where ENet disconnects before the wait dialog finishes, ENet peers are configured
+(when available) to use a timeout that matches the wait dialog:
+
+- ENet >= 1.3: `wait::kAbortTimeoutSeconds = 60` and `wait::kEnetPeerTimeoutMs = 60000` via
+  `enet_peer_timeout()`.
+- Vendored ENet 1.0: peer timeout is not configurable; the wait dialog uses a shorter timeout
+  (`wait::kAbortTimeoutSeconds = 30`) to match ENet's default maximum timeout window.
+
+While the wait dialog (and the global pause screen) is shown, the client:
+
+- flushes queued `SDL_MOUSEMOTION` events and drains local pending input so motion/impulses don't
+  accumulate during a stall,
+- recenters and restores gameplay mouse control when resuming, and
+- freezes the multiplayer input clock (`multiplayer::SetInputClockFrozen(true)`) so a long stall does
+  not permanently increase input lookahead/latency after recovery.
+
 ### Extra players on low-player maps (non-optimized mode)
 
 If more players join than the map was authored for:
@@ -393,6 +424,12 @@ To keep transitions reliable and deterministic, the host broadcasts a fully qual
 
 The `load_id` is intentionally included in READY/START so late packets from the previous level do
 not unblock the next level's start barrier.
+
+## Maintainer notes
+
+- `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
+  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
+- The generator intentionally excludes this architecture document so the review stays focused on source changes.
 
 ## Key code locations
 

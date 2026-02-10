@@ -22,12 +22,14 @@
 #include "ecl_buffer.hh"
 #include "enet/enet.h"
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
 namespace enigma {
 namespace gui {
 class GameMenu;
+class MultiplayerWaitMenu;
 }  // namespace gui
 namespace client {
 
@@ -102,6 +104,7 @@ enum ClientState {
     cls_waiting_for_network_start,  // multiplayer: waiting for peers to be ready before showing the level
     cls_multiplayer_menu,  // multiplayer: local ESC menu (stepped, non-blocking)
     cls_multiplayer_paused,  // multiplayer: global pause state (host broadcasts pause/unpause)
+    cls_multiplayer_waiting_for_players,  // multiplayer: waiting for missing lockstep inputs / connection
     cls_game,
     cls_finished,  // level finished, waiting for next one
     cls_gamehelp,
@@ -178,6 +181,8 @@ private:
     // Multiplayer UI helpers (non-blocking ESC menu)
     void open_multiplayer_menu();
     void close_multiplayer_menu();
+    void open_multiplayer_wait_menu(int initial_seconds);
+    void close_multiplayer_wait_menu();
 
     // Variables
     ClientState m_state;
@@ -205,6 +210,10 @@ private:
     // "connecting" screen, so the transition must not trigger a second StartGame.)
     bool m_preparing_skip_start_msg = false;
     std::unique_ptr<enigma::gui::GameMenu> m_multiplayer_menu;
+    std::unique_ptr<enigma::gui::MultiplayerWaitMenu> m_multiplayer_wait_menu;
+    double m_multiplayer_stall_timer = 0.0;
+    double m_multiplayer_wait_remaining = 0.0;
+    int m_multiplayer_wait_last_seconds = -1;
     bool m_menu_saved_input_grab = false;
     bool m_menu_saved_input_grab_valid = false;
     ENetHost *m_network_host;

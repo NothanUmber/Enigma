@@ -61,6 +61,10 @@ void RequestAbort() {
     internal::SessionRequestAbort();
 }
 
+void SetInputClockFrozen(bool frozen) {
+    internal::SessionSetInputClockFrozen(frozen);
+}
+
 void PrepareExtraActors() {
     internal::SessionPrepareExtraActors();
 }
