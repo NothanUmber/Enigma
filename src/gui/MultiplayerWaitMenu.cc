@@ -20,6 +20,7 @@
 
 #include "ecl_font.hh"
 #include "ecl_video.hh"
+#include "nls.hh"
 #include "resource_cache.hh"
 #include "video.hh"
 
@@ -44,7 +45,7 @@ MultiplayerWaitMenu::MultiplayerWaitMenu()
     : message_("Waiting for player...") {
     const VMInfo *vminfo = video_engine->GetInfo();
     const int vshrink = vminfo->width < 640 ? 1 : 0;
-    leave_button_ = new gui::StaticTextButton("Leave", this);
+    leave_button_ = new gui::StaticTextButton(N_("Leave"), this);
     add(leave_button_,
         Rect(vminfo->width - (vshrink ? 85 : 170),
              vminfo->height - (vshrink ? 30 : 60),
@@ -108,4 +109,3 @@ void MultiplayerWaitMenu::draw_background(ecl::GC &gc) {
 
 }  // namespace gui
 }  // namespace enigma
-

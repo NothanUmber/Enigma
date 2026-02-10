@@ -52,6 +52,8 @@
 #include "enet/enet.h"
 #include "enet_ver.hh"
 
+#include "multiplayer_wait_settings.hh"
+
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -966,8 +968,8 @@ std::string Client::init_hunted_time() {
 
 void Client::tick(double dtime) {
     const double timestep = 0.01;  // 10ms
-    const double stall_dialog_delay = 2.0;
-    const double stall_abort_timeout = 30.0;
+    const double stall_dialog_delay = multiplayer::wait::kStallDialogDelaySeconds;
+    const double stall_abort_timeout = multiplayer::wait::kAbortTimeoutSeconds;
 
     switch (m_state) {
     case cls_idle: break;

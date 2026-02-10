@@ -21,6 +21,7 @@
 #include "multiplayer_extra_players.hh"
 #include "multiplayer_session_impl.hh"
 #include "multiplayer_transport.hh"
+#include "multiplayer_wait_settings.hh"
 
 #include "client.hh"
 #include "errors.hh"
@@ -764,6 +765,11 @@ bool handle_direct_connect_event(ENetPeer *peer) {
     g_session.peer_players[peer] = player_id;
     g_session.peer_ready[peer] = false;
     peer->data = reinterpret_cast<void *>(static_cast<uintptr_t>(player_id));
+#ifdef ENET_VER_EQ_GT_13
+    enet_peer_timeout(peer, ENET_PEER_TIMEOUT_LIMIT,
+                      static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs),
+                      static_cast<enet_uint32>(multiplayer::wait::kEnetPeerTimeoutMs));
+#endif
     debug_log("mp host: peer connected -> player %u ip=%s:%u", player_id, host_ip,
               static_cast<unsigned>(peer->address.port));
 
@@ -897,6 +903,8 @@ void process_network_events() {
                     return abort_session_with_message("Player disconnected. Ending session.");
                 return true;
             }
+            if (g_session.server_peer == peer)
+                g_session.server_peer = nullptr;
             return abort_session_with_message("Disconnected from host.");
         }
     };
