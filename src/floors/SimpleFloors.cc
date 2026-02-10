@@ -21,6 +21,7 @@
 #include "floors/SimpleFloors.hh"
 
 //#include "errors.hh"
+#include "input.hh"
 #include "main.hh"
 #include "player.hh"
 #include "world.hh"
@@ -166,7 +167,53 @@ namespace enigma {
     }
     
     ecl::V2 YinyangFloor::process_mouseforce (Actor *a, ecl::V2 force) {
-        if (a->controlled_by(state))
+        // Single-player semantics:
+        // - `fl_yinyang` is keyed to the *current player* (changed by it_yinyang).
+        // Multiplayer semantics:
+        // - `player::CurrentPlayer()` is not meaningful (toggle is disabled).
+        // - Extra players can "clone" the authored black/white marbles; those clones
+        //   should still behave like black/white for yin/yang mechanics.
+        if (!input::IsNetworked()) {
+            if (player::CurrentPlayer() == state)
+                return getAdhesion() * force;
+            return ecl::V2();
+        }
+
+        int affinity = -1;
+
+        // Prefer explicit actor color when available: BLACK/YIN is 0, WHITE/YANG is 1.
+        if (Value c = a->getAttr("color")) {
+            int ci = static_cast<int>(c);
+            if (ci == YIN || ci == YANG)
+                affinity = ci;
+        }
+
+        // Fallback: in multiplayer, owner is a player index; parity matches yin/yang grouping.
+        if (affinity < 0) {
+            if (Value o = a->getAttr("owner")) {
+                int oi = static_cast<int>(o);
+                if (oi >= 0)
+                    affinity = (oi & 1);
+            }
+        }
+
+        // Last-resort fallback: infer the controlling player from a single-bit controllers mask.
+        if (affinity < 0) {
+            int ctr = a->get_controllers();
+            if (ctr != 0) {
+                unsigned mask = static_cast<unsigned>(ctr);
+                unsigned idx = 0;
+                while ((mask & 1u) == 0u) {
+                    mask >>= 1u;
+                    ++idx;
+                    if (idx >= 31)
+                        break;
+                }
+                affinity = static_cast<int>(idx & 1u);
+            }
+        }
+
+        if (affinity == state)
             return getAdhesion() * force;
         else
             return ecl::V2();
