@@ -728,8 +728,11 @@ bool handle_direct_connect_event(ENetPeer *peer) {
                 if (debug_enabled()) {
                     char rip[64];
                     rip[0] = '\0';
-                    if (enet_address_get_host_ip(&replace->address, rip, sizeof(rip)) != 0)
+                    std::string replace_ip = address_to_ip_string(replace->address);
+                    if (replace_ip.empty())
                         std::snprintf(rip, sizeof(rip), "<unknown>");
+                    else
+                        std::snprintf(rip, sizeof(rip), "%s", replace_ip.c_str());
                     debug_log("mp host: dropping unready peer player=%u ip=%s:%u (retry connect)",
                               old_id, rip, static_cast<unsigned>(replace->address.port));
                 }
@@ -747,8 +750,11 @@ bool handle_direct_connect_event(ENetPeer *peer) {
 
     char host_ip[64];
     host_ip[0] = '\0';
-    if (enet_address_get_host_ip(&peer->address, host_ip, sizeof(host_ip)) != 0)
+    std::string peer_ip = address_to_ip_string(peer->address);
+    if (peer_ip.empty())
         std::snprintf(host_ip, sizeof(host_ip), "<unknown>");
+    else
+        std::snprintf(host_ip, sizeof(host_ip), "%s", peer_ip.c_str());
 
     unsigned player_id = 0;
     if (!allocate_remote_player_id(player_id)) {

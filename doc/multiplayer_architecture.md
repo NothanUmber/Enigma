@@ -7,6 +7,13 @@ This document covers the full multiplayer feature set. It is split into:
 
 It is not a changelog.
 
+Maintainer note:
+
+- `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
+  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
+- The generator intentionally excludes this architecture document and cache artifacts
+  (`__pycache__`, `*.pyc`) so the review stays focused on source changes.
+
 ## User Guide
 
 ### Opening multiplayer
@@ -43,6 +50,9 @@ Notes:
 - The actual game session port for direct-connect is `12345` (`kGamePort`). This is currently not
   configurable via the UI and is shared by LAN and Internet direct-connect.
 - LAN discovery uses a separate UDP broadcast port `12346` (`kLobbyPort`), also not configurable.
+- While a game is running, multiplayer settings are intentionally not editable in Options.
+- If Internet mode is selected but the server is still unresolved (for example `CHANGEME`),
+  the lobby shows a warning to configure the lobby/relay host in Options.
 
 If multiple strategies are enabled, clients try them in this order:
 
@@ -70,6 +80,12 @@ uses direct connect or relays for the actual game session.
 4) Other players enter the same room code and click **Join Room**.
 5) Once players joined, only the host selects a level (clients show "Waiting for host...").
 6) Host starts a game by clicking a level icon.
+
+Within one process session, leaving/re-entering the multiplayer menu keeps the selected
+mode (LAN/Internet) and current Internet room state.
+
+If the host leaves a room, the room is closed immediately for all clients and the room code
+can be reused right away.
 
 If UDP is blocked (guest WiFi, corporate networks, VPNs), enable **TCP relay** as fallback.
 
@@ -111,7 +127,10 @@ Internet discovery (room codes):
 
 - Server: `tools/internet_lobby_server.py` (UDP, default 12347)
 - Room membership uses Create/Join/Leave/Poll requests.
-- Rooms are removed when the last member has timed out.
+- Poll/Join responses can include room member ids + display names (used by the lobby player list).
+- If the host leaves, the room is removed immediately (clients are forced out of that room).
+- On normal app shutdown, Enigma sends a best-effort `LEAVE` for the tracked current room.
+- Timeout is still used as fallback cleanup for orphaned rooms (for example crashes).
 
 `LobbyStart` carries session metadata:
 
