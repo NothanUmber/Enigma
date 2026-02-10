@@ -27,6 +27,7 @@
 #include "gui/HelpMenu.hh"
 #include "main.hh"
 #include "gui/GameMenu.hh"
+#include "gui/MultiplayerWaitMenu.hh"
 #include "SoundEngine.hh"
 #include "SoundEffectManager.hh"
 #include "MusicManager.hh"
@@ -52,6 +53,7 @@
 #include "enet_ver.hh"
 
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 #include "client_internal.hh"
@@ -833,6 +835,39 @@ void Client::close_multiplayer_menu() {
     }
 }
 
+void Client::open_multiplayer_wait_menu(int initial_seconds) {
+    if (!multiplayer::IsActive())
+        return;
+    if (m_state == cls_multiplayer_waiting_for_players)
+        return;
+
+    // Release input grab while the menu is active.
+    if (!m_menu_saved_input_grab_valid) {
+        m_menu_saved_input_grab = video_engine->SetInputGrab(false);
+        m_menu_saved_input_grab_valid = true;
+    } else {
+        video_engine->SetInputGrab(false);
+    }
+
+    video_engine->ShowMouse();
+    m_multiplayer_wait_menu.reset(new enigma::gui::MultiplayerWaitMenu());
+    m_multiplayer_wait_menu->SetCountdownSeconds(initial_seconds);
+    m_multiplayer_wait_menu->begin_manage();
+    m_state = cls_multiplayer_waiting_for_players;
+}
+
+void Client::close_multiplayer_wait_menu() {
+    m_multiplayer_wait_menu.reset();
+
+    video_engine->HideMouse();
+    update_mouse_button_state();
+
+    if (m_menu_saved_input_grab_valid) {
+        video_engine->SetInputGrab(m_menu_saved_input_grab);
+        m_menu_saved_input_grab_valid = false;
+    }
+}
+
 void Client::draw_screen() {
     switch (m_state) {
     case cls_error: {
@@ -931,6 +966,8 @@ std::string Client::init_hunted_time() {
 
 void Client::tick(double dtime) {
     const double timestep = 0.01;  // 10ms
+    const double stall_dialog_delay = 2.0;
+    const double stall_abort_timeout = 30.0;
 
     switch (m_state) {
     case cls_idle: break;
@@ -1014,6 +1051,75 @@ void Client::tick(double dtime) {
         break;
     }
 
+    case cls_multiplayer_waiting_for_players: {
+        if (!m_multiplayer_wait_menu) {
+            close_multiplayer_wait_menu();
+            m_state = cls_game;
+            restore_game_mouse_control(false);
+            m_timeaccu = 0;
+            m_total_game_time = 0;
+            sdl::FlushEvents();
+            display::RedrawAll(video_engine->GetScreen());
+            game::ResetGameTimer();
+            break;
+        }
+        if (client::AbortGameP() || app.bossKeyPressed) {
+            close_multiplayer_wait_menu();
+            abort();
+            break;
+        }
+        if (!multiplayer::IsActive()) {
+            close_multiplayer_wait_menu();
+            m_state = cls_game;
+            restore_game_mouse_control(false);
+            m_timeaccu = 0;
+            m_total_game_time = 0;
+            sdl::FlushEvents();
+            display::RedrawAll(video_engine->GetScreen());
+            game::ResetGameTimer();
+            break;
+        }
+
+        // If the lockstep can progress again, immediately return to the game.
+        if (input::IsNetworked() && input::CanAdvanceTick()) {
+            close_multiplayer_wait_menu();
+            m_state = cls_game;
+            restore_game_mouse_control(false);
+            m_timeaccu = 0;
+            m_total_game_time = 0;
+            sdl::FlushEvents();
+            display::RedrawAll(video_engine->GetScreen());
+            game::ResetGameTimer();
+            m_multiplayer_stall_timer = 0.0;
+            break;
+        }
+
+        m_multiplayer_wait_remaining -= dtime;
+        if (m_multiplayer_wait_remaining < 0.0)
+            m_multiplayer_wait_remaining = 0.0;
+        const int seconds_left = static_cast<int>(std::ceil(m_multiplayer_wait_remaining));
+        if (seconds_left != m_multiplayer_wait_last_seconds) {
+            m_multiplayer_wait_last_seconds = seconds_left;
+            m_multiplayer_wait_menu->SetCountdownSeconds(seconds_left);
+        }
+
+        if (!m_multiplayer_wait_menu->step_manage(timestep, false)) {
+            m_multiplayer_wait_menu->finish_manage(false);
+            const bool leave_requested = m_multiplayer_wait_menu->LeaveRequested();
+            close_multiplayer_wait_menu();
+            if (leave_requested)
+                multiplayer::RequestAbort();
+            break;
+        }
+
+        if (m_multiplayer_wait_remaining <= 0.0) {
+            multiplayer::RequestAbort();
+            break;
+        }
+
+        break;
+    }
+
     case cls_multiplayer_paused:
         if (!multiplayer::IsActive() || !multiplayer::IsPaused()) {
             m_state = cls_game;
@@ -1035,6 +1141,19 @@ void Client::tick(double dtime) {
             m_state = cls_multiplayer_paused;
             draw_screen();
             break;
+        }
+        if (multiplayer::IsActive() && !multiplayer::ShouldDeferStart() &&
+            input::IsNetworked() && !input::CanAdvanceTick()) {
+            m_multiplayer_stall_timer += dtime;
+            if (m_multiplayer_stall_timer >= stall_dialog_delay) {
+                m_multiplayer_wait_remaining = stall_abort_timeout;
+                m_multiplayer_wait_last_seconds =
+                    static_cast<int>(std::ceil(m_multiplayer_wait_remaining));
+                open_multiplayer_wait_menu(m_multiplayer_wait_last_seconds);
+                break;
+            }
+        } else {
+            m_multiplayer_stall_timer = 0.0;
         }
         if (app.state->getInt("NextLevelMode") == lev::NEXT_LEVEL_NOT_BEST) {
             int old_second = ecl::round_nearest<int>(m_total_game_time);

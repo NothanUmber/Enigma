@@ -77,10 +77,10 @@ constexpr double kResyncInflightTimeout = 2.5;
 // packets have a chance to reach peers (avoids prolonged desync spam on clients
 // if the host shuts down immediately).
 constexpr double kAbortDeliveryGrace = 0.25;
-// If a client stops receiving any transport payloads while RUNNING, treat it as
-// a disconnect. This catches cases where a host exits too quickly for a
-// reliable abort to arrive.
-constexpr double kClientNoPayloadDisconnectTimeout = 2.0;
+// Legacy: client-side "no payload" disconnect timeout used to abort quickly
+// when the host vanished without sending a reliable abort. We now handle
+// transport stalls via a UI countdown and explicit abort request.
+[[maybe_unused]] constexpr double kClientNoPayloadDisconnectTimeout = 2.0;
 // Require at least N consecutive mismatch observations before triggering a resync
 // request. This reduces "jumpy mode" when a single late/out-of-order sync sample
 // briefly disagrees but the world would converge again naturally.

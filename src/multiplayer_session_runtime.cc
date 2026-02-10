@@ -570,11 +570,6 @@ void SessionTick(double dtime) {
         return;
     if (g_session.abort_pending)
         return;
-    if (!g_session.host && g_session.phase == SessionState::Phase::RUNNING &&
-        g_session.no_payload_timer >= kClientNoPayloadDisconnectTimeout) {
-        abort_session_with_message("Lost connection to host. Ending session.");
-        return;
-    }
     tick_apply_pending_sync();
     record_checksum_sample();
     tick_update_resync_cooldown(dtime);

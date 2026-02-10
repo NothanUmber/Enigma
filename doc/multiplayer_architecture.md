@@ -5,15 +5,6 @@ This document covers the full multiplayer feature set. It is split into:
 - **User Guide**: how to use LAN/Internet multiplayer.
 - **Architecture**: how it works internally and how we avoid desync.
 
-It is not a changelog.
-
-Maintainer note:
-
-- `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
-  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
-- The generator intentionally excludes this architecture document and cache artifacts
-  (`__pycache__`, `*.pyc`) so the review stays focused on source changes.
-
 ## User Guide
 
 ### Opening multiplayer
@@ -393,6 +384,12 @@ To keep transitions reliable and deterministic, the host broadcasts a fully qual
 
 The `load_id` is intentionally included in READY/START so late packets from the previous level do
 not unblock the next level's start barrier.
+
+## Maintainer notes
+
+- `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
+  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
+- The generator intentionally excludes this architecture document so the review stays focused on source changes.
 
 ## Key code locations
 

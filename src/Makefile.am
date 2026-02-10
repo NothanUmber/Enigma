@@ -236,6 +236,8 @@ enigma_SOURCES = 		\
 	gui/LPGroupConfig.hh	\
 	gui/MainMenu.cc		\
 	gui/MainMenu.hh		\
+	gui/MultiplayerWaitMenu.cc \
+	gui/MultiplayerWaitMenu.hh \
 	gui/MultiplayerMenu.cc \
 	gui/MultiplayerMenu_actions.cc \
 	gui/MultiplayerMenu_common.cc \
