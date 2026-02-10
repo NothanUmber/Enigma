@@ -818,7 +818,9 @@ def build_narratives() -> Dict[str, FileNarrative]:
         "src/floors/SimpleFloors.cc",
         ["Simple floor types implementation."],
         ["Used by many levels."],
-        ["Minor adjustments for determinism/state capture required by multiplayer checksum."],
+        [
+            "Restores upstream single-player `fl_yinyang` semantics (gated by current player), while making multiplayer `fl_yinyang` behave by ball affinity (color/owner parity) so cloned black/white marbles interact with yin/yang mechanics as expected.",
+        ],
     )
     add(
         "src/lua.cc",
