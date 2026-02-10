@@ -21,6 +21,8 @@ public:
     ~MultiplayerMenu();
 
 private:
+    void restore_session_state();
+    void store_session_state() const;
     void on_action(gui::Widget *w) override;
     void draw_background(ecl::GC &gc) override;
     void tick(double dtime) override;
