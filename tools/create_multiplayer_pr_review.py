@@ -285,7 +285,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         "src/Makefile.am",
         ["Autotools build rules for `src/`."],
         ["Used by `./configure && make` on all platforms."],
-        ["Adds new multiplayer and input source files to the build."],
+        ["Adds new multiplayer, input, and multiplayer-specific UI source files to the build."],
     )
     add(
         "src/main.cc",
@@ -386,6 +386,18 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ],
     )
     add(
+        "src/gui/MultiplayerWaitMenu.hh",
+        ["Small in-game menu shown when lockstep stalls (\"waiting for player...\")."],
+        ["Instantiated by `src/client.cc` while in `cls_multiplayer_waiting_for_players`."],
+        ["New UI surface for lockstep stall recovery/abort (countdown + leave button)."],
+    )
+    add(
+        "src/gui/MultiplayerWaitMenu.cc",
+        ["Implementation of the lockstep stall wait dialog menu."],
+        ["Used by the client state machine while waiting for missing inputs."],
+        ["Adds a dedicated wait dialog to make stalls visible and let users abort the session deliberately."],
+    )
+    add(
         "src/gui/OptionsMenu.cc",
         ["Options/settings menu implementation."],
         ["Allows users to configure video/audio/input and multiplayer preferences."],
@@ -455,6 +467,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         [
             "New public multiplayer API surface.",
             "Extends Internet room APIs to return member lists (ids/names), exposes local lobby display name, and adds a shutdown room-leave helper.",
+            "Exposes a small runtime control hook (`SetInputClockFrozen`) used to keep input latency stable across long stalls/waits.",
         ],
     )
     add(
@@ -464,7 +477,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Detailed logic lives in the `multiplayer_*` modules; this file routes between them.",
         ],
         ["Acts as the integration layer between existing Enigma runtime and the new multiplayer session."],
-        ["New multiplayer subsystem implementation."],
+        ["New multiplayer subsystem implementation (including small runtime helpers used by client UI/state transitions)."],
     )
     add(
         "src/multiplayer_config.hh",
@@ -503,6 +516,18 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["New internal header as part of the multiplayer session implementation."],
     )
     add(
+        "src/multiplayer_wait_settings.hh",
+        [
+            "Central constants for lockstep stall waiting behavior (dialog delays, abort timeouts, and ENet peer timeout tuning when available).",
+            "Keeps UI timeout and transport timeout aligned across ENet versions.",
+        ],
+        [
+            "Included by `src/client.cc` for the stall dialog delay/timeout.",
+            "Included by session start/transport code to configure ENet peer timeouts on connect/accept.",
+        ],
+        ["New shared settings header used by both UI and transport to keep stall/timeout behavior consistent."],
+    )
+    add(
         "src/multiplayer_session_start.cc",
         ["Session start/join handshake logic (host and client) over the selected transport."],
         ["Used when starting a level from the multiplayer lobby."],
@@ -510,6 +535,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Implements deterministic start sequencing and readiness gating across peers.",
             "Improves diagnostics and robustness of joins: logs ENet connect events and ignores WELCOME packets that don't match the expected session seed (guards against late/stale packets).",
             "Uses ENet-version-compatible address logging paths so the same code builds with both vendored ENet 1.0 and system ENet 1.3.",
+            "When ENet >= 1.3 is available, configures peer timeout to tolerate transient outages and align with the in-game stall wait dialog.",
         ],
     )
     add(
@@ -521,6 +547,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Validates READY/START against the current `session_id`, `epoch`, and per-level `load_id` so late packets cannot unblock the wrong level start.",
             "Implements host-driven level transitions by handling `NET_LOAD_LEVEL` (switch pack + load level by normalized path).",
             "Uses ENet-version-compatible address formatting in debug logs (works with vendored ENet 1.0 and ENet 1.3).",
+            "When ENet >= 1.3 is available, configures peer timeout on accept so temporary network stalls can recover without immediate disconnect.",
         ],
     )
     add(
@@ -539,6 +566,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         [
             "Integrates session transitions with existing engine-level control flow.",
             "Ensures post-`WorldInitLevel()` world state is compatible with multiplayer expectations (e.g. multi-ball redistribution for meditation levels).",
+            "Adds an input-clock freeze/rebase hook so long stalls or pauses do not permanently increase the input lookahead/latency after resuming.",
         ],
     )
     add(
@@ -556,7 +584,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         "src/multiplayer_state.hh",
         ["Small shared enums/structs for multiplayer state representation."],
         ["Used across session, transport, and UI to represent common state."],
-        ["New shared state types for multiplayer."],
+        ["New shared state types for multiplayer (including small runtime hooks used by the client for pause/stall transitions)."],
     )
     add(
         "src/multiplayer_debug.cc",
@@ -617,7 +645,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         "src/multiplayer_internal.hh",
         ["Internal multiplayer declarations not exposed via `src/multiplayer.hh`."],
         ["Included across multiplayer implementation units."],
-        ["New internal header created as part of module split."],
+        ["New internal header created as part of module split (includes internal session state flags such as input clock freeze)."],
     )
     add(
         "src/multiplayer_util.cc",
@@ -683,6 +711,8 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Adds multiplayer-specific client states and integrates the multiplayer session tick into the game loop.",
             "Implements deferred level start (waiting-for-peers screen) without breaking level intro/transition text.",
             "Hardens gameplay mouse control across focus loss/regain: restores input grab/relative mode and re-hides the custom cursor to avoid accidental \"wizard cursor\" behavior.",
+            "Shows an in-game wait dialog when lockstep stalls (missing inputs), with a countdown and a Leave action that aborts the session for everyone.",
+            "Mitigates buffered-input side effects during stalls/pauses by flushing mouse motion and draining pending local input, then restoring/re-centering gameplay mouse control when resuming.",
         ],
     )
     add(
@@ -692,6 +722,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         [
             "Adds internal flags/state needed for multiplayer start deferral and abort/restart handling.",
             "Adds client helpers/state for restoring gameplay mouse control after focus and state transitions.",
+            "Adds per-client timers/counters used to drive the lockstep stall wait dialog countdown.",
         ],
     )
     add(
