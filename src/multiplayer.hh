@@ -47,6 +47,7 @@ bool InternetPollRoom(const std::string &server, const std::string &room_code,
                       std::vector<LobbyPeer> &peers, std::string &error);
 bool InternetLeaveRoom(const std::string &server, const std::string &room_code,
                        std::string &error);
+void InternetLeaveTrackedRoomOnShutdown();
 void SetRelayServer(const std::string &server);
 void SetTcpRelayServer(const std::string &server);
 
