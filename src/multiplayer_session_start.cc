@@ -86,13 +86,16 @@ namespace {
 void log_enet_socket_address(const char *tag, ENetHost *host) {
     if (!debug_enabled() || !host)
         return;
-    ENetAddress a;
-    if (enet_socket_get_address(host->socket, &a) != 0)
-        return;
+    // ENet 1.0 does not expose enet_socket_get_address(). For debug logging,
+    // host->address is good enough across ENet versions.
+    ENetAddress a = host->address;
     char ipbuf[64];
     ipbuf[0] = '\0';
-    if (enet_address_get_host_ip(&a, ipbuf, sizeof(ipbuf)) != 0)
+    std::string local_ip = address_to_ip_string(a);
+    if (local_ip.empty())
         std::snprintf(ipbuf, sizeof(ipbuf), "<unknown>");
+    else
+        std::snprintf(ipbuf, sizeof(ipbuf), "%s", local_ip.c_str());
     debug_log("mp %s local=%s:%u", tag, ipbuf, static_cast<unsigned>(a.port));
 }
 
@@ -1177,8 +1180,11 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
             {
                 char rip[64];
                 rip[0] = '\0';
-                if (enet_address_get_host_ip(&event.peer->address, rip, sizeof(rip)) != 0)
+                std::string remote_ip = address_to_ip_string(event.peer->address);
+                if (remote_ip.empty())
                     std::snprintf(rip, sizeof(rip), "<unknown>");
+                else
+                    std::snprintf(rip, sizeof(rip), "%s", remote_ip.c_str());
                 debug_log("mp client: connected target=%s:%u remote=%s:%u relay=%d",
                           g_join.target_host.c_str(),
                           static_cast<unsigned>(g_join.target_port),
