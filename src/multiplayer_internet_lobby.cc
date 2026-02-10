@@ -54,6 +54,30 @@ struct PendingPoll {
 
 PendingPoll g_pending_poll;
 
+struct TrackedInternetRoom {
+    bool active = false;
+    std::string server;
+    std::string room_code;
+};
+
+TrackedInternetRoom g_tracked_room;
+
+void clear_tracked_room() {
+    g_tracked_room.active = false;
+    g_tracked_room.server.clear();
+    g_tracked_room.room_code.clear();
+}
+
+void track_room(const std::string &server, const std::string &room_code) {
+    if (server.empty() || room_code.empty()) {
+        clear_tracked_room();
+        return;
+    }
+    g_tracked_room.active = true;
+    g_tracked_room.server = server;
+    g_tracked_room.room_code = room_code;
+}
+
 bool parse_member_peers(ecl::Buffer &response, std::vector<LobbyPeer> &peers,
                         const std::string &self_id) {
     peers.clear();
@@ -276,6 +300,7 @@ bool InternetCreateRoom(const std::string &server, const std::string &room_code,
     if (!(response >> server_room >> host_ip))
         return false;
     (void)host_ip;
+    track_room(server, server_room.empty() ? room_code : server_room);
     return true;
 }
 
@@ -332,6 +357,7 @@ bool InternetJoinRoom(const std::string &server, const std::string &room_code,
         return false;
     if (!peers.empty())
         player_count = static_cast<unsigned>(peers.size());
+    track_room(server, room_code);
     return true;
 }
 
@@ -452,7 +478,53 @@ bool InternetLeaveRoom(const std::string &server, const std::string &room_code,
         error = msg.empty() ? "Server error." : msg;
         return false;
     }
+    if (g_tracked_room.active && g_tracked_room.server == server
+        && g_tracked_room.room_code == room_code) {
+        clear_tracked_room();
+    }
     return true;
+}
+
+void InternetLeaveTrackedRoomOnShutdown() {
+    if (!g_tracked_room.active || g_tracked_room.server.empty()
+        || g_tracked_room.room_code.empty()) {
+        return;
+    }
+    ensure_lobby_identity();
+    cancel_pending_poll();
+
+    std::string host;
+    Uint16 port = 0;
+    if (!parse_host_port(g_tracked_room.server, host, port)) {
+        clear_tracked_room();
+        return;
+    }
+
+    ENetAddress addr;
+    if (enet_address_set_host(&addr, host.c_str()) != 0) {
+        clear_tracked_room();
+        return;
+    }
+    addr.port = port;
+
+    ENetSocket socket = enet_socket_create_compat(ENET_SOCKET_TYPE_DATAGRAM);
+    if (socket == ENET_SOCKET_NULL) {
+        clear_tracked_room();
+        return;
+    }
+
+    // Best-effort shutdown cleanup: send LEAVE without waiting for a reply so
+    // quitting does not block on network timeouts.
+    ecl::Buffer request;
+    request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_LEAVE)
+            << g_tracked_room.room_code << g_lobby.local_id;
+    ENetBuffer eb;
+    eb.data = const_cast<char *>(request.data());
+    eb.dataLength = request.size();
+    enet_socket_send(socket, &addr, &eb, 1);
+    enet_socket_destroy(socket);
+
+    clear_tracked_room();
 }
 
 void SetRelayServer(const std::string &server) {

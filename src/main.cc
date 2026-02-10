@@ -36,6 +36,7 @@
 #include "errors.hh"
 #include "world.hh"
 #include "game.hh"
+#include "multiplayer.hh"
 #include "nls.hh"
 #include "LocalToXML.hh"
 #include "ObjectValidator.hh"
@@ -953,6 +954,7 @@ void Application::shutdown()
 {
     if(strlen(SDL_GetError()) > 0)
         Log << "Last SDL error: " << SDL_GetError() << "\n";
+    multiplayer::InternetLeaveTrackedRoomOnShutdown();
     oxyd::Shutdown();
     enigma::ShutdownWorld();
     display::Shutdown();
