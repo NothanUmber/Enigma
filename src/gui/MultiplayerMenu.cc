@@ -198,6 +198,7 @@ MultiplayerMenu::MultiplayerMenu()
     add(players_title, Rect(margin, players_title_y, left_w, title_h));
     add(players_list, Rect(margin, players_list_y, left_w, players_list_h));
     add(info_label, Rect(margin, info_y, left_w, info_h));
+    info_area_default = Rect(margin, info_y, left_w, info_h);
 
     int y = form_y;
     add(room_label, Rect(form_x, y, left_w, line_h));

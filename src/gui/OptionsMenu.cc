@@ -938,37 +938,50 @@ public:
                 OPTIONS_NEW_T(userNameTF)
                 break;
             case OPTIONS_MULTIPLAYER: {
-                multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-                std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
-                multiplayerLobbyTF = new TextField(lobby_server);
-                multiplayerLobbyTF->setMaxChars(128);
-                OPTIONS_NEW_L(N_("Lobby/Relay server: "))
-                OPTIONS_NEW_T(multiplayerLobbyTF)
+                if (gameIsOngoing) {
+                    optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
+                    optionsVList->set_spacing(0);
+                    ecl::Font* f = enigma::GetFont("menufont");
+                    const std::string text =
+                        _("Leave current game to change multiplayer settings.");
+                    std::vector<std::string> lines =
+                        ecl::breakToLines(f, text, " ", label_button_total_width);
+                    for (auto it = lines.begin(); it != lines.end(); it++) {
+                        OPTIONS_NEW_USL(std::string(*it));
+                    }
+                } else {
+                    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+                    std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
+                    multiplayerLobbyTF = new TextField(lobby_server);
+                    multiplayerLobbyTF->setMaxChars(128);
+                    OPTIONS_NEW_L(N_("Lobby/Relay server: "))
+                    OPTIONS_NEW_T(multiplayerLobbyTF)
 
-                // Transport toggles (order is still direct > UDP relay > TCP relay).
-                OPTIONS_NEW_LB(N_("Direct connect: "),
-                              new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
-                OPTIONS_NEW_LB(N_("UDP relay: "),
-                              new ToggleOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
-                OPTIONS_NEW_LB(N_("TCP relay: "),
-                              new ToggleOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
+                    // Transport toggles (order is still direct > UDP relay > TCP relay).
+                    OPTIONS_NEW_LB(N_("Direct connect: "),
+                                  new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
+                    OPTIONS_NEW_LB(N_("UDP relay: "),
+                                  new ToggleOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
+                    OPTIONS_NEW_LB(N_("TCP relay: "),
+                                  new ToggleOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
 
-                // Port overrides. These are primarily for Internet mode hosting/debugging and
-                // should match the lobby/relay server deployment.
-                auto make_port_field = [](int value) -> TextField * {
-                    TextField *tf = new TextField(std::to_string(value));
-                    tf->setMaxChars(5);
-                    return tf;
-                };
-                multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
-                multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
-                multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
-                OPTIONS_NEW_L(N_("Lobby port: "))
-                OPTIONS_NEW_T(multiplayerLobbyPortTF)
-                OPTIONS_NEW_L(N_("UDP relay port: "))
-                OPTIONS_NEW_T(multiplayerUdpRelayPortTF)
-                OPTIONS_NEW_L(N_("TCP relay port: "))
-                OPTIONS_NEW_T(multiplayerTcpRelayPortTF)
+                    // Port overrides. These are primarily for Internet mode hosting/debugging and
+                    // should match the lobby/relay server deployment.
+                    auto make_port_field = [](int value) -> TextField * {
+                        TextField *tf = new TextField(std::to_string(value));
+                        tf->setMaxChars(5);
+                        return tf;
+                    };
+                    multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
+                    multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
+                    multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
+                    OPTIONS_NEW_L(N_("Lobby port: "))
+                    OPTIONS_NEW_T(multiplayerLobbyPortTF)
+                    OPTIONS_NEW_L(N_("UDP relay port: "))
+                    OPTIONS_NEW_T(multiplayerUdpRelayPortTF)
+                    OPTIONS_NEW_L(N_("TCP relay port: "))
+                    OPTIONS_NEW_T(multiplayerTcpRelayPortTF)
+                }
                 break;
             }
             case OPTIONS_PATHS:
