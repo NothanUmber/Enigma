@@ -42,6 +42,7 @@ void MultiplayerMenu::clear_internet_room_state() {
     internet_in_room = false;
     internet_start_valid = false;
     internet_room_code.clear();
+    internet_room_peers.clear();
     internet_is_host = false;
     internet_connecting = false;
     internet_player_count = 1;
@@ -286,15 +287,37 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
     std::string error;
     bool started = false;
     unsigned player_count = 0;
+    std::vector<multiplayer::LobbyPeer> peers;
     if (!multiplayer::InternetPollRoom(mp_menu::resolved_lobby_server(server, servers), room,
-                                       start, host_ip, started, player_count, error)) {
+                                       start, host_ip, started, player_count, peers, error)) {
         if (!error.empty() && error != "waiting")
             show_info(error);
         return;
     }
 
-    if (player_count > 0 && player_count != internet_player_count) {
-        internet_player_count = player_count;
+    bool peers_changed = false;
+    if (peers.size() != internet_room_peers.size()) {
+        peers_changed = true;
+    } else {
+        for (size_t i = 0; i < peers.size(); ++i) {
+            if (peers[i].id != internet_room_peers[i].id ||
+                peers[i].name != internet_room_peers[i].name ||
+                peers[i].is_self != internet_room_peers[i].is_self) {
+                peers_changed = true;
+                break;
+            }
+        }
+    }
+    if (peers_changed)
+        internet_room_peers = peers;
+    unsigned effective_count = player_count;
+    if (!internet_room_peers.empty())
+        effective_count = static_cast<unsigned>(internet_room_peers.size());
+    if (effective_count > 0 && effective_count != internet_player_count) {
+        internet_player_count = effective_count;
+        update_players();
+        invalidate_all();
+    } else if (peers_changed) {
         update_players();
         invalidate_all();
     }

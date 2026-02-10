@@ -23,6 +23,7 @@ void LobbyStop();
 void LobbyTick(double dtime);
 std::vector<LobbyPeer> LobbyPeers();
 unsigned LobbySize();
+std::string LobbyLocalName();
 void LobbySetSelectedLevel(const std::string &level_id);
 std::string LobbySelectedLevel();
 bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip);
@@ -36,12 +37,14 @@ bool InternetCreateRoom(const std::string &server, const std::string &room_code,
                         const protocol::LobbyStart &start, std::string &error);
 bool InternetJoinRoom(const std::string &server, const std::string &room_code,
                       protocol::LobbyStart &start, std::string &host_ip,
-                      unsigned &player_count, std::string &error);
+                      unsigned &player_count, std::vector<LobbyPeer> &peers,
+                      std::string &error);
 bool InternetStartRoom(const std::string &server, const std::string &room_code,
                        const protocol::LobbyStart &start, std::string &error);
 bool InternetPollRoom(const std::string &server, const std::string &room_code,
                       protocol::LobbyStart &start, std::string &host_ip,
-                      bool &started, unsigned &player_count, std::string &error);
+                      bool &started, unsigned &player_count,
+                      std::vector<LobbyPeer> &peers, std::string &error);
 bool InternetLeaveRoom(const std::string &server, const std::string &room_code,
                        std::string &error);
 void SetRelayServer(const std::string &server);

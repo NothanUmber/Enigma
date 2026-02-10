@@ -69,14 +69,14 @@ def make_code():
 
 
 class Room:
-    def __init__(self, code, host_ip, host_port, start, host_id):
+    def __init__(self, code, host_ip, host_port, start, host_id, host_name):
         self.code = code
         self.host_ip = host_ip
         self.host_port = host_port
         self.start = start
         self.created_at = time.time()
         self.last_seen = self.created_at
-        self.members = {host_id}
+        self.members = {host_id: host_name}
         self.started = False
 
     def expired(self, ttl):
@@ -97,6 +97,9 @@ def parse_start(payload):
         pack_name = ""
         if offset < len(payload):
             pack_name, offset = read_str(payload, offset)
+        host_name = None
+        if offset < len(payload):
+            host_name, offset = read_str(payload, offset)
         return {
             "session_id": session_id,
             "seed": seed,
@@ -106,6 +109,7 @@ def parse_start(payload):
             "level_id": level_id,
             "host_id": host_id,
             "pack_name": pack_name,
+            "host_name": host_name,
         }
     except Exception:
         pass
@@ -132,6 +136,9 @@ def parse_start(payload):
     pack_name = ""
     if offset < len(payload):
         pack_name, offset = read_str(payload, offset)
+    host_name = None
+    if offset < len(payload):
+        host_name, offset = read_str(payload, offset)
     return {
         "session_id": session_id,
         "seed": seed,
@@ -141,6 +148,7 @@ def parse_start(payload):
         "level_id": level_id,
         "host_id": host_id,
         "pack_name": pack_name,
+        "host_name": host_name,
     }
 
 
@@ -154,6 +162,35 @@ def build_start(start):
         + write_str(start["host_id"])
         + write_u8(start["filter_optimized"])
     )
+
+
+def normalize_member_name(name):
+    if not name:
+        return "Player"
+    return name
+
+
+def ordered_members(room):
+    members = []
+    host_id = room.start.get("host_id", "")
+    if host_id in room.members:
+        members.append((host_id, normalize_member_name(room.members[host_id])))
+    for member_id in sorted(room.members.keys()):
+        if member_id == host_id:
+            continue
+        members.append((member_id, normalize_member_name(room.members[member_id])))
+    return members
+
+
+def encode_members(room):
+    members = ordered_members(room)
+    if len(members) > 255:
+        members = members[:255]
+    payload = write_u8(len(members))
+    for member_id, name in members:
+        payload += write_str(member_id)
+        payload += write_str(name)
+    return payload
 
 
 def handle_request(data, addr, rooms, ttl):
@@ -181,7 +218,8 @@ def handle_request(data, addr, rooms, ttl):
                 + write_str("room code is already used")
             )
         start = parse_start(data[offset:])
-        rooms[code] = Room(code, addr[0], start["host_port"], start, start["host_id"])
+        host_name = normalize_member_name(start.get("host_name"))
+        rooms[code] = Room(code, addr[0], start["host_port"], start, start["host_id"], host_name)
         resp = (
             write_u32(MAGIC)
             + write_u8(VERSION)
@@ -194,6 +232,9 @@ def handle_request(data, addr, rooms, ttl):
     if msg_type == INET_JOIN:
         code, offset = read_str(data, offset)
         _client_id, offset = read_str(data, offset)
+        client_name = "Player"
+        if offset < len(data):
+            client_name, offset = read_str(data, offset)
         room = rooms.get(code)
         if not room or room.expired(ttl):
             rooms.pop(code, None)
@@ -203,7 +244,7 @@ def handle_request(data, addr, rooms, ttl):
                 + write_u8(INET_ERROR)
                 + write_str("Room not found.")
             )
-        room.members.add(_client_id)
+        room.members[_client_id] = normalize_member_name(client_name)
         room.last_seen = time.time()
         resp = (
             write_u32(MAGIC)
@@ -213,6 +254,7 @@ def handle_request(data, addr, rooms, ttl):
             + write_str(room.host_ip)
             + write_u8(len(room.members))
             + write_str(room.start.get("pack_name", ""))
+            + encode_members(room)
         )
         return resp
 
@@ -229,6 +271,11 @@ def handle_request(data, addr, rooms, ttl):
             )
         start = parse_start(data[offset:])
         room.start = start
+        host_name = start.get("host_name")
+        if host_name is not None:
+            room.members[start["host_id"]] = normalize_member_name(host_name)
+        elif start["host_id"] not in room.members:
+            room.members[start["host_id"]] = "Player"
         room.host_ip = addr[0]
         room.host_port = start["host_port"]
         room.started = True
@@ -258,6 +305,7 @@ def handle_request(data, addr, rooms, ttl):
                 + write_u8(INET_POLL_OK)
                 + write_u8(0)
                 + write_u8(len(room.members))
+                + encode_members(room)
             )
         return (
             write_u32(MAGIC)
@@ -268,6 +316,7 @@ def handle_request(data, addr, rooms, ttl):
             + build_start(room.start)
             + write_str(room.host_ip)
             + write_str(room.start.get("pack_name", ""))
+            + encode_members(room)
         )
 
     if msg_type == INET_LEAVE:
@@ -275,7 +324,7 @@ def handle_request(data, addr, rooms, ttl):
         client_id, offset = read_str(data, offset)
         room = rooms.get(code)
         if room:
-            room.members.discard(client_id)
+            room.members.pop(client_id, None)
             room.last_seen = time.time()
             if not room.members:
                 rooms.pop(code, None)
