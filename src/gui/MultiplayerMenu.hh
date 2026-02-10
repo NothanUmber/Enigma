@@ -116,6 +116,7 @@ private:
     int internet_form_y;
     int internet_buttons_x;
     int internet_buttons_y;
+    ecl::Rect info_area_default;
     ecl::Rect level_area;
 
     lev::VolatileIndex *lobby_index;

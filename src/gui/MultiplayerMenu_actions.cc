@@ -138,6 +138,8 @@ void MultiplayerMenu::handle_mode_toggle() {
 }
 
 void MultiplayerMenu::handle_create_room() {
+    const std::string server_warning =
+        _("Set lobby and relay server IP in Options/Multiplayer.");
     if (current_room_code().empty()) {
         show_info(_("please choose room code"));
         return;
@@ -147,7 +149,7 @@ void MultiplayerMenu::handle_create_room() {
     std::string room_code = current_room_code();
     mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
     if (servers.lobby.empty()) {
-        show_info(_("Invalid server address."));
+        show_info(server_warning);
         return;
     }
     multiplayer::SetRelayServer(servers.udp_relay);
@@ -179,6 +181,8 @@ void MultiplayerMenu::handle_create_room() {
 }
 
 void MultiplayerMenu::handle_join_room() {
+    const std::string server_warning =
+        _("Set lobby and relay server IP in Options/Multiplayer.");
     std::string server = mp_menu::multiplayer_server_host_from_options();
     std::string room = current_room_code();
     if (room.empty()) {
@@ -187,7 +191,7 @@ void MultiplayerMenu::handle_join_room() {
     }
     mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
     if (servers.lobby.empty()) {
-        show_info(_("Invalid server address."));
+        show_info(server_warning);
         return;
     }
     multiplayer::SetRelayServer(servers.udp_relay);

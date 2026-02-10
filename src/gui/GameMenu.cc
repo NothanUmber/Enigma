@@ -237,19 +237,11 @@ namespace enigma { namespace gui {
             Menu::quit();
         }
         else if (w == options) {
-            if (multiplayer::IsActive()) {
-                client::Msg_ShowText("Options are not available in multiplayer.", true, 2.0);
-                return;
-            }
             enigma::gui::ShowOptionsMenu (0, true);
             invalidate_all();
 //            Menu::quit();
         }
         else if (w == info) {
-            if (multiplayer::IsActive()) {
-                client::Msg_ShowText("Level info is not available in multiplayer.", true, 2.0);
-                return;
-            }
             LevelInspector m(ind->getCurrent(), false);
             m.manage();
             invalidate_all();

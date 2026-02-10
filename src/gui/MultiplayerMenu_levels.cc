@@ -201,10 +201,16 @@ void MultiplayerMenu::set_internet_mode(bool enabled) {
 }
 
 void MultiplayerMenu::update_internet_layout() {
+    const std::string server_warning =
+        _("Set lobby and relay server IP in Options/Multiplayer.");
+    const std::string waiting_create = _("Create or join a room.");
+    const std::string waiting_connecting = _("Connecting...");
+    const std::string waiting_host = _("Waiting for host...");
     int offscreen = -10000;
     int x = internet_mode ? internet_form_x : offscreen;
     int y = internet_mode ? internet_form_y : offscreen;
     bool show_levels = internet_mode && internet_in_room && internet_is_host;
+    std::string waiting_text;
     if (!internet_mode) {
         room_label->move(offscreen, offscreen);
         room_field->move(offscreen, offscreen);
@@ -218,29 +224,37 @@ void MultiplayerMenu::update_internet_layout() {
                                               internet_leave_buttons->get_h()));
         levelwidget->set_area(level_area);
         waiting_label->move(offscreen, offscreen);
+        info_label->set_area(info_area_default);
         invalidate_all();
         return;
     }
     if (show_levels) {
         levelwidget->set_area(level_area);
         waiting_label->move(offscreen, offscreen);
+        info_label->set_area(info_area_default);
     } else {
         levelwidget->set_area(Rect(offscreen, offscreen, level_area.w, level_area.h));
         if (!internet_in_room)
-            waiting_label->set_text(_("Create or join a room."));
+            waiting_text = waiting_create;
         else if (internet_connecting)
-            waiting_label->set_text(_("Connecting..."));
+            waiting_text = waiting_connecting;
         else
-            waiting_label->set_text(_("Waiting for host..."));
-        waiting_label->move(level_area.x, level_area.y + level_area.h / 2 - 10);
+            waiting_text = waiting_host;
+        waiting_label->set_text(waiting_text);
+        waiting_label->move(offscreen, offscreen);
+        int info_w = (level_area.x + level_area.w) - info_area_default.x;
+        info_label->set_area(Rect(info_area_default.x, info_area_default.y,
+                                  info_w, info_area_default.h));
     }
     room_label->move(x, y);
     room_field->move(x, y + room_label->get_h());
     players_label->move(offscreen, offscreen);
     players_field->move(offscreen, offscreen);
-    int buttons_w = internet_buttons->get_w();
+    int compact_buttons_w = info_area_default.w;
+    int expanded_buttons_w = (level_area.x + level_area.w) - info_area_default.x;
+    int buttons_w = show_levels ? compact_buttons_w : expanded_buttons_w;
     int buttons_h = internet_buttons->get_h();
-    int leave_w = internet_leave_buttons->get_w();
+    int leave_w = show_levels ? compact_buttons_w : expanded_buttons_w;
     int leave_h = internet_leave_buttons->get_h();
     internet_buttons->set_area(Rect(internet_in_room ? offscreen : internet_buttons_x,
                                     internet_in_room ? offscreen : internet_buttons_y,
@@ -250,6 +264,41 @@ void MultiplayerMenu::update_internet_layout() {
                                           leave_w, leave_h));
     bool lock_fields = internet_in_room;
     room_field->set_locked(lock_fields);
+    std::string current_info = info_label->getText();
+    bool has_status_message = (current_info == waiting_create ||
+                               current_info == waiting_connecting ||
+                               current_info == waiting_host);
+    if (!internet_in_room) {
+        std::string server = mp_menu::multiplayer_server_host_from_options();
+        mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
+        if (servers.lobby.empty()) {
+            info_label->set_text(server_warning);
+            info_ttl = -1.0;
+        } else if (current_info == server_warning) {
+            info_label->set_text("");
+            info_ttl = 0.0;
+        }
+    }
+    if (!show_levels && !waiting_text.empty()) {
+        current_info = info_label->getText();
+        bool has_persistent_info = (info_ttl < 0.0 && current_info != server_warning);
+        if (current_info != server_warning &&
+            !has_persistent_info && (info_ttl <= 0.0 || has_status_message ||
+                                     current_info.empty())) {
+            info_label->set_text(waiting_text);
+            if (info_ttl > 0.0)
+                info_ttl = 0.0;
+        }
+    } else if (show_levels) {
+        current_info = info_label->getText();
+        if (current_info == waiting_create ||
+            current_info == waiting_connecting ||
+            current_info == waiting_host) {
+            info_label->set_text("");
+            if (info_ttl <= 0.0)
+                info_ttl = 0.0;
+        }
+    }
     create_room_button->set_text(N_("Create Room"));
     invalidate_all();
 }
