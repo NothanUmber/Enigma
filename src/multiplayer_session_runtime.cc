@@ -138,6 +138,16 @@ bool SessionIsPaused() {
     return g_session.paused;
 }
 
+void SessionSetInputClockFrozen(bool frozen) {
+    if (!g_session.active)
+        return;
+    g_session.input_clock_frozen = frozen;
+    // Rebase immediately so we don't carry forward a large lookahead after
+    // recovering from a long stall.
+    g_session.input_clock_tick = input::CurrentTick();
+    g_session.input_clock_accu = 0.0;
+}
+
 void SessionRequestPause(bool paused) {
     if (!g_session.active)
         return;
@@ -562,7 +572,8 @@ void SessionTick(double dtime) {
         return;
     }
     g_session.no_payload_timer += dtime;
-    tick_advance_input_clock(dtime);
+    if (!g_session.input_clock_frozen)
+        tick_advance_input_clock(dtime);
     process_network_events();
     if (!g_session.active)
         return;

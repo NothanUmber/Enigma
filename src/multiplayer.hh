@@ -87,6 +87,7 @@ void CancelClientJoin();
 
 void Tick(double dtime);
 void Shutdown();
+void SetInputClockFrozen(bool frozen);
 
 }  // namespace multiplayer
 }  // namespace enigma

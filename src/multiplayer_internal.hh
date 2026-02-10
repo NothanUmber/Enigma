@@ -206,6 +206,7 @@ struct SessionState {
     std::unordered_map<uint32_t, input::PlayerInput> local_history;
     uint32_t input_clock_tick = 0;
     double input_clock_accu = 0.0;
+    bool input_clock_frozen = false;
     double sync_timer = 0.0;
     bool desync_reported = false;
     bool paused = false;

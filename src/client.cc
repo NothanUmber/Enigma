@@ -852,6 +852,11 @@ void Client::open_multiplayer_wait_menu(int initial_seconds) {
     }
 
     video_engine->ShowMouse();
+    // Avoid building up large buffered impulses while the simulation is stalled.
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    for (unsigned player = 0; player < input::kMaxPlayers; ++player)
+        input::DrainLocalPending(player);
+    multiplayer::SetInputClockFrozen(true);
     m_multiplayer_wait_menu.reset(new enigma::gui::MultiplayerWaitMenu());
     m_multiplayer_wait_menu->SetCountdownSeconds(initial_seconds);
     m_multiplayer_wait_menu->begin_manage();
@@ -863,6 +868,11 @@ void Client::close_multiplayer_wait_menu() {
 
     video_engine->HideMouse();
     update_mouse_button_state();
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    for (unsigned player = 0; player < input::kMaxPlayers; ++player)
+        input::DrainLocalPending(player);
+    if (multiplayer::IsActive())
+        multiplayer::SetInputClockFrozen(false);
 
     if (m_menu_saved_input_grab_valid) {
         video_engine->SetInputGrab(m_menu_saved_input_grab);
@@ -1057,7 +1067,7 @@ void Client::tick(double dtime) {
         if (!m_multiplayer_wait_menu) {
             close_multiplayer_wait_menu();
             m_state = cls_game;
-            restore_game_mouse_control(false);
+            restore_game_mouse_control(true);
             m_timeaccu = 0;
             m_total_game_time = 0;
             sdl::FlushEvents();
@@ -1073,7 +1083,7 @@ void Client::tick(double dtime) {
         if (!multiplayer::IsActive()) {
             close_multiplayer_wait_menu();
             m_state = cls_game;
-            restore_game_mouse_control(false);
+            restore_game_mouse_control(true);
             m_timeaccu = 0;
             m_total_game_time = 0;
             sdl::FlushEvents();
@@ -1086,7 +1096,7 @@ void Client::tick(double dtime) {
         if (input::IsNetworked() && input::CanAdvanceTick()) {
             close_multiplayer_wait_menu();
             m_state = cls_game;
-            restore_game_mouse_control(false);
+            restore_game_mouse_control(true);
             m_timeaccu = 0;
             m_total_game_time = 0;
             sdl::FlushEvents();
@@ -1124,8 +1134,11 @@ void Client::tick(double dtime) {
 
     case cls_multiplayer_paused:
         if (!multiplayer::IsActive() || !multiplayer::IsPaused()) {
+            SDL_FlushEvent(SDL_MOUSEMOTION);
+            for (unsigned player = 0; player < input::kMaxPlayers; ++player)
+                input::DrainLocalPending(player);
             m_state = cls_game;
-            restore_game_mouse_control(false);
+            restore_game_mouse_control(true);
             m_timeaccu = 0;
             m_total_game_time = 0;
             sdl::FlushEvents();
@@ -1140,6 +1153,9 @@ void Client::tick(double dtime) {
     case cls_game:
         ensure_game_mouse_control();
         if (multiplayer::IsActive() && multiplayer::IsPaused()) {
+            SDL_FlushEvent(SDL_MOUSEMOTION);
+            for (unsigned player = 0; player < input::kMaxPlayers; ++player)
+                input::DrainLocalPending(player);
             m_state = cls_multiplayer_paused;
             draw_screen();
             break;

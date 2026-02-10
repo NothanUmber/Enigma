@@ -76,6 +76,7 @@ void SessionCancelClientJoin();
 
 void SessionTick(double dtime);
 void SessionShutdown();
+void SessionSetInputClockFrozen(bool frozen);
 
 }  // namespace internal
 }  // namespace multiplayer
