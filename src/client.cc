@@ -210,6 +210,28 @@ void Client::warp_mouse_to_window_center_if_in_game() {
     SDL_WarpMouseInWindow(nullptr, ws.width / 2, ws.height / 2);
 }
 
+void Client::refresh_window_focus_state() {
+    // During state transitions we can miss intermediate focus events.
+    // Query SDL directly so motion handling reflects current reality.
+    m_window_has_focus = (SDL_GetKeyboardFocus() != nullptr) || (SDL_GetMouseFocus() != nullptr);
+}
+
+void Client::restore_game_mouse_control(bool recenter_mouse) {
+    if (m_state != cls_game)
+        return;
+
+    refresh_window_focus_state();
+
+    video_engine->SetInputGrab(!enigma::Nograb);
+    video_engine->HideMouse();
+    if (recenter_mouse)
+        warp_mouse_to_window_center_if_in_game();
+
+    // Ignore stale/warp motion right after control restoration to avoid a kick.
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    m_ignore_mouse_movement_until_ticks = SDL_GetTicks() + 200;
+}
+
 void Client::handle_focus_lost() {
     m_window_has_focus = false;
     SDL_FlushEvent(SDL_MOUSEMOTION);
@@ -220,16 +242,8 @@ void Client::handle_focus_gained() {
 
     // While a level runs, the OS/SDL can drop relative mouse mode on focus loss.
     // Restore the desired state so mouse deltas behave consistently again.
-    if (m_state == cls_game) {
-        video_engine->SetInputGrab(!enigma::Nograb);
-        warp_mouse_to_window_center_if_in_game();
-    }
-
-    // SDL can deliver a burst of motion deltas accumulated while unfocused.
-    // Drop those and ignore motion briefly so the first tick after focus gain
-    // doesn't apply a large unintended "kick" in the physics.
-    SDL_FlushEvent(SDL_MOUSEMOTION);
-    m_ignore_mouse_movement_until_ticks = SDL_GetTicks() + 200;
+    if (m_state == cls_game)
+        restore_game_mouse_control(true);
 }
 
 void Client::handle_events() {
@@ -914,6 +928,7 @@ void Client::tick(double dtime) {
                 draw_screen();
             } else {
                 m_state = cls_game;
+                restore_game_mouse_control(false);
                 m_timeaccu = 0;
                 m_total_game_time = 0;
                 sdl::FlushEvents();
@@ -966,6 +981,7 @@ void Client::tick(double dtime) {
                 draw_screen();
             } else {
                 m_state = cls_game;
+                restore_game_mouse_control(false);
                 m_timeaccu = 0;
                 m_total_game_time = 0;
                 sdl::FlushEvents();
@@ -979,6 +995,7 @@ void Client::tick(double dtime) {
     case cls_multiplayer_paused:
         if (!multiplayer::IsActive() || !multiplayer::IsPaused()) {
             m_state = cls_game;
+            restore_game_mouse_control(false);
             m_timeaccu = 0;
             m_total_game_time = 0;
             sdl::FlushEvents();

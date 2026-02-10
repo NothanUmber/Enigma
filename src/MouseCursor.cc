@@ -60,6 +60,8 @@ void MouseCursor::move(int newx, int newy) {
 }
 
 void MouseCursor::show() {
+    if (visible < 0)
+        visible = 0;
     if (++visible == 1) {
         init_bg();
         changed = true;
@@ -67,6 +69,10 @@ void MouseCursor::show() {
 }
 
 void MouseCursor::hide() {
+    if (visible <= 0) {
+        visible = 0;
+        return;
+    }
     if (--visible == 0) {
         changed = true;
         restore_bg();
@@ -108,5 +114,4 @@ void MouseCursor::restore_bg() {
         screen->update_rect(get_oldrect());
     }
 }
-
 
