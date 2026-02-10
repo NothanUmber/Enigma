@@ -286,22 +286,34 @@ bool MultiplayerMenu::parse_players_field(unsigned &players) const {
 void MultiplayerMenu::update_players() {
     std::vector<multiplayer::LobbyPeer> peers;
     if (internet_mode) {
-        unsigned count = internet_player_count > 0 ? internet_player_count : 1;
-        multiplayer::LobbyPeer self;
-        self.name = "Player";
-        self.is_self = true;
-        peers.push_back(self);
-        for (unsigned i = 1; i < count; ++i) {
-            multiplayer::LobbyPeer peer;
-            peer.name = "Player";
-            peer.is_self = false;
-            peers.push_back(peer);
+        peers = internet_room_peers;
+        if (peers.empty()) {
+            unsigned count = internet_player_count > 0 ? internet_player_count : 1;
+            multiplayer::LobbyPeer self;
+            self.name = multiplayer::LobbyLocalName();
+            self.is_self = true;
+            peers.push_back(self);
+            for (unsigned i = 1; i < count; ++i) {
+                multiplayer::LobbyPeer peer;
+                peer.name = ecl::strf(_("Player %u"), static_cast<unsigned>(i + 1));
+                peer.is_self = false;
+                peers.push_back(peer);
+            }
+        } else {
+            for (size_t i = 0; i < peers.size(); ++i) {
+                if (peers[i].name.empty()) {
+                    if (peers[i].is_self)
+                        peers[i].name = multiplayer::LobbyLocalName();
+                    else
+                        peers[i].name = ecl::strf(_("Player %u"), static_cast<unsigned>(i + 1));
+                }
+            }
         }
     } else {
         peers = multiplayer::LobbyPeers();
         if (peers.empty()) {
             multiplayer::LobbyPeer self;
-            self.name = "Player";
+            self.name = multiplayer::LobbyLocalName();
             self.is_self = true;
             peers.push_back(self);
         }

@@ -89,6 +89,7 @@ private:
     unsigned filter_min_players;
     bool internet_mode;
     std::string internet_room_code;
+    std::vector<multiplayer::LobbyPeer> internet_room_peers;
     enigma::multiplayer::protocol::LobbyStart internet_start;
     bool internet_start_valid;
     bool internet_in_room;

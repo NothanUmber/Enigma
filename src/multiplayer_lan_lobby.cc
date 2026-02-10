@@ -432,6 +432,11 @@ unsigned LobbySize() {
     return static_cast<unsigned>(g_lobby.peers.size() + 1);
 }
 
+std::string LobbyLocalName() {
+    ensure_lobby_identity();
+    return g_lobby.local_name;
+}
+
 void LobbySetSelectedLevel(const std::string &level_id) {
     g_lobby.selected_level = level_id;
 }

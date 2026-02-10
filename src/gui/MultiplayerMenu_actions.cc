@@ -162,6 +162,12 @@ void MultiplayerMenu::handle_create_room() {
         return;
     }
     internet_room_code = room_code;
+    internet_room_peers.clear();
+    multiplayer::LobbyPeer self;
+    self.id = start.host_id;
+    self.name = multiplayer::LobbyLocalName();
+    self.is_self = true;
+    internet_room_peers.push_back(self);
     internet_start = start;
     internet_start_valid = true;
     internet_in_room = true;
@@ -190,15 +196,21 @@ void MultiplayerMenu::handle_join_room() {
     std::string host_ip;
     std::string error;
     unsigned player_count = 0;
-    if (!multiplayer::InternetJoinRoom(servers.lobby, room, start, host_ip, player_count, error)) {
+    std::vector<multiplayer::LobbyPeer> peers;
+    if (!multiplayer::InternetJoinRoom(servers.lobby, room, start, host_ip, player_count,
+                                       peers, error)) {
         show_info(error.empty() ? _("Failed to join room.") : error);
         return;
     }
     internet_room_code = room;
+    internet_room_peers = peers;
     internet_in_room = true;
     internet_is_host = false;
     internet_connecting = false;
-    internet_player_count = player_count > 0 ? player_count : 1;
+    if (!internet_room_peers.empty())
+        internet_player_count = static_cast<unsigned>(internet_room_peers.size());
+    else
+        internet_player_count = player_count > 0 ? player_count : 1;
     update_internet_layout();
     internet_poll_timer = 0.0;
     show_info(_("Waiting for host."));

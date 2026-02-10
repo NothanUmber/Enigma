@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 /* -------------------- Multiplayer Internet lobby -------------------- */
 /*
@@ -52,6 +53,31 @@ struct PendingPoll {
 };
 
 PendingPoll g_pending_poll;
+
+bool parse_member_peers(ecl::Buffer &response, std::vector<LobbyPeer> &peers,
+                        const std::string &self_id) {
+    peers.clear();
+    if (response.get_rpos() >= static_cast<std::ptrdiff_t>(response.size()))
+        return true;
+    Uint8 count = 0;
+    if (!(response >> count))
+        return false;
+    peers.reserve(count);
+    for (Uint8 i = 0; i < count; ++i) {
+        std::string id;
+        std::string name;
+        if (!(response >> id >> name))
+            return false;
+        LobbyPeer peer;
+        peer.id = id;
+        peer.name = name.empty() ? "Player" : name;
+        peer.level_id.clear();
+        peer.address.clear();
+        peer.is_self = (id == self_id);
+        peers.push_back(peer);
+    }
+    return true;
+}
 
 void cancel_pending_poll() {
     if (g_pending_poll.socket != ENET_SOCKET_NULL) {
@@ -222,7 +248,9 @@ bool InternetCreateRoom(const std::string &server, const std::string &room_code,
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_CREATE)
             << room_code << Uint32(start.session_id) << Uint32(start.seed)
             << Uint8(start.expected_players) << Uint16(start.host_port)
-            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name;
+            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name
+            // Optional extension: host display name for room member lists.
+            << g_lobby.local_name;
 
     ecl::Buffer response;
     if (!internet_exchange(server, request, response, error))
@@ -253,12 +281,16 @@ bool InternetCreateRoom(const std::string &server, const std::string &room_code,
 
 bool InternetJoinRoom(const std::string &server, const std::string &room_code,
                       protocol::LobbyStart &start, std::string &host_ip,
-                      unsigned &player_count, std::string &error) {
+                      unsigned &player_count, std::vector<LobbyPeer> &peers,
+                      std::string &error) {
     ensure_lobby_identity();
     player_count = 0;
+    peers.clear();
     ecl::Buffer request;
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_JOIN)
-            << room_code << g_lobby.local_id;
+            << room_code << g_lobby.local_id
+            // Optional extension: joining member display name.
+            << g_lobby.local_name;
 
     ecl::Buffer response;
     if (!internet_exchange(server, request, response, error))
@@ -296,6 +328,10 @@ bool InternetJoinRoom(const std::string &server, const std::string &room_code,
         if (!(response >> start.pack_name))
             return false;
     }
+    if (!parse_member_peers(response, peers, g_lobby.local_id))
+        return false;
+    if (!peers.empty())
+        player_count = static_cast<unsigned>(peers.size());
     return true;
 }
 
@@ -306,7 +342,9 @@ bool InternetStartRoom(const std::string &server, const std::string &room_code,
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_START)
             << room_code << Uint32(start.session_id) << Uint32(start.seed)
             << Uint8(start.expected_players) << Uint16(start.host_port)
-            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name;
+            << Uint8(start.filter_optimized) << start.level_id << start.host_id << start.pack_name
+            // Optional extension: host display name for room member lists.
+            << g_lobby.local_name;
 
     ecl::Buffer response;
     if (!internet_exchange(server, request, response, error))
@@ -332,10 +370,12 @@ bool InternetStartRoom(const std::string &server, const std::string &room_code,
 
 bool InternetPollRoom(const std::string &server, const std::string &room_code,
                       protocol::LobbyStart &start, std::string &host_ip,
-                      bool &started, unsigned &player_count, std::string &error) {
+                      bool &started, unsigned &player_count,
+                      std::vector<LobbyPeer> &peers, std::string &error) {
     ensure_lobby_identity();
     started = false;
     player_count = 0;
+    peers.clear();
     ecl::Buffer response;
     if (!g_pending_poll.active || g_pending_poll.server != server
         || g_pending_poll.room_code != room_code) {
@@ -366,18 +406,22 @@ bool InternetPollRoom(const std::string &server, const std::string &room_code,
         return false;
     started = (started_flag != 0);
     player_count = count;
-    if (!started)
-        return true;
-    if (!(response >> start.session_id >> start.level_id >> start.seed
-          >> start.expected_players >> start.host_port >> start.host_id
-          >> start.filter_optimized >> host_ip))
-        return false;
-    start.pack_name.clear();
-    if (response.get_rpos() < static_cast<std::ptrdiff_t>(response.size())) {
-        // Pack name may be appended after host_ip.
-        if (!(response >> start.pack_name))
+    if (started) {
+        if (!(response >> start.session_id >> start.level_id >> start.seed
+              >> start.expected_players >> start.host_port >> start.host_id
+              >> start.filter_optimized >> host_ip))
             return false;
+        start.pack_name.clear();
+        if (response.get_rpos() < static_cast<std::ptrdiff_t>(response.size())) {
+            // Pack name may be appended after host_ip.
+            if (!(response >> start.pack_name))
+                return false;
+        }
     }
+    if (!parse_member_peers(response, peers, g_lobby.local_id))
+        return false;
+    if (!peers.empty())
+        player_count = static_cast<unsigned>(peers.size());
     return true;
 }
 
