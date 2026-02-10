@@ -464,6 +464,9 @@ bool LobbyPollStart(protocol::LobbyStart &start, std::string &host_ip) {
 
 protocol::LobbyStart BuildStartMessage(const std::string &level_id, unsigned expected_players,
                                        const std::string &pack_name, unsigned filter_min_players) {
+    // Internet mode can call this helper without starting the LAN lobby first.
+    // Ensure identity exists so `host_id` is never empty (required for room leave).
+    ensure_lobby_identity();
     protocol::LobbyStart start;
     std::random_device rd;
     Uint32 seed = static_cast<Uint32>(rd() ^ SDL_GetTicks());

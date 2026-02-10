@@ -290,8 +290,16 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
     std::vector<multiplayer::LobbyPeer> peers;
     if (!multiplayer::InternetPollRoom(mp_menu::resolved_lobby_server(server, servers), room,
                                        start, host_ip, started, player_count, peers, error)) {
-        if (!error.empty() && error != "waiting")
-            show_info(error);
+        if (!error.empty() && error != "waiting") {
+            if (error == "Room not found.") {
+                clear_internet_room_state();
+                update_internet_layout();
+                invalidate_all();
+                show_info(_("Room closed by host."));
+            } else {
+                show_info(error);
+            }
+        }
         return;
     }
 

@@ -20,11 +20,53 @@
 
 #include "ecl_util.hh"
 
+#include <algorithm>
+
 using namespace ecl;
 using namespace std;
 
 namespace enigma {
 namespace gui {
+
+namespace {
+struct MultiplayerMenuSessionState {
+    bool has_state = false;
+    bool internet_mode = false;
+    bool internet_in_room = false;
+    bool internet_is_host = false;
+    std::string room_code;
+    unsigned player_count = 1;
+    std::vector<multiplayer::LobbyPeer> peers;
+};
+
+MultiplayerMenuSessionState g_menu_session;
+}  // namespace
+
+void MultiplayerMenu::restore_session_state() {
+    if (!g_menu_session.has_state)
+        return;
+    internet_mode = g_menu_session.internet_mode;
+    internet_in_room = g_menu_session.internet_in_room;
+    internet_is_host = g_menu_session.internet_is_host;
+    internet_room_code = g_menu_session.room_code;
+    internet_player_count = std::max<unsigned>(1, g_menu_session.player_count);
+    internet_room_peers = g_menu_session.peers;
+    if (room_field)
+        room_field->set_text(internet_room_code);
+}
+
+void MultiplayerMenu::store_session_state() const {
+    g_menu_session.has_state = true;
+    g_menu_session.internet_mode = internet_mode;
+    g_menu_session.internet_in_room = internet_in_room;
+    g_menu_session.internet_is_host = internet_is_host;
+    if (room_field)
+        g_menu_session.room_code = room_field->getText();
+    else
+        g_menu_session.room_code = internet_room_code;
+    g_menu_session.player_count = std::max<unsigned>(1, internet_player_count);
+    g_menu_session.peers = internet_room_peers;
+}
 
 MultiplayerMenu::MultiplayerMenu()
     : levelwidget(nullptr),
@@ -183,7 +225,13 @@ MultiplayerMenu::MultiplayerMenu()
     internet_buttons_x = form_x;
     internet_buttons_y = y;
 
-    set_internet_mode(false);
+    restore_session_state();
+    set_internet_mode(internet_mode);
+    if (internet_mode && internet_in_room) {
+        // Force an immediate poll on the first tick after reopening so the room state
+        // and player list refresh right away.
+        internet_poll_timer = 0.2;
+    }
 
     rebuild_index();
     refresh_selection();
@@ -191,8 +239,7 @@ MultiplayerMenu::MultiplayerMenu()
 
 MultiplayerMenu::~MultiplayerMenu() {
     multiplayer::CancelClientJoin();
-    if (internet_in_room)
-        leave_current_internet_room();
+    store_session_state();
     // If the host started a session but never entered the game (for example
     // while waiting for peers to connect), ensure we don't keep listening in
     // the background after leaving the menu.

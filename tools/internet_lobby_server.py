@@ -324,10 +324,17 @@ def handle_request(data, addr, rooms, ttl):
         client_id, offset = read_str(data, offset)
         room = rooms.get(code)
         if room:
-            room.members.pop(client_id, None)
-            room.last_seen = time.time()
-            if not room.members:
+            host_id = room.start.get("host_id", "")
+            if client_id == host_id:
+                # Host owns the room. If host leaves, close the room for everyone
+                # so the code can be reused immediately and no one remains in a
+                # stale, unstartable room.
                 rooms.pop(code, None)
+            else:
+                room.members.pop(client_id, None)
+                room.last_seen = time.time()
+                if not room.members:
+                    rooms.pop(code, None)
         return (
             write_u32(MAGIC)
             + write_u8(VERSION)
