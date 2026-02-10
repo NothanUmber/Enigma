@@ -158,6 +158,7 @@ private:
     void handle_events_teatime();
     void on_keydown(SDL_Event &e);
     void on_mousebutton(SDL_Event &e);
+    void ensure_game_mouse_control();
     void refresh_window_focus_state();
     void update_mouse_button_state();
     void warp_mouse_to_window_center_if_in_game();

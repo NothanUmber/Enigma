@@ -232,6 +232,28 @@ void Client::restore_game_mouse_control(bool recenter_mouse) {
     m_ignore_mouse_movement_until_ticks = SDL_GetTicks() + 200;
 }
 
+void Client::ensure_game_mouse_control() {
+    if (m_state != cls_game)
+        return;
+
+    refresh_window_focus_state();
+    if (!m_window_has_focus)
+        return;
+
+    const bool want_grab = !enigma::Nograb;
+    const bool have_window_grab = video_engine->GetInputGrab();
+    const bool have_relative_mode = SDL_GetRelativeMouseMode() == SDL_TRUE;
+
+    if ((want_grab && (!have_window_grab || !have_relative_mode)) ||
+        (!want_grab && have_window_grab)) {
+        restore_game_mouse_control(false);
+        return;
+    }
+
+    // In gameplay we always want the custom cursor hidden.
+    video_engine->HideMouse();
+}
+
 void Client::handle_focus_lost() {
     m_window_has_focus = false;
     SDL_FlushEvent(SDL_MOUSEMOTION);
@@ -1008,6 +1030,7 @@ void Client::tick(double dtime) {
         break;
 
     case cls_game:
+        ensure_game_mouse_control();
         if (multiplayer::IsActive() && multiplayer::IsPaused()) {
             m_state = cls_multiplayer_paused;
             draw_screen();
