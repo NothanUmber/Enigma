@@ -306,23 +306,50 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
     if (!lookup_remote_player(source, peer, relay_client_id, player_id))
         return true;
     const uint32_t current_tick = input::CurrentTick();
+    // If we receive a whole bundle "too late" to apply at its intended ticks (common under
+    // high latency when zerofill keeps the sim running), clamping every entry to
+    // `current_tick` will overwrite earlier non-zero samples with later zero samples.
+    // Instead, aggregate the late entries and apply at most one sample at `current_tick`.
+    input::PlayerInput late_agg;
+    bool late_mouse_set = false;
+    bool have_late = false;
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
         uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
-        if (tick < current_tick) {
-            if (!input::ZerofillMissingInputsEnabled())
-                continue;
-            if (!rollback::Enabled())
-                tick = current_tick;
-            else if (tick < rollback::EarliestTick(current_tick))
-                tick = current_tick;
-        }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
         pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
         pi.rotate_steps = e.rotate_steps;
         pi.activate_count = e.activate_count;
+        if (tick < current_tick) {
+            if (!input::ZerofillMissingInputsEnabled())
+                continue;
+            // If rollback can still replay this tick, keep it as-is.
+            if (rollback::Enabled() && tick >= rollback::EarliestTick(current_tick)) {
+                input::EnqueueInput(tick, player_id, pi);
+                rollback::RecordInput(tick, player_id, pi);
+                continue;
+            }
+            // Otherwise, best-effort apply at `current_tick` once.
+            have_late = true;
+            late_agg.rotate_steps += pi.rotate_steps;
+            late_agg.activate_count += pi.activate_count;
+            if (pi.mouse_force[0] != 0.0f || pi.mouse_force[1] != 0.0f) {
+                late_mouse_set = true;
+                late_agg.mouse_force = pi.mouse_force;
+            }
+            continue;
+        }
         input::EnqueueInput(tick, player_id, pi);
         rollback::RecordInput(tick, player_id, pi);
+    }
+    if (have_late) {
+        if (!late_mouse_set) {
+            late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
+        }
+        if (!late_agg.empty() && !input::HasInput(current_tick, player_id)) {
+            input::EnqueueInput(current_tick, player_id, late_agg);
+            rollback::RecordInput(current_tick, player_id, late_agg);
+        }
     }
     protocol::InputBundlePacket forward = bundle;
     forward.player = static_cast<Uint8>(player_id);
@@ -566,23 +593,43 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
                   bundle.player, static_cast<unsigned>(bundle.entries.size()));
     }
     const uint32_t current_tick = input::CurrentTick();
+    input::PlayerInput late_agg;
+    bool late_mouse_set = false;
+    bool have_late = false;
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
         uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
-        if (tick < current_tick) {
-            if (!input::ZerofillMissingInputsEnabled())
-                continue;
-            if (!rollback::Enabled())
-                tick = current_tick;
-            else if (tick < rollback::EarliestTick(current_tick))
-                tick = current_tick;
-        }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
         pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
         pi.rotate_steps = e.rotate_steps;
         pi.activate_count = e.activate_count;
+        if (tick < current_tick) {
+            if (!input::ZerofillMissingInputsEnabled())
+                continue;
+            if (rollback::Enabled() && tick >= rollback::EarliestTick(current_tick)) {
+                input::EnqueueInput(tick, bundle.player, pi);
+                rollback::RecordInput(tick, bundle.player, pi);
+                continue;
+            }
+            have_late = true;
+            late_agg.rotate_steps += pi.rotate_steps;
+            late_agg.activate_count += pi.activate_count;
+            if (pi.mouse_force[0] != 0.0f || pi.mouse_force[1] != 0.0f) {
+                late_mouse_set = true;
+                late_agg.mouse_force = pi.mouse_force;
+            }
+            continue;
+        }
         input::EnqueueInput(tick, bundle.player, pi);
         rollback::RecordInput(tick, bundle.player, pi);
+    }
+    if (have_late) {
+        if (!late_mouse_set)
+            late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
+        if (!late_agg.empty() && !input::HasInput(current_tick, bundle.player)) {
+            input::EnqueueInput(current_tick, bundle.player, late_agg);
+            rollback::RecordInput(current_tick, bundle.player, late_agg);
+        }
     }
     return true;
 }
