@@ -270,8 +270,24 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
         }
     }
     unsigned player_id = 0;
-    if (!lookup_remote_player(source, peer, relay_client_id, player_id))
-        return true;
+    if (!lookup_remote_player(source, peer, relay_client_id, player_id)) {
+        // Fallback: if transport-side peer->player mapping is temporarily missing
+        // (e.g. relay race/replace edge-cases), accept the claimed player id as a
+        // best-effort input source. This keeps gameplay responsive and is limited
+        // to cases where we already failed to attribute the packet to a known peer.
+        const unsigned claimed = static_cast<unsigned>(input_msg.player);
+        if (claimed < g_session.expected_players && claimed != g_session.local_player) {
+            player_id = claimed;
+            if (debug_enabled()) {
+                debug_log("mp host: input fallback claim=%u (source=%d relay_id=%u peer=%p)",
+                          claimed, static_cast<int>(source),
+                          static_cast<unsigned>(relay_client_id),
+                          static_cast<void *>(peer));
+            }
+        } else {
+            return true;
+        }
+    }
     input::PlayerInput pi;
     pi.mouse_force = ecl::V2(input_msg.mouse_x, input_msg.mouse_y);
     pi.rotate_steps = input_msg.rotate_steps;
@@ -303,8 +319,22 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
                   bundle.player, static_cast<unsigned>(bundle.entries.size()));
     }
     unsigned player_id = 0;
-    if (!lookup_remote_player(source, peer, relay_client_id, player_id))
-        return true;
+    if (!lookup_remote_player(source, peer, relay_client_id, player_id)) {
+        // Same rationale as handle_host_input_packet(): preserve playability when
+        // peer->player attribution is missing.
+        const unsigned claimed = static_cast<unsigned>(bundle.player);
+        if (claimed < g_session.expected_players && claimed != g_session.local_player) {
+            player_id = claimed;
+            if (debug_enabled()) {
+                debug_log("mp host: input bundle fallback claim=%u (source=%d relay_id=%u peer=%p)",
+                          claimed, static_cast<int>(source),
+                          static_cast<unsigned>(relay_client_id),
+                          static_cast<void *>(peer));
+            }
+        } else {
+            return true;
+        }
+    }
     const uint32_t current_tick = input::CurrentTick();
     // If we receive a whole bundle "too late" to apply at its intended ticks (common under
     // high latency when zerofill keeps the sim running), clamping every entry to
