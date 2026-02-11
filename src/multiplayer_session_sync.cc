@@ -383,6 +383,52 @@ void broadcast_resync_state_unreliable() {
     g_transport.HostBroadcastUnreliable(buf);
 }
 
+void broadcast_world_state_unreliable() {
+    if (!g_session.host || !has_remote_peers())
+        return;
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return;
+    protocol::WorldStatePacket pkt;
+    pkt.epoch = g_session.input_epoch;
+    pkt.tick = input::CurrentTick();
+    pkt.width = static_cast<Uint16>(w);
+    pkt.height = static_cast<Uint16>(h);
+    const size_t count = static_cast<size_t>(w) * static_cast<size_t>(h);
+    pkt.floor_state.assign(count, 0xFFFF);
+    pkt.stone_state.assign(count, 0xFFFF);
+    pkt.item_state.assign(count, 0xFFFF);
+
+    auto encode_state = [](Object *obj) -> Uint16 {
+        if (!obj)
+            return 0xFFFF;
+        Value v = obj->getAttr("state");
+        if (!v)
+            return 0;
+        int s = static_cast<int>(v);
+        if (s < 0)
+            s = 0;
+        if (s > 0xFFFE)
+            s = 0xFFFE;
+        return static_cast<Uint16>(s);
+    };
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
+            GridPos p(x, y);
+            pkt.floor_state[idx] = encode_state(GetFloor(p));
+            pkt.stone_state[idx] = encode_state(GetStone(p));
+            pkt.item_state[idx] = encode_state(GetItem(p));
+        }
+    }
+
+    ecl::Buffer buf;
+    protocol::encode_world_state(buf, pkt);
+    g_transport.HostBroadcastUnreliable(buf);
+}
+
 namespace {
 
 void send_resync_request() {
@@ -395,6 +441,17 @@ void send_resync_request() {
     g_session.telemetry.resync_requests_sent += 1;
     ecl::Buffer buf;
     protocol::encode_resync_request(buf, req);
+    g_transport.ClientSend(buf);
+}
+
+void send_world_state_request() {
+    protocol::WorldStateRequest req;
+    req.epoch = g_session.input_epoch;
+    req.tick = input::CurrentTick();
+    if (debug_enabled())
+        debug_log("mp world-state request: tick=%u via=%s", req.tick, transport_name(g_session.active_transport));
+    ecl::Buffer buf;
+    protocol::encode_world_state_request(buf, req);
     g_transport.ClientSend(buf);
 }
 
@@ -1003,9 +1060,14 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
     // and keep checksums for diagnostics only.
     if (world_only_mismatch) {
         g_session.world_only_desync_streak += 1;
+        if (!g_session.host && g_session.resync_cooldown <= 0.0) {
+            send_world_state_request();
+            // Reuse resync cooldown to avoid spamming the host on persistent mismatch.
+            g_session.resync_cooldown = kResyncCooldown;
+        }
         if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
             g_session.desync_reported = true;
-            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+            client::Msg_ShowText("World desync detected. Syncing from host...", true, 4.0);
         }
     } else {
         g_session.world_only_desync_streak = 0;
@@ -1145,9 +1207,13 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
     // on their own, especially in physics-heavy scenes.
     if (world_only_mismatch) {
         g_session.world_only_desync_streak += 1;
+        if (!g_session.host && g_session.resync_cooldown <= 0.0) {
+            send_world_state_request();
+            g_session.resync_cooldown = kResyncCooldown;
+        }
         if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
             g_session.desync_reported = true;
-            client::Msg_ShowText("World desync detected. Please restart.", true, 4.0);
+            client::Msg_ShowText("World desync detected. Syncing from host...", true, 4.0);
         }
     } else {
         g_session.world_only_desync_streak = 0;

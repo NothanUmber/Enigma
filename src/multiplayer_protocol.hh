@@ -40,7 +40,11 @@ enum NetMessageType : Uint8 {
     // Unreliable, redundant input transport: sends a short range of sequential
     // per-tick inputs (including a few repeats) to reduce lockstep stalls under
     // packet loss/jitter.
-    NET_INPUT_BUNDLE = 14
+    NET_INPUT_BUNDLE = 14,
+    // Host -> clients: authoritative world state snapshot (grid object states).
+    NET_WORLD_STATE = 15,
+    // Client -> host: request an authoritative world state snapshot.
+    NET_WORLD_STATE_REQUEST = 16
 };
 
 struct LobbyAnnounce {
@@ -129,6 +133,21 @@ struct ResyncState {
     std::vector<ResyncActorState> actors;
 };
 
+struct WorldStatePacket {
+    Uint32 epoch;
+    Uint32 tick;
+    Uint16 width;
+    Uint16 height;
+    std::vector<Uint16> floor_state;
+    std::vector<Uint16> stone_state;
+    std::vector<Uint16> item_state;
+};
+
+struct WorldStateRequest {
+    Uint32 epoch;
+    Uint32 tick;
+};
+
 struct RestartPacket {
     Uint32 restart_id;
     Uint8 level_restart;
@@ -185,6 +204,80 @@ inline void encode_lobby_start(ecl::Buffer &buf, const LobbyStart &msg) {
     buf << count;
     for (Uint8 i = 0; i < count; ++i)
         buf << msg.host_ips[i];
+}
+
+inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
+    buf << Uint8(NET_WORLD_STATE) << Uint32(msg.epoch) << Uint32(msg.tick)
+        << Uint16(msg.width) << Uint16(msg.height);
+    const Uint32 count = static_cast<Uint32>(msg.floor_state.size());
+    buf << count;
+    for (Uint32 i = 0; i < count; ++i)
+        buf << Uint16(msg.floor_state[i]);
+    for (Uint32 i = 0; i < count; ++i)
+        buf << Uint16(msg.stone_state[i]);
+    for (Uint32 i = 0; i < count; ++i)
+        buf << Uint16(msg.item_state[i]);
+}
+
+inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
+    Uint8 type = 0;
+    Uint32 epoch = 0;
+    Uint32 tick = 0;
+    Uint16 w = 0;
+    Uint16 h = 0;
+    Uint32 count = 0;
+    if (!(buf >> type >> epoch >> tick >> w >> h >> count))
+        return false;
+    if (type != NET_WORLD_STATE)
+        return false;
+    if (w == 0 || h == 0)
+        return false;
+    const Uint32 expected = static_cast<Uint32>(w) * static_cast<Uint32>(h);
+    if (count != expected)
+        return false;
+    msg.epoch = epoch;
+    msg.tick = tick;
+    msg.width = w;
+    msg.height = h;
+    msg.floor_state.assign(count, 0xFFFF);
+    msg.stone_state.assign(count, 0xFFFF);
+    msg.item_state.assign(count, 0xFFFF);
+    for (Uint32 i = 0; i < count; ++i) {
+        Uint16 v = 0;
+        if (!(buf >> v))
+            return false;
+        msg.floor_state[i] = v;
+    }
+    for (Uint32 i = 0; i < count; ++i) {
+        Uint16 v = 0;
+        if (!(buf >> v))
+            return false;
+        msg.stone_state[i] = v;
+    }
+    for (Uint32 i = 0; i < count; ++i) {
+        Uint16 v = 0;
+        if (!(buf >> v))
+            return false;
+        msg.item_state[i] = v;
+    }
+    return true;
+}
+
+inline void encode_world_state_request(ecl::Buffer &buf, const WorldStateRequest &msg) {
+    buf << Uint8(NET_WORLD_STATE_REQUEST) << Uint32(msg.epoch) << Uint32(msg.tick);
+}
+
+inline bool decode_world_state_request(ecl::Buffer &buf, WorldStateRequest &msg) {
+    Uint8 type = 0;
+    Uint32 epoch = 0;
+    Uint32 tick = 0;
+    if (!(buf >> type >> epoch >> tick))
+        return false;
+    if (type != NET_WORLD_STATE_REQUEST)
+        return false;
+    msg.epoch = epoch;
+    msg.tick = tick;
+    return true;
 }
 
 inline bool decode_lobby_start(ecl::Buffer &buf, LobbyStart &msg) {

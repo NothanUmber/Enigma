@@ -751,6 +751,7 @@ public:
 	      mpPredictMissingMouseTicksTF(NULL),
 	      mpInputDelayTicksTF(NULL),
 	      mpHostBroadcastResyncStrideTicksTF(NULL),
+	      mpHostBroadcastWorldStateStrideTicksTF(NULL),
 	      menuMusicTF(NULL),
 	      background(background_),
 	      gameIsOngoing(gameIsOngoing_),
@@ -1055,6 +1056,8 @@ public:
 		                mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
 		                mpHostBroadcastResyncStrideTicksTF =
 		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
+		                mpHostBroadcastWorldStateStrideTicksTF =
+		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3);
 
 	                OPTIONS_NEW_L(N_("MP netsim delay ms: "))
 	                OPTIONS_NEW_T(mpNetSimDelayTF)
@@ -1070,6 +1073,8 @@ public:
 		                OPTIONS_NEW_T(mpInputDelayTicksTF)
 		                OPTIONS_NEW_L(N_("MP host resync broadcast stride ticks (0=off): "))
 		                OPTIONS_NEW_T(mpHostBroadcastResyncStrideTicksTF)
+		                OPTIONS_NEW_L(N_("MP host world-state broadcast stride ticks (0=off): "))
+		                OPTIONS_NEW_T(mpHostBroadcastWorldStateStrideTicksTF)
 		                break;
 		            }
 	            case OPTIONS_VIDEOCHECK:
@@ -1240,6 +1245,13 @@ public:
 		            app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks",
 		                                   static_cast<double>(v));
 		        }
+		        if (mpHostBroadcastWorldStateStrideTicksTF) {
+		            int v = parse_int_clamped(mpHostBroadcastWorldStateStrideTicksTF->getText(),
+		                                      options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"),
+		                                      0, 1000);
+		            app.prefs->setProperty("MultiplayerDebugHostBroadcastWorldStateStrideTicks",
+		                                   static_cast<double>(v));
+		        }
         // Delete widgets.
         if (pagesVList != NULL) {
             pagesVList->clear();
@@ -1292,6 +1304,7 @@ public:
 		        mpPredictMissingMouseTicksTF = NULL;
 		        mpInputDelayTicksTF = NULL;
 		        mpHostBroadcastResyncStrideTicksTF = NULL;
+		        mpHostBroadcastWorldStateStrideTicksTF = NULL;
 	        pageAfterVideoCheck = OPTIONS_MAIN;
 	        currentPage = OPTIONS_MAIN;
 	        showVideoCheck = false;

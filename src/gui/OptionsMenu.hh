@@ -87,6 +87,7 @@ namespace enigma { namespace gui {
 	        gui::TextField *mpPredictMissingMouseTicksTF;
 	        gui::TextField *mpInputDelayTicksTF;
 	        gui::TextField *mpHostBroadcastResyncStrideTicksTF;
+	        gui::TextField *mpHostBroadcastWorldStateStrideTicksTF;
 		        gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;

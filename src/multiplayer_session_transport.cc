@@ -340,6 +340,20 @@ bool handle_host_resync_request_packet(const char *data, size_t len, HostSource 
     return true;
 }
 
+bool handle_host_world_state_request_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::WorldStateRequest req;
+    if (!protocol::decode_world_state_request(buf, req))
+        return false;
+    if (req.epoch != g_session.input_epoch)
+        return true;
+    // For now broadcast to all peers. This keeps everyone converging even if only
+    // one client noticed the mismatch.
+    broadcast_world_state_unreliable();
+    return true;
+}
+
 bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                               Uint32 relay_client_id) {
     ecl::Buffer buf;
@@ -475,6 +489,8 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource
     if (handle_host_input_packet(data, len, peer, source, relay_client_id))
         return true;
     if (handle_host_resync_request_packet(data, len, source, relay_client_id, peer))
+        return true;
+    if (handle_host_world_state_request_packet(data, len))
         return true;
     if (handle_host_ready_packet(data, len, peer, source, relay_client_id))
         return true;
@@ -613,6 +629,44 @@ bool handle_client_resync_state_packet(const char *data, size_t len) {
     return true;
 }
 
+bool handle_client_world_state_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::WorldStatePacket pkt;
+    if (!protocol::decode_world_state(buf, pkt))
+        return false;
+    if (!g_session.active)
+        return true;
+    if (pkt.epoch != g_session.input_epoch)
+        return true;
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return true;
+    if (static_cast<Uint16>(w) != pkt.width || static_cast<Uint16>(h) != pkt.height)
+        return true;
+    const size_t count = static_cast<size_t>(w) * static_cast<size_t>(h);
+    if (pkt.floor_state.size() != count || pkt.stone_state.size() != count || pkt.item_state.size() != count)
+        return true;
+
+    auto apply_state = [](Object *obj, Uint16 s) {
+        if (!obj || s == 0xFFFF)
+            return;
+        obj->setAttr("state", Value(static_cast<int>(s)));
+    };
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
+            GridPos p(x, y);
+            apply_state(GetFloor(p), pkt.floor_state[idx]);
+            apply_state(GetStone(p), pkt.stone_state[idx]);
+            apply_state(GetItem(p), pkt.item_state[idx]);
+        }
+    }
+    return true;
+}
+
 bool handle_client_start_packet(const char *data, size_t len) {
     ecl::Buffer buf;
     buf.assign(const_cast<char *>(data), len);
@@ -733,6 +787,8 @@ void handle_client_payload(const char *data, size_t len) {
     if (handle_client_sync_packet(data, len))
         return;
     if (handle_client_resync_state_packet(data, len))
+        return;
+    if (handle_client_world_state_packet(data, len))
         return;
     if (handle_client_start_packet(data, len))
         return;

@@ -87,6 +87,7 @@ void configure_input_session(unsigned expected_players) {
     g_session.input_clock_tick = input::CurrentTick();
     g_session.input_clock_accu = 0.0;
     g_session.last_host_resync_broadcast_tick = UINT32_MAX;
+    g_session.last_host_world_state_broadcast_tick = UINT32_MAX;
 }
 
 namespace {

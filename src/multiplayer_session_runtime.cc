@@ -552,6 +552,25 @@ void tick_host_broadcast_resync() {
     broadcast_resync_state_unreliable();
 }
 
+void tick_host_broadcast_world_state() {
+    if (!g_session.host || !has_remote_peers())
+        return;
+    if (g_session.phase != SessionState::Phase::RUNNING)
+        return;
+    int stride = options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks");
+    if (stride <= 0)
+        return;
+    uint32_t tick = input::CurrentTick();
+    if (tick == g_session.last_host_world_state_broadcast_tick)
+        return;
+    if (stride < 1)
+        stride = 1;
+    if ((tick % static_cast<uint32_t>(stride)) != 0)
+        return;
+    g_session.last_host_world_state_broadcast_tick = tick;
+    broadcast_world_state_unreliable();
+}
+
 void shutdown_enet_host_state() {
     if (g_session.relay_peer) {
         enet_peer_disconnect(g_session.relay_peer, 0);
@@ -611,6 +630,7 @@ void SessionTick(double dtime) {
     send_local_inputs();
     tick_host_periodic_sync(dtime);
     tick_host_broadcast_resync();
+    tick_host_broadcast_world_state();
 }
 
 void SessionShutdown() {
