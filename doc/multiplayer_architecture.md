@@ -94,6 +94,7 @@ Set environment variables before launching Enigma:
   - `ENIGMA_MP_NETSIM_DROP_PCT=<0..100>` packet drop percentage
   - `ENIGMA_MP_NETSIM_DUP_PCT=<0..100>` packet duplication percentage
   - `ENIGMA_MP_NETSIM_ALL=1` applies simulation to all session packets (default is gameplay packets only)
+- `ENIGMA_MP_ZEROFILL_INPUTS=1` disables lockstep stalling on missing per-tick inputs (missing inputs are treated as zero force/actions, which may increase desync corrections under loss/latency).
 
 ## Architecture
 

@@ -1,6 +1,7 @@
 #include "input.hh"
 
 #include <bitset>
+#include <cstdlib>
 #include <map>
 
 namespace enigma {
@@ -14,10 +15,22 @@ struct TickInputs {
 };
 
 bool g_networked = false;
+bool g_zerofill_missing_inputs = false;
 unsigned g_expected_players = 1;
 uint32_t g_current_tick = 0;
 std::array<PlayerInput, kMaxPlayers> g_local_pending;
 std::map<uint32_t, TickInputs> g_queue;
+
+bool env_bool_numeric(const char *name) {
+    const char *value = std::getenv(name);
+    if (!value || !*value)
+        return false;
+    char *end = nullptr;
+    long v = std::strtol(value, &end, 10);
+    if (end == value)
+        return false;
+    return v != 0;
+}
 
 PlayerInput empty_input() {
     return PlayerInput();
@@ -33,6 +46,7 @@ void Reset() {
     g_current_tick = 0;
     g_queue.clear();
     g_networked = false;
+    g_zerofill_missing_inputs = false;
     g_expected_players = 1;
     for (auto &pending : g_local_pending)
         pending = PlayerInput();
@@ -40,6 +54,7 @@ void Reset() {
 
 void SetNetworked(bool enabled) {
     g_networked = enabled;
+    g_zerofill_missing_inputs = enabled && env_bool_numeric("ENIGMA_MP_ZEROFILL_INPUTS");
 }
 
 bool IsNetworked() {
@@ -121,6 +136,8 @@ bool CanAdvanceTick() {
         return true;
     if (g_expected_players == 0)
         return false;
+    if (g_zerofill_missing_inputs)
+        return true;
     for (unsigned player = 0; player < g_expected_players; ++player) {
         if (!HasInput(g_current_tick, player))
             return false;
