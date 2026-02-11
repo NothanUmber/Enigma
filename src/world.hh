@@ -237,6 +237,11 @@ void PerformSecureAction(int senderId, bool isCallback, int targetId, std::strin
 std::vector<Action> CapturePendingActions();
 void RestorePendingActions(const std::vector<Action> &actions);
 
+// Multiplayer rollback/replay support: capture/restore "state" attributes for
+// all grid objects (floors/items/stones) in the current world.
+void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states);
+void RestoreObjectStates(const std::vector<int> &ids, const std::vector<int> &states);
+
 /* -------------------- Actors -------------------- */
 
 void AddActor(Actor *a);

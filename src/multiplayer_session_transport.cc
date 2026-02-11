@@ -19,6 +19,7 @@
 #include "multiplayer_session.hh"
 
 #include "multiplayer_extra_players.hh"
+#include "multiplayer_rollback.hh"
 #include "multiplayer_session_impl.hh"
 #include "multiplayer_transport.hh"
 #include "multiplayer_wait_settings.hh"
@@ -259,10 +260,14 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
     if (input_msg.tick < current_tick) {
         if (!input::ZerofillMissingInputsEnabled())
             return true;
-        // In zerofill mode the host/client tick clocks can diverge under loss/latency.
-        // Clamp late input samples to the current tick so they still affect gameplay
-        // instead of being silently dropped forever.
-        input_msg.tick = current_tick;
+        if (!rollback::Enabled()) {
+            // In zerofill mode without rollback/replay, clamp late input samples to the
+            // current tick so they still affect gameplay instead of being dropped forever.
+            input_msg.tick = current_tick;
+        } else if (input_msg.tick < rollback::EarliestTick(current_tick)) {
+            // Too old to roll back to safely; fall back to legacy clamping behavior.
+            input_msg.tick = current_tick;
+        }
     }
     unsigned player_id = 0;
     if (!lookup_remote_player(source, peer, relay_client_id, player_id))
@@ -272,6 +277,7 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
     pi.rotate_steps = input_msg.rotate_steps;
     pi.activate_count = input_msg.activate_count;
     input::EnqueueInput(input_msg.tick, player_id, pi);
+    rollback::RecordInput(input_msg.tick, player_id, pi);
     protocol::InputPacket forward = input_msg;
     forward.player = static_cast<Uint8>(player_id);
     broadcast_input(forward, source == HostSource::DIRECT ? peer : nullptr,
@@ -305,7 +311,10 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
         if (tick < current_tick) {
             if (!input::ZerofillMissingInputsEnabled())
                 continue;
-            tick = current_tick;
+            if (!rollback::Enabled())
+                tick = current_tick;
+            else if (tick < rollback::EarliestTick(current_tick))
+                tick = current_tick;
         }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
@@ -313,6 +322,7 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
         pi.rotate_steps = e.rotate_steps;
         pi.activate_count = e.activate_count;
         input::EnqueueInput(tick, player_id, pi);
+        rollback::RecordInput(tick, player_id, pi);
     }
     protocol::InputBundlePacket forward = bundle;
     forward.player = static_cast<Uint8>(player_id);
@@ -526,13 +536,17 @@ bool handle_client_input_packet(const char *data, size_t len) {
     if (input_msg.tick < current_tick) {
         if (!input::ZerofillMissingInputsEnabled())
             return true;
-        input_msg.tick = current_tick;
+        if (!rollback::Enabled())
+            input_msg.tick = current_tick;
+        else if (input_msg.tick < rollback::EarliestTick(current_tick))
+            input_msg.tick = current_tick;
     }
     input::PlayerInput pi;
     pi.mouse_force = ecl::V2(input_msg.mouse_x, input_msg.mouse_y);
     pi.rotate_steps = input_msg.rotate_steps;
     pi.activate_count = input_msg.activate_count;
     input::EnqueueInput(input_msg.tick, input_msg.player, pi);
+    rollback::RecordInput(input_msg.tick, input_msg.player, pi);
     return true;
 }
 
@@ -557,7 +571,10 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
         if (tick < current_tick) {
             if (!input::ZerofillMissingInputsEnabled())
                 continue;
-            tick = current_tick;
+            if (!rollback::Enabled())
+                tick = current_tick;
+            else if (tick < rollback::EarliestTick(current_tick))
+                tick = current_tick;
         }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
@@ -565,6 +582,7 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
         pi.rotate_steps = e.rotate_steps;
         pi.activate_count = e.activate_count;
         input::EnqueueInput(tick, bundle.player, pi);
+        rollback::RecordInput(tick, bundle.player, pi);
     }
     return true;
 }
@@ -1114,6 +1132,7 @@ void send_local_inputs() {
         pkt.activate_count = static_cast<Uint8>(send.activate_count);
 
         input::EnqueueInput(pkt.tick, g_session.local_player, send);
+        rollback::RecordInput(pkt.tick, g_session.local_player, send);
         g_session.local_history[pkt.tick] = send;
         applied = true;
         ++g_session.next_local_tick;

@@ -19,6 +19,7 @@
 #include "multiplayer_session.hh"
 
 #include "multiplayer_extra_players.hh"
+#include "multiplayer_rollback.hh"
 #include "multiplayer_session_impl.hh"
 
 #include "input.hh"
@@ -326,6 +327,7 @@ void SessionPrimeInputQueueForNewLevel() {
         send_pause_to_peers(false);
 
     configure_input_session(g_session.expected_players);
+    rollback::Reset();
     g_session.desync_reported = false;
     g_session.phase = SessionState::Phase::WAITING_FOR_START;
     g_session.local_ready_sent = false;

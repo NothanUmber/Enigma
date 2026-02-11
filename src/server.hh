@@ -168,6 +168,10 @@ void InitNewGame();
 void PrepareLua();
 
 void Tick(double dtime);
+// Multiplayer rollback/replay support: simulate exactly one 10ms tick using the
+// current queued per-player inputs. This is used for replaying past ticks
+// during experimental rollback netcode experiments.
+void SimulateOneTick(double timestep);
 void RestartLevel();
 void RestartLevelFromNetwork();
 bool IsRestartingLevel();

@@ -104,6 +104,7 @@ Snapshot Capture() {
     snap.level_time = server::LevelTime;
     snap.game_timer = GameTimer.snapshot();
     snap.pending_actions = CapturePendingActions();
+    CaptureObjectStates(snap.object_state_ids, snap.object_state_values);
 
     std::vector<Actor *> actors;
     GetActors(actors);
@@ -126,6 +127,7 @@ void Restore(const Snapshot &snap) {
     server::LevelTime = snap.level_time;
     GameTimer.restore(snap.game_timer);
     RestorePendingActions(snap.pending_actions);
+    RestoreObjectStates(snap.object_state_ids, snap.object_state_values);
 
     std::unordered_map<int, ActorSnapshot> by_id;
     by_id.reserve(snap.actors.size());
@@ -148,4 +150,3 @@ void Restore(const Snapshot &snap) {
 }  // namespace sim_snapshot
 }  // namespace multiplayer
 }  // namespace enigma
-

@@ -3,6 +3,7 @@
 
 #include "input.hh"
 #include "timer.hh"
+#include "world.hh"
 
 #include "ecl_math.hh"
 
@@ -15,7 +16,6 @@
 namespace enigma {
 
 class Actor;
-struct Action;
 
 namespace multiplayer {
 namespace sim_snapshot {
@@ -65,6 +65,9 @@ struct Snapshot {
     double level_time = 0.0;
     Timer::Snapshot game_timer;
     std::vector<Action> pending_actions;
+    // GridObject "state" attribute snapshot for all floors/items/stones.
+    std::vector<int> object_state_ids;
+    std::vector<int> object_state_values;
     std::vector<ActorSnapshot> actors;
 };
 

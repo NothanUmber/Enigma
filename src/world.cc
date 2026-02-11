@@ -2016,6 +2016,44 @@ void RestorePendingActions(const std::vector<Action> &actions) {
         level->actionList.push_back(a);
 }
 
+void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states) {
+    ids.clear();
+    states.clear();
+    if (!level)
+        return;
+    ids.reserve(static_cast<size_t>(level->w) * static_cast<size_t>(level->h) * 3u);
+    states.reserve(ids.capacity());
+    for (int y = 0; y < level->h; ++y) {
+        for (int x = 0; x < level->w; ++x) {
+            Field &f = level->fields(x, y);
+            auto capture = [&ids, &states](GridObject *obj) {
+                if (!obj)
+                    return;
+                ids.push_back(obj->getId());
+                states.push_back(static_cast<int>(obj->getAttr("state")));
+            };
+            capture(f.floor);
+            capture(f.item);
+            capture(f.stone);
+        }
+    }
+}
+
+void RestoreObjectStates(const std::vector<int> &ids, const std::vector<int> &states) {
+    if (!level)
+        return;
+    const size_t n = std::min(ids.size(), states.size());
+    for (size_t i = 0; i < n; ++i) {
+        Object *obj = Object::getObject(ids[i]);
+        if (!obj)
+            continue;
+        const int want = states[i];
+        const int have = static_cast<int>(obj->getAttr("state"));
+        if (have != want)
+            obj->setAttr("state", Value(want));
+    }
+}
+
 namespace {
 void explosion(GridPos source, GridPos dest, const char *explosion_item) {
     if (Stone *stone = GetStone(dest))

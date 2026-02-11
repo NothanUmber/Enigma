@@ -88,6 +88,7 @@ namespace enigma { namespace gui {
 	        gui::TextField *mpInputDelayTicksTF;
 	        gui::TextField *mpHostBroadcastResyncStrideTicksTF;
 	        gui::TextField *mpHostBroadcastWorldStateStrideTicksTF;
+	        gui::TextField *mpRollbackKeepTicksTF;
 		        gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;

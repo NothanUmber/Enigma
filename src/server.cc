@@ -33,6 +33,7 @@
 #include "player.hh"
 #include "player.hh"
 #include "input.hh"
+#include "multiplayer_rollback.hh"
 #include "multiplayer_state.hh"
 #include "StateManager.hh"
 #include "world.hh"
@@ -175,6 +176,12 @@ void apply_inputs_for_tick() {
 
 }  // namespace
 
+void SimulateOneTick(double timestep) {
+    apply_inputs_for_tick();
+    LevelTime += timestep;
+    WorldTick(timestep);
+}
+
 void load_level(lev::Proxy *levelProxy, bool isRestart) {
     try {
         Uint32 start_tick_time = SDL_GetTicks();  // meassure time for level loading
@@ -237,6 +244,7 @@ void gametick(double dtime) {
     int count = 0;
 
     time_accu += dtime;
+    multiplayer::rollback::MaybeRollback(timestep);
     if (input::IsNetworked() && !input::CanAdvanceTick()) {
         // When the simulation is deterministic-networked we stop advancing the world
         // until all per-tick inputs are available. In that case, accumulating wall-clock
@@ -254,9 +262,8 @@ void gametick(double dtime) {
         if (!input::CanAdvanceTick())
             break;
         time_accu -= timestep;
-        apply_inputs_for_tick();
-        LevelTime += timestep;
-        WorldTick(timestep);
+        multiplayer::rollback::OnBeforeSimTick(input::CurrentTick());
+        SimulateOneTick(timestep);
         count++;
     }
     display::GetStatusBar()->set_counter(server::GetMoveCounter());

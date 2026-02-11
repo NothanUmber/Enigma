@@ -752,6 +752,7 @@ public:
 	      mpInputDelayTicksTF(NULL),
 	      mpHostBroadcastResyncStrideTicksTF(NULL),
 	      mpHostBroadcastWorldStateStrideTicksTF(NULL),
+	      mpRollbackKeepTicksTF(NULL),
 	      menuMusicTF(NULL),
 	      background(background_),
 	      gameIsOngoing(gameIsOngoing_),
@@ -1036,6 +1037,8 @@ public:
 	                              new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")))
 	                OPTIONS_NEW_LB(N_("MP skip local resync: "),
 	                              new ToggleOptionButton("MultiplayerDebugSkipLocalResync", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP rollback/replay: "),
+	                              new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")))
 
 	                OPTIONS_NEW_LB(N_("MP netsim: "),
 	                              new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")))
@@ -1058,6 +1061,12 @@ public:
 		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
 		                mpHostBroadcastWorldStateStrideTicksTF =
 		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3);
+		                {
+		                    int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
+		                    if (keep <= 0)
+		                        keep = 200;
+		                    mpRollbackKeepTicksTF = make_int_field(keep, 4);
+		                }
 
 	                OPTIONS_NEW_L(N_("MP netsim delay ms: "))
 	                OPTIONS_NEW_T(mpNetSimDelayTF)
@@ -1075,6 +1084,8 @@ public:
 		                OPTIONS_NEW_T(mpHostBroadcastResyncStrideTicksTF)
 		                OPTIONS_NEW_L(N_("MP host world-state broadcast stride ticks (0=off): "))
 		                OPTIONS_NEW_T(mpHostBroadcastWorldStateStrideTicksTF)
+		                OPTIONS_NEW_L(N_("MP rollback keep ticks (0=default): "))
+		                OPTIONS_NEW_T(mpRollbackKeepTicksTF)
 		                break;
 		            }
 	            case OPTIONS_VIDEOCHECK:
@@ -1252,6 +1263,12 @@ public:
 		            app.prefs->setProperty("MultiplayerDebugHostBroadcastWorldStateStrideTicks",
 		                                   static_cast<double>(v));
 		        }
+		        if (mpRollbackKeepTicksTF) {
+		            int v = parse_int_clamped(mpRollbackKeepTicksTF->getText(),
+		                                      options::GetInt("MultiplayerDebugRollbackKeepTicks"),
+		                                      0, 5000);
+		            app.prefs->setProperty("MultiplayerDebugRollbackKeepTicks", static_cast<double>(v));
+		        }
         // Delete widgets.
         if (pagesVList != NULL) {
             pagesVList->clear();
@@ -1305,6 +1322,7 @@ public:
 		        mpInputDelayTicksTF = NULL;
 		        mpHostBroadcastResyncStrideTicksTF = NULL;
 		        mpHostBroadcastWorldStateStrideTicksTF = NULL;
+		        mpRollbackKeepTicksTF = NULL;
 	        pageAfterVideoCheck = OPTIONS_MAIN;
 	        currentPage = OPTIONS_MAIN;
 	        showVideoCheck = false;
