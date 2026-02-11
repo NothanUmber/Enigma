@@ -145,10 +145,37 @@ bool Transport::ClientSend(const ecl::Buffer &payload) {
     return false;
 }
 
+bool Transport::ClientSendUnreliable(const ecl::Buffer &payload) {
+    if (g_session.host)
+        return false;
+    if (g_session.server_peer) {
+        ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), 0);
+        enet_peer_send(g_session.server_peer, 0, packet);
+        Flush();
+        return true;
+    }
+    if (g_session.active_transport == TransportKind::TCP_RELAY &&
+        tcp_socket_valid(g_session.tcp_relay_socket)) {
+        // TCP relay is inherently reliable; still accept the call for API symmetry.
+        bool ok = tcp_send_frame(g_session.tcp_relay_socket, payload.data(), payload.size());
+        if (!ok && debug_enabled())
+            debug_log("mp client: tcp relay send failed (len=%u)", (unsigned)payload.size());
+        return ok;
+    }
+    return false;
+}
+
 void Transport::HostSendDirect(ENetPeer *peer, const ecl::Buffer &payload) {
     if (!peer)
         return;
     ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), ENET_PACKET_FLAG_RELIABLE);
+    enet_peer_send(peer, 0, packet);
+}
+
+void Transport::HostSendDirectUnreliable(ENetPeer *peer, const ecl::Buffer &payload) {
+    if (!peer)
+        return;
+    ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), 0);
     enet_peer_send(peer, 0, packet);
 }
 
@@ -200,6 +227,25 @@ void Transport::HostBroadcast(const ecl::Buffer &payload) {
         ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), ENET_PACKET_FLAG_RELIABLE);
         enet_host_broadcast(g_session.host_handle, 0, packet);
     }
+    if (!g_session.relay_players.empty())
+        HostBroadcastUdpRelay(payload, 0);
+    if (!g_session.tcp_relay_players.empty())
+        HostBroadcastTcpRelay(payload, 0);
+}
+
+void Transport::HostBroadcastUnreliable(const ecl::Buffer &payload) {
+    if (!g_session.host)
+        return;
+    if (g_session.peer_players.empty() && g_session.relay_players.empty() &&
+        g_session.tcp_relay_players.empty()) {
+        return;
+    }
+    if (!g_session.peer_players.empty()) {
+        ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), 0);
+        enet_host_broadcast(g_session.host_handle, 0, packet);
+    }
+    // Relay forwarding currently uses ENet/TCP on the host side. For simplicity,
+    // keep relayed broadcasts reliable (the redundancy in the payload still helps).
     if (!g_session.relay_players.empty())
         HostBroadcastUdpRelay(payload, 0);
     if (!g_session.tcp_relay_players.empty())

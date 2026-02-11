@@ -36,7 +36,11 @@ enum NetMessageType : Uint8 {
     // Host -> clients: instruct clients to load a fully-qualified level.
     // Used for level transitions (advance to next level) to avoid relying on
     // each client advancing locally (which can diverge across level packs).
-    NET_LOAD_LEVEL = 13
+    NET_LOAD_LEVEL = 13,
+    // Unreliable, redundant input transport: sends a short range of sequential
+    // per-tick inputs (including a few repeats) to reduce lockstep stalls under
+    // packet loss/jitter.
+    NET_INPUT_BUNDLE = 14
 };
 
 struct LobbyAnnounce {
@@ -71,6 +75,20 @@ struct InputPacket {
     float mouse_y;
     int16_t rotate_steps;
     Uint8 activate_count;
+};
+
+struct InputBundleEntry {
+    float mouse_x;
+    float mouse_y;
+    int16_t rotate_steps;
+    Uint8 activate_count;
+};
+
+struct InputBundlePacket {
+    Uint32 epoch;
+    Uint32 first_tick;
+    Uint8 player;
+    std::vector<InputBundleEntry> entries;
 };
 
 struct SyncPacket {
@@ -238,6 +256,50 @@ inline bool decode_input(ecl::Buffer &buf, InputPacket &msg) {
     msg.mouse_y = mouse_y;
     msg.rotate_steps = static_cast<int16_t>(rotate_steps_raw);
     msg.activate_count = activate_count;
+    return true;
+}
+
+inline void encode_input_bundle(ecl::Buffer &buf, const InputBundlePacket &msg) {
+    Uint8 count = static_cast<Uint8>(msg.entries.size());
+    buf << Uint8(NET_INPUT_BUNDLE) << Uint32(msg.epoch) << Uint32(msg.first_tick) << Uint8(msg.player)
+        << Uint8(count);
+    for (const auto &e : msg.entries) {
+        buf << float(e.mouse_x) << float(e.mouse_y)
+            << Uint16(static_cast<uint16_t>(e.rotate_steps)) << Uint8(e.activate_count);
+    }
+}
+
+inline bool decode_input_bundle(ecl::Buffer &buf, InputBundlePacket &msg) {
+    Uint8 type = 0;
+    Uint32 epoch = 0;
+    Uint32 first_tick = 0;
+    Uint8 player = 0;
+    Uint8 count = 0;
+    if (!(buf >> type))
+        return false;
+    if (type != NET_INPUT_BUNDLE)
+        return false;
+    if (!(buf >> epoch >> first_tick >> player >> count))
+        return false;
+    msg.epoch = epoch;
+    msg.first_tick = first_tick;
+    msg.player = player;
+    msg.entries.clear();
+    msg.entries.reserve(count);
+    for (Uint8 i = 0; i < count; ++i) {
+        float mx = 0.0f;
+        float my = 0.0f;
+        Uint16 rotate_raw = 0;
+        Uint8 activate = 0;
+        if (!(buf >> mx >> my >> rotate_raw >> activate))
+            return false;
+        InputBundleEntry e;
+        e.mouse_x = mx;
+        e.mouse_y = my;
+        e.rotate_steps = static_cast<int16_t>(rotate_raw);
+        e.activate_count = activate;
+        msg.entries.push_back(e);
+    }
     return true;
 }
 

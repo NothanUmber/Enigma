@@ -56,14 +56,17 @@ public:
 
     // Client side: sends raw game payload to the currently active host link.
     bool ClientSend(const ecl::Buffer &payload);
+    bool ClientSendUnreliable(const ecl::Buffer &payload);
 
     // Host side: sends raw game payload to a specific remote.
     void HostSendDirect(ENetPeer *peer, const ecl::Buffer &payload);
+    void HostSendDirectUnreliable(ENetPeer *peer, const ecl::Buffer &payload);
     void HostSendUdpRelay(Uint32 client_id, const ecl::Buffer &payload);
     void HostSendTcpRelay(Uint32 client_id, const ecl::Buffer &payload);
 
     // Host side: broadcast raw game payload to all remotes.
     void HostBroadcast(const ecl::Buffer &payload);
+    void HostBroadcastUnreliable(const ecl::Buffer &payload);
     void HostBroadcastUdpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id);
     void HostBroadcastTcpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id);
 

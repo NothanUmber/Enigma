@@ -57,6 +57,13 @@ constexpr uint32_t kInputDelay = 4;
 // resyncs (or eventually a restart prompt).
 constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
+// Each NET_INPUT_BUNDLE covers a small sequential range of ticks. We resend a
+// few already-sent ticks (back window) to reduce lockstep stalls under packet
+// loss/jitter when using unreliable UDP transport.
+constexpr uint32_t kInputBundleBackTicks = 4;
+constexpr uint32_t kInputBundleMaxCount = 16;
+// Keep local input history long enough to resend the back window.
+constexpr uint32_t kInputHistoryKeepTicks = 64;
 constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
 // Allow extra time for direct connect handshakes while the host is still

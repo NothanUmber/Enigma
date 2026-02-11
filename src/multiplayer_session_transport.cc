@@ -200,6 +200,12 @@ void send_input_to_peer(ENetPeer *peer, const protocol::InputPacket &pkt) {
     g_transport.HostSendDirect(peer, buf);
 }
 
+void send_input_bundle_to_peer(ENetPeer *peer, const protocol::InputBundlePacket &pkt) {
+    ecl::Buffer buf;
+    protocol::encode_input_bundle(buf, pkt);
+    g_transport.HostSendDirectUnreliable(peer, buf);
+}
+
 void broadcast_input(const protocol::InputPacket &pkt, ENetPeer *exclude, Uint32 exclude_udp_relay,
                      Uint32 exclude_tcp_relay) {
     for (const auto &entry : g_session.peer_players) {
@@ -209,6 +215,22 @@ void broadcast_input(const protocol::InputPacket &pkt, ENetPeer *exclude, Uint32
     }
     ecl::Buffer buf;
     protocol::encode_input(buf, pkt);
+    if (!g_session.relay_players.empty())
+        g_transport.HostBroadcastUdpRelay(buf, exclude_udp_relay);
+    if (!g_session.tcp_relay_players.empty())
+        g_transport.HostBroadcastTcpRelay(buf, exclude_tcp_relay);
+}
+
+void broadcast_input_bundle(const protocol::InputBundlePacket &pkt, ENetPeer *exclude,
+                            Uint32 exclude_udp_relay, Uint32 exclude_tcp_relay) {
+    for (const auto &entry : g_session.peer_players) {
+        if (entry.first == exclude)
+            continue;
+        send_input_bundle_to_peer(entry.first, pkt);
+    }
+    ecl::Buffer buf;
+    protocol::encode_input_bundle(buf, pkt);
+    // Relay forwarding is currently reliable on the host->relay hop; payload redundancy still helps.
     if (!g_session.relay_players.empty())
         g_transport.HostBroadcastUdpRelay(buf, exclude_udp_relay);
     if (!g_session.tcp_relay_players.empty())
@@ -248,6 +270,45 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
     broadcast_input(forward, source == HostSource::DIRECT ? peer : nullptr,
                     source == HostSource::UDP_RELAY ? relay_client_id : 0,
                     source == HostSource::TCP_RELAY ? relay_client_id : 0);
+    return true;
+}
+
+bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
+                                     Uint32 relay_client_id) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::InputBundlePacket bundle;
+    if (!protocol::decode_input_bundle(buf, bundle))
+        return false;
+    if (bundle.epoch != g_session.input_epoch) {
+        debug_log("mp drop input bundle: first tick=%u epoch=%u local epoch=%u",
+                  bundle.first_tick, bundle.epoch, g_session.input_epoch);
+        return true;
+    }
+    if (bundle.first_tick < 20) {
+        debug_log("mp recv input bundle: first tick=%u player=%u count=%u", bundle.first_tick,
+                  bundle.player, static_cast<unsigned>(bundle.entries.size()));
+    }
+    unsigned player_id = 0;
+    if (!lookup_remote_player(source, peer, relay_client_id, player_id))
+        return true;
+    const uint32_t current_tick = input::CurrentTick();
+    for (size_t i = 0; i < bundle.entries.size(); ++i) {
+        const uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
+        if (tick < current_tick)
+            continue;
+        const auto &e = bundle.entries[i];
+        input::PlayerInput pi;
+        pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
+        pi.rotate_steps = e.rotate_steps;
+        pi.activate_count = e.activate_count;
+        input::EnqueueInput(tick, player_id, pi);
+    }
+    protocol::InputBundlePacket forward = bundle;
+    forward.player = static_cast<Uint8>(player_id);
+    broadcast_input_bundle(forward, source == HostSource::DIRECT ? peer : nullptr,
+                           source == HostSource::UDP_RELAY ? relay_client_id : 0,
+                           source == HostSource::TCP_RELAY ? relay_client_id : 0);
     return true;
 }
 
@@ -399,6 +460,8 @@ bool handle_host_placement_packet(const char *data, size_t len) {
 
 bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                         Uint32 relay_client_id) {
+    if (handle_host_input_bundle_packet(data, len, peer, source, relay_client_id))
+        return true;
     if (handle_host_input_packet(data, len, peer, source, relay_client_id))
         return true;
     if (handle_host_resync_request_packet(data, len, source, relay_client_id, peer))
@@ -440,6 +503,36 @@ bool handle_client_input_packet(const char *data, size_t len) {
     pi.rotate_steps = input_msg.rotate_steps;
     pi.activate_count = input_msg.activate_count;
     input::EnqueueInput(input_msg.tick, input_msg.player, pi);
+    return true;
+}
+
+bool handle_client_input_bundle_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::InputBundlePacket bundle;
+    if (!protocol::decode_input_bundle(buf, bundle))
+        return false;
+    if (bundle.epoch != g_session.input_epoch) {
+        debug_log("mp drop input bundle: first tick=%u epoch=%u local epoch=%u",
+                  bundle.first_tick, bundle.epoch, g_session.input_epoch);
+        return true;
+    }
+    if (bundle.first_tick < 20) {
+        debug_log("mp recv input bundle: first tick=%u player=%u count=%u", bundle.first_tick,
+                  bundle.player, static_cast<unsigned>(bundle.entries.size()));
+    }
+    const uint32_t current_tick = input::CurrentTick();
+    for (size_t i = 0; i < bundle.entries.size(); ++i) {
+        const uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
+        if (tick < current_tick)
+            continue;
+        const auto &e = bundle.entries[i];
+        input::PlayerInput pi;
+        pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
+        pi.rotate_steps = e.rotate_steps;
+        pi.activate_count = e.activate_count;
+        input::EnqueueInput(tick, bundle.player, pi);
+    }
     return true;
 }
 
@@ -612,6 +705,8 @@ bool handle_client_placement_packet(const char *data, size_t len) {
 }
 
 void handle_client_payload(const char *data, size_t len) {
+    if (handle_client_input_bundle_packet(data, len))
+        return;
     if (handle_client_input_packet(data, len))
         return;
     if (handle_client_welcome_packet(data, len))
@@ -951,6 +1046,17 @@ void send_local_inputs() {
         ++g_session.next_local_tick;
     }
 
+    // Keep a small history so we can resend a few ticks for redundancy.
+    if (current_tick > kInputHistoryKeepTicks) {
+        const uint32_t prune_before = current_tick - kInputHistoryKeepTicks;
+        for (auto it = g_session.local_history.begin(); it != g_session.local_history.end(); ) {
+            if (it->first < prune_before)
+                it = g_session.local_history.erase(it);
+            else
+                ++it;
+        }
+    }
+
     if (g_session.host) {
         if (!has_remote_peers())
             return;
@@ -961,45 +1067,58 @@ void send_local_inputs() {
         }
     }
 
-    uint32_t send_tick = g_session.next_send_tick;
-    if (send_tick < current_tick)
-        send_tick = current_tick;
-    while (send_tick < g_session.next_local_tick) {
-        protocol::InputPacket pkt;
-        pkt.epoch = g_session.input_epoch;
-        pkt.tick = send_tick;
-        pkt.player = static_cast<Uint8>(g_session.local_player);
-        auto it = g_session.local_history.find(pkt.tick);
-        if (it != g_session.local_history.end()) {
-            const input::PlayerInput &queued = it->second;
-            pkt.mouse_x = static_cast<float>(queued.mouse_force[0]);
-            pkt.mouse_y = static_cast<float>(queued.mouse_force[1]);
-            pkt.rotate_steps = static_cast<int16_t>(queued.rotate_steps);
-            pkt.activate_count = static_cast<Uint8>(queued.activate_count);
-            g_session.local_history.erase(it);
-        } else {
-            pkt.mouse_x = 0.0f;
-            pkt.mouse_y = 0.0f;
-            pkt.rotate_steps = 0;
-            pkt.activate_count = 0;
+    uint32_t send_base = g_session.next_send_tick;
+    if (send_base < current_tick)
+        send_base = current_tick;
+    uint32_t bundle_start = 0;
+    if (send_base > kInputBundleBackTicks)
+        bundle_start = send_base - kInputBundleBackTicks;
+    if (bundle_start < current_tick)
+        bundle_start = current_tick;
+    uint32_t bundle_end = g_session.next_local_tick;
+    if (bundle_end > bundle_start + kInputBundleMaxCount)
+        bundle_end = bundle_start + kInputBundleMaxCount;
+
+    if (bundle_start < bundle_end) {
+        protocol::InputBundlePacket bundle;
+        bundle.epoch = g_session.input_epoch;
+        bundle.first_tick = bundle_start;
+        bundle.player = static_cast<Uint8>(g_session.local_player);
+        const uint32_t count = bundle_end - bundle_start;
+        bundle.entries.clear();
+        bundle.entries.reserve(count);
+        for (uint32_t tick = bundle_start; tick < bundle_end; ++tick) {
+            protocol::InputBundleEntry e;
+            auto it = g_session.local_history.find(tick);
+            if (it != g_session.local_history.end()) {
+                const input::PlayerInput &queued = it->second;
+                e.mouse_x = static_cast<float>(queued.mouse_force[0]);
+                e.mouse_y = static_cast<float>(queued.mouse_force[1]);
+                e.rotate_steps = static_cast<int16_t>(queued.rotate_steps);
+                e.activate_count = static_cast<Uint8>(queued.activate_count);
+            } else {
+                e.mouse_x = 0.0f;
+                e.mouse_y = 0.0f;
+                e.rotate_steps = 0;
+                e.activate_count = 0;
+            }
+            bundle.entries.push_back(e);
         }
-        if (pkt.tick < 20) {
-            debug_log("mp send input: tick=%u player=%u mouse=(%.2f,%.2f) rot=%d act=%u",
-                      pkt.tick, pkt.player, pkt.mouse_x, pkt.mouse_y,
-                      static_cast<int>(pkt.rotate_steps),
-                      static_cast<unsigned>(pkt.activate_count));
+        if (bundle.first_tick < 20) {
+            debug_log("mp send input bundle: first tick=%u player=%u count=%u",
+                      bundle.first_tick, bundle.player,
+                      static_cast<unsigned>(bundle.entries.size()));
         }
         if (g_session.host)
-            broadcast_input(pkt, nullptr, 0, 0);
+            broadcast_input_bundle(bundle, nullptr, 0, 0);
         else {
             ecl::Buffer payload;
-            protocol::encode_input(payload, pkt);
-            g_transport.ClientSend(payload);
+            protocol::encode_input_bundle(payload, bundle);
+            g_transport.ClientSendUnreliable(payload);
         }
         sent_packets = true;
-        ++send_tick;
+        g_session.next_send_tick = bundle_end;
     }
-    g_session.next_send_tick = send_tick;
 
     if (sent_packets)
         g_transport.Flush();
