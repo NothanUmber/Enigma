@@ -1018,76 +1018,103 @@ public:
 	                OPTIONS_NEW_T(localizationPathTF)
 	                break;
 	            case OPTIONS_DEBUG: {
-	                optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
+	                const int rowh = param[vtt].small_label_height;
 	                optionsVList->set_spacing(0);
 
-	                OPTIONS_NEW_LB(N_("MP debug logs: "),
-	                              new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP force relay: "),
-	                              new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP dump state: "),
-	                              new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP trace world init: "),
-	                              new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP bind local: "),
-	                              new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP zerofill inputs: "),
-	                              new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP smooth render: "),
-	                              new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP skip local resync: "),
-	                              new ToggleOptionButton("MultiplayerDebugSkipLocalResync", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP rollback/replay: "),
-	                              new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")))
-
-	                OPTIONS_NEW_LB(N_("MP netsim: "),
-	                              new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")))
-	                OPTIONS_NEW_LB(N_("MP netsim all packets: "),
-	                              new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")))
+	                auto add_lb = [&](const std::string &label, Widget *button) {
+	                    HList *row = new HList;
+	                    row->set_spacing(param[vtt].hoption_option);
+	                    row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
+	                    row->set_size(label_button_total_width, rowh);
+	                    row->set_default_size(param[vtt].optionl_width, rowh);
+	                    row->add_back(new Label(label, HALIGN_RIGHT, VALIGN_CENTER));
+	                    row->add_back(button, List::EXPAND);
+	                    optionsVList->add_back(row);
+	                };
 
 	                auto make_int_field = [](int value, int max_chars) -> TextField * {
 	                    TextField *tf = new TextField(std::to_string(value));
 	                    tf->setMaxChars(max_chars);
 	                    return tf;
 	                };
+
+	                // Toggles.
+	                add_lb(N_("MP debug logs: "),
+	                       new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")));
+	                add_lb(N_("MP force relay: "),
+	                       new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")));
+	                add_lb(N_("MP dump state: "),
+	                       new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")));
+	                add_lb(N_("MP trace world init: "),
+	                       new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")));
+	                add_lb(N_("MP bind local: "),
+	                       new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")));
+	                add_lb(N_("MP zerofill inputs: "),
+	                       new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
+	                add_lb(N_("MP smooth render: "),
+	                       new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")));
+	                add_lb(N_("MP skip local resync: "),
+	                       new ToggleOptionButton("MultiplayerDebugSkipLocalResync", N_("On"), N_("Off")));
+	                add_lb(N_("MP rollback/replay: "),
+	                       new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
+	                add_lb(N_("MP netsim: "),
+	                       new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")));
+	                add_lb(N_("MP netsim all packets: "),
+	                       new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")));
+
+	                // Numeric fields.
+	                mpPredictMissingMouseTicksTF =
+	                    make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+	                mpInputDelayTicksTF =
+	                    make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
+	                mpHostBroadcastResyncStrideTicksTF =
+	                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
+	                mpHostBroadcastWorldStateStrideTicksTF =
+	                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3);
+	                {
+	                    int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
+	                    if (keep <= 0)
+	                        keep = 200;
+	                    mpRollbackKeepTicksTF = make_int_field(keep, 4);
+	                }
+	                add_lb(N_("MP predict missing mouse ticks: "), mpPredictMissingMouseTicksTF);
+	                add_lb(N_("MP input delay ticks (0=auto): "), mpInputDelayTicksTF);
+	                add_lb(N_("MP host resync broadcast stride ticks (0=off): "), mpHostBroadcastResyncStrideTicksTF);
+	                add_lb(N_("MP host world-state broadcast stride ticks (0=off): "), mpHostBroadcastWorldStateStrideTicksTF);
+	                add_lb(N_("MP rollback keep ticks (0=default): "), mpRollbackKeepTicksTF);
+
+	                // Netsim parameters: pack into 2 rows so 640x480 can display all MP debug options.
 	                mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
 	                mpNetSimJitterTF = make_int_field(options::GetInt("MultiplayerDebugNetSimJitterMs"), 5);
-		                mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
-		                mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
-		                mpPredictMissingMouseTicksTF =
-		                    make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
-		                mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
-		                mpHostBroadcastResyncStrideTicksTF =
-		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
-		                mpHostBroadcastWorldStateStrideTicksTF =
-		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3);
-		                {
-		                    int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
-		                    if (keep <= 0)
-		                        keep = 200;
-		                    mpRollbackKeepTicksTF = make_int_field(keep, 4);
-		                }
+	                mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
+	                mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
 
-	                OPTIONS_NEW_L(N_("MP netsim delay ms: "))
-	                OPTIONS_NEW_T(mpNetSimDelayTF)
-	                OPTIONS_NEW_L(N_("MP netsim jitter ms: "))
-	                OPTIONS_NEW_T(mpNetSimJitterTF)
-	                OPTIONS_NEW_L(N_("MP netsim drop pct: "))
-	                OPTIONS_NEW_T(mpNetSimDropTF)
-	                OPTIONS_NEW_L(N_("MP netsim dup pct: "))
-	                OPTIONS_NEW_T(mpNetSimDupTF)
-		                OPTIONS_NEW_L(N_("MP predict missing mouse ticks: "))
-		                OPTIONS_NEW_T(mpPredictMissingMouseTicksTF)
-		                OPTIONS_NEW_L(N_("MP input delay ticks (0=auto): "))
-		                OPTIONS_NEW_T(mpInputDelayTicksTF)
-		                OPTIONS_NEW_L(N_("MP host resync broadcast stride ticks (0=off): "))
-		                OPTIONS_NEW_T(mpHostBroadcastResyncStrideTicksTF)
-		                OPTIONS_NEW_L(N_("MP host world-state broadcast stride ticks (0=off): "))
-		                OPTIONS_NEW_T(mpHostBroadcastWorldStateStrideTicksTF)
-		                OPTIONS_NEW_L(N_("MP rollback keep ticks (0=default): "))
-		                OPTIONS_NEW_T(mpRollbackKeepTicksTF)
-		                break;
-		            }
+	                auto add_two_fields = [&](const std::string &label, const std::string &a_label,
+	                                          TextField *a, const std::string &b_label, TextField *b) {
+	                    HList *row = new HList;
+	                    row->set_spacing(param[vtt].hoption_option);
+	                    row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
+	                    row->set_size(label_button_total_width, rowh);
+	                    row->set_default_size(param[vtt].optionl_width, rowh);
+	                    row->add_back(new Label(label, HALIGN_RIGHT, VALIGN_CENTER));
+
+	                    HList *fields = new HList;
+	                    fields->set_spacing(param[vtt].hoption_option);
+	                    fields->set_alignment(HALIGN_LEFT, VALIGN_TOP);
+	                    fields->set_default_size(rowh * 2, rowh);
+	                    fields->add_back(new Label(a_label, HALIGN_LEFT, VALIGN_CENTER));
+	                    fields->add_back(a, List::EXPAND);
+	                    fields->add_back(new Label(b_label, HALIGN_LEFT, VALIGN_CENTER));
+	                    fields->add_back(b, List::EXPAND);
+
+	                    row->add_back(fields, List::EXPAND);
+	                    optionsVList->add_back(row);
+	                };
+
+	                add_two_fields(N_("MP netsim ms: "), N_("Delay"), mpNetSimDelayTF, N_("Jitter"), mpNetSimJitterTF);
+	                add_two_fields(N_("MP netsim pct: "), N_("Drop"), mpNetSimDropTF, N_("Dup"), mpNetSimDupTF);
+	                break;
+	            }
 	            case OPTIONS_VIDEOCHECK:
 	                videocheck_button_yes = new StaticTextButton(N_("Yes"), this);
 	                videocheck_button_no = new StaticTextButton(N_("No"), this);
