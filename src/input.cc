@@ -91,6 +91,10 @@ bool IsNetworked() {
     return g_networked;
 }
 
+bool ZerofillMissingInputsEnabled() {
+    return g_networked && g_zerofill_missing_inputs;
+}
+
 void SetExpectedPlayers(unsigned count) {
     g_expected_players = count;
 }

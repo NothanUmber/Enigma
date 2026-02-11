@@ -33,6 +33,7 @@ struct PlayerInput {
 void Reset();
 void SetNetworked(bool enabled);
 bool IsNetworked();
+bool ZerofillMissingInputsEnabled();
 void SetExpectedPlayers(unsigned count);
 unsigned ExpectedPlayers();
 uint32_t CurrentTick();

@@ -255,8 +255,15 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
                   static_cast<int>(input_msg.rotate_steps),
                   static_cast<unsigned>(input_msg.activate_count));
     }
-    if (input_msg.tick < input::CurrentTick())
-        return true;
+    const uint32_t current_tick = input::CurrentTick();
+    if (input_msg.tick < current_tick) {
+        if (!input::ZerofillMissingInputsEnabled())
+            return true;
+        // In zerofill mode the host/client tick clocks can diverge under loss/latency.
+        // Clamp late input samples to the current tick so they still affect gameplay
+        // instead of being silently dropped forever.
+        input_msg.tick = current_tick;
+    }
     unsigned player_id = 0;
     if (!lookup_remote_player(source, peer, relay_client_id, player_id))
         return true;
@@ -294,9 +301,12 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
         return true;
     const uint32_t current_tick = input::CurrentTick();
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
-        const uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
-        if (tick < current_tick)
-            continue;
+        uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
+        if (tick < current_tick) {
+            if (!input::ZerofillMissingInputsEnabled())
+                continue;
+            tick = current_tick;
+        }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
         pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
@@ -496,8 +506,12 @@ bool handle_client_input_packet(const char *data, size_t len) {
                   static_cast<int>(input_msg.rotate_steps),
                   static_cast<unsigned>(input_msg.activate_count));
     }
-    if (input_msg.tick < input::CurrentTick())
-        return true;
+    const uint32_t current_tick = input::CurrentTick();
+    if (input_msg.tick < current_tick) {
+        if (!input::ZerofillMissingInputsEnabled())
+            return true;
+        input_msg.tick = current_tick;
+    }
     input::PlayerInput pi;
     pi.mouse_force = ecl::V2(input_msg.mouse_x, input_msg.mouse_y);
     pi.rotate_steps = input_msg.rotate_steps;
@@ -523,9 +537,12 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
     }
     const uint32_t current_tick = input::CurrentTick();
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
-        const uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
-        if (tick < current_tick)
-            continue;
+        uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
+        if (tick < current_tick) {
+            if (!input::ZerofillMissingInputsEnabled())
+                continue;
+            tick = current_tick;
+        }
         const auto &e = bundle.entries[i];
         input::PlayerInput pi;
         pi.mouse_force = ecl::V2(e.mouse_x, e.mouse_y);
