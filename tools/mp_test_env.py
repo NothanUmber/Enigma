@@ -206,6 +206,19 @@ class Controller:
         raise RuntimeError(f"timeout waiting for role={role} contains={needle!r}")
 
 
+def _tail_text(path: str, max_bytes: int = 16 * 1024) -> str:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(0, size - max_bytes)
+            f.seek(start, os.SEEK_SET)
+            b = f.read()
+        return b.decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"<unable to read {path}: {e}>"
+
+
 def _find_default_enigma_bin() -> str:
     # Prefer repo-local build output.
     candidates = [
@@ -217,23 +230,31 @@ def _find_default_enigma_bin() -> str:
             return c
     return candidates[0]
 
+def _find_repo_root_from_script() -> str:
+    # tools/mp_test_env.py -> repo root
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 
 def _spawn_enigma(
     enigma_bin: str,
     role: str,
     connect_host: str,
     pref_dir: str,
+    data_dir: str,
     extra_args: List[str],
     log_path: str,
 ) -> Tuple[subprocess.Popen, object]:
     argv = [
         enigma_bin,
+        "--log",
         "--window",
         "--nograb",
         "--nosound",
         "--nomusic",
         "--pref",
         pref_dir,
+        "--data",
+        data_dir,
         "--mp-test-role",
         role,
         "--mp-test-connect",
@@ -300,6 +321,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--timeout-ms", type=int, default=15000, help="HELLO wait timeout")
     ap.add_argument("--extra-arg", action="append", default=[], help="Extra arg passed to both instances")
     ap.add_argument(
+        "--data-dir",
+        default="",
+        help="Enigma data directory (default: auto-detect repo ./data; use 'none' to skip)",
+    )
+    ap.add_argument(
         "--workdir",
         default="",
         help="Directory for prefs/logs (default: create a temp dir and keep it)",
@@ -308,6 +334,13 @@ def main(argv: List[str]) -> int:
 
     if not (os.path.isfile(ns.enigma) and os.access(ns.enigma, os.X_OK)):
         raise SystemExit(f"enigma binary not found/executable: {ns.enigma}")
+
+    if ns.data_dir.lower() == "none":
+        data_dir = ""
+    else:
+        data_dir = ns.data_dir or os.path.join(_find_repo_root_from_script(), "data")
+    if data_dir and not os.path.isdir(data_dir):
+        raise SystemExit(f"data dir not found: {data_dir} (use --data-dir to override)")
 
     ctrl = Controller(expected=2)
     port = ctrl.listen(ns.host, ns.port)
@@ -327,14 +360,36 @@ def main(argv: List[str]) -> int:
     logs: List[object] = []
     try:
         print(f"mp test workdir: {tmp_root}", flush=True)
-        ph, lfh = _spawn_enigma(ns.enigma, "host", connect, pref_host, ns.extra_arg, log_host)
-        pc, lfc = _spawn_enigma(ns.enigma, "client", connect, pref_client, ns.extra_arg, log_client)
+        ph, lfh = _spawn_enigma(ns.enigma, "host", connect, pref_host, data_dir, ns.extra_arg, log_host)
+        pc, lfc = _spawn_enigma(ns.enigma, "client", connect, pref_client, data_dir, ns.extra_arg, log_client)
         procs.extend([ph, pc])
         logs.extend([lfh, lfc])
 
-        ctrl.wait_for_roles(timeout_s=ns.timeout_ms / 1000.0)
+        hello_deadline = time.time() + (ns.timeout_ms / 1000.0)
+        while time.time() < hello_deadline:
+            ctrl.pump(timeout_s=0.05)
+            if "host" in ctrl.by_role and "client" in ctrl.by_role:
+                break
+            if ph.poll() is not None or pc.poll() is not None:
+                raise RuntimeError("child process exited before sending HELLO")
+        if "host" not in ctrl.by_role or "client" not in ctrl.by_role:
+            raise RuntimeError("timeout waiting for host+client HELLO")
+
         _run_script(ctrl, ns.script)
         return 0
+    except Exception as e:
+        # Helpful diagnostics: show logs if something prevented startup/HELLO.
+        try:
+            print(f"mp test error: {e}", flush=True)
+            if os.path.exists(log_host):
+                print("----- host.log (tail) -----", flush=True)
+                print(_tail_text(log_host), flush=True)
+            if os.path.exists(log_client):
+                print("----- client.log (tail) -----", flush=True)
+                print(_tail_text(log_client), flush=True)
+        except Exception:
+            pass
+        raise
     finally:
         # Best-effort: request clean shutdown via protocol, then kill.
         try:
