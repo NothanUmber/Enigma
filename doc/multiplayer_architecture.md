@@ -82,7 +82,11 @@ If UDP is blocked (guest WiFi, corporate networks, VPNs), enable **TCP relay** a
 
 ### Debugging toggles
 
-Set environment variables before launching Enigma:
+Debug toggles can be set via environment variables before launching Enigma.
+
+For development builds, `--show-debugoptions` enables a Debug tab in `Options` that
+persists the same settings in the preferences file (env vars still take precedence
+when set).
 
 - `ENIGMA_MP_DEBUG=1` enables verbose multiplayer logs.
 - `ENIGMA_MP_FORCE_RELAY=1` forces relay use (skips direct connect), useful for testing.

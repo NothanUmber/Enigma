@@ -2365,7 +2365,8 @@ static int setObjectByTable(lua_State *L, double x, double y, bool onlyFloors = 
                     if (lua_isnumber(L, -1))
                         y += lua_tonumber(L, -1);
                     lua_pop(L, 2);               
-                    if (std::getenv("ENIGMA_MP_TRACE_WORLDINIT")) {
+                    if (std::getenv("ENIGMA_MP_TRACE_WORLDINIT") ||
+                        options::GetBool("MultiplayerDebugTraceWorldInit")) {
                         // Narrow, opt-in trace to debug rare cross-peer divergences in Lua-authored
                         // levels (notably Per.Oxyd meditation pearls).
                         Value name_attr = obj->getAttr("name");

@@ -45,12 +45,12 @@ namespace enigma { namespace gui {
         void draw_background(ecl::GC &gc);
         void tick(double dtime);
 
-        // Page structure.
-        enum OptionsPage { OPTIONS_MAIN, OPTIONS_VIDEO, OPTIONS_AUDIO,
-                           OPTIONS_CONFIG, OPTIONS_MULTIPLAYER, OPTIONS_PATHS,
-                           OPTIONS_VIDEOCHECK };
-        void open_page(OptionsPage new_page);
-        void close_page();
+	        // Page structure.
+	        enum OptionsPage { OPTIONS_MAIN, OPTIONS_VIDEO, OPTIONS_AUDIO,
+	                           OPTIONS_CONFIG, OPTIONS_MULTIPLAYER, OPTIONS_PATHS,
+	                           OPTIONS_DEBUG, OPTIONS_VIDEOCHECK };
+	        void open_page(OptionsPage new_page);
+	        void close_page();
 
         // Variables.
         VList *pagesVList;
@@ -59,11 +59,12 @@ namespace enigma { namespace gui {
         gui::Widget *back, *language;
         gui::StaticTextButton *but_main_options;
         gui::StaticTextButton *but_video_options;
-        gui::StaticTextButton *but_audio_options;
-        gui::StaticTextButton *but_config_options;
-        gui::StaticTextButton *but_multiplayer_options;
-        gui::StaticTextButton *but_paths_options;
-        gui::BoolOptionButton *fullscreen;
+	        gui::StaticTextButton *but_audio_options;
+	        gui::StaticTextButton *but_config_options;
+	        gui::StaticTextButton *but_multiplayer_options;
+	        gui::StaticTextButton *but_paths_options;
+	        gui::StaticTextButton *but_debug_options;
+	        gui::BoolOptionButton *fullscreen;
         gui::FullscreenModeButton *fullscreenmode;
         gui::WindowSizeButton *windowsize;
         gui::FullscreenTilesetButton *fullscreentileset;
@@ -77,9 +78,14 @@ namespace enigma { namespace gui {
         gui::TextField *localizationPathTF;
         gui::TextField *multiplayerLobbyTF;
         gui::TextField *multiplayerLobbyPortTF;
-        gui::TextField *multiplayerUdpRelayPortTF;
-        gui::TextField *multiplayerTcpRelayPortTF;
-        gui::TextField *menuMusicTF;
+	        gui::TextField *multiplayerUdpRelayPortTF;
+	        gui::TextField *multiplayerTcpRelayPortTF;
+	        gui::TextField *mpNetSimDelayTF;
+	        gui::TextField *mpNetSimJitterTF;
+	        gui::TextField *mpNetSimDropTF;
+	        gui::TextField *mpNetSimDupTF;
+	        gui::TextField *mpPredictMissingMouseTicksTF;
+	        gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;
         bool videoSettingsTouched;

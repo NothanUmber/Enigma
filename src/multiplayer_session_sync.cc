@@ -23,6 +23,7 @@
 #include "client.hh"
 #include "enigma.hh"
 #include "input.hh"
+#include "options.hh"
 #include "player.hh"
 #include "server.hh"
 #include "world.hh"
@@ -506,6 +507,18 @@ void apply_resync_state(const protocol::ResyncState &state) {
         ai->last_contacts_count = 0;
     };
 
+    auto should_skip_actor = [](Actor *actor) -> bool {
+        if (!actor)
+            return false;
+        if (!options::GetBool("MultiplayerDebugSkipLocalResync"))
+            return false;
+        if (!g_session.local_player_known)
+            return false;
+        if (g_session.local_player >= g_session.expected_players)
+            return false;
+        return actor->controlled_by(static_cast<int>(g_session.local_player));
+    };
+
     unsigned applied = 0;
     unsigned object_id_matches = 0;
     float max_pos_delta = 0.0f;
@@ -525,7 +538,8 @@ void apply_resync_state(const protocol::ResyncState &state) {
         float d = std::sqrt(dx * dx + dy * dy);
         if (d > max_pos_delta)
             max_pos_delta = d;
-        resync_teleport(actor, x, y, entry.vx, entry.vy);
+        if (!should_skip_actor(actor))
+            resync_teleport(actor, x, y, entry.vx, entry.vy);
         apply_resync_metadata(actor, entry.owner, entry.controllers, entry.color);
         used[actor] = true;
         applied += 1;
@@ -604,7 +618,8 @@ void apply_resync_state(const protocol::ResyncState &state) {
             float d = std::sqrt(dx * dx + dy * dy);
             if (d > max_pos_delta)
                 max_pos_delta = d;
-            resync_teleport(best, x, y, s.vx, s.vy);
+            if (!should_skip_actor(best))
+                resync_teleport(best, x, y, s.vx, s.vy);
             apply_resync_metadata(best, s.owner, s.controllers, s.color);
             used[best] = true;
             snap_used[idx] = 1;
@@ -699,7 +714,8 @@ void apply_resync_state(const protocol::ResyncState &state) {
                 float d = std::sqrt(dx * dx + dy * dy);
                 if (d > max_pos_delta)
                     max_pos_delta = d;
-                resync_teleport(actor, x, y, s.vx, s.vy);
+                if (!should_skip_actor(actor))
+                    resync_teleport(actor, x, y, s.vx, s.vy);
                 apply_resync_metadata(actor, s.owner, s.controllers, s.color);
                 used[actor] = true;
                 snap_used[snap_idx] = 1;

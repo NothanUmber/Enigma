@@ -261,6 +261,7 @@ namespace enigma
     extern bool   WizardMode;
     extern bool   Nograb;
     extern bool   Robinson;
+    extern bool   ShowDebugOptions;
 }
 
 #endif

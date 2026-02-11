@@ -109,6 +109,7 @@ namespace enigma
     //! If true, do not ``grab'' the mouse and keyboard
     bool   Nograb            = false;
     bool Robinson = false;   // do not connect to internet if true
+    bool ShowDebugOptions = false;  // show Debug Options tab in Settings
 }
 
 /*! The stream object that is used for logging messages.  As defined
@@ -138,15 +139,16 @@ static void usage()
            "    --nograb       Do not use exclusive mouse/keyboard access\n"
            "    --nomusic      Disable music\n"
            "    --nosound      Disable music and sound effects\n"
-           "    --pref -p file Use filename or dirname for preferences\n"
-           "    --redirect     Redirect stdout/stderr to files on user path\n"
-           "    --robinson     avoid connections to the internet\n"
-           "    --showfps      Show the framerate (FPS) during the Game\n"
-           "    --version      Print the executable's version number\n"
-           "    --window -w    Run in a window; do not enter fullscreen mode\n"
-           "\n",
-           app.progCallPath.c_str()
-           );
+	           "    --pref -p file Use filename or dirname for preferences\n"
+	           "    --redirect     Redirect stdout/stderr to files on user path\n"
+	           "    --robinson     avoid connections to the internet\n"
+	           "    --show-debugoptions Enable debug options tab in Settings\n"
+	           "    --showfps      Show the framerate (FPS) during the Game\n"
+	           "    --version      Print the executable's version number\n"
+	           "    --window -w    Run in a window; do not enter fullscreen mode\n"
+	           "\n",
+	           app.progCallPath.c_str()
+	           );
 }
 
 namespace
@@ -202,6 +204,7 @@ AP::AP() : ArgParser (app.args.begin(), app.args.end())
     def (&show_fps,             "showfps");
     def (&redirect,             "redirect");
     def (&Robinson,             "robinson");
+    def (&ShowDebugOptions,     "show-debugoptions");
     def (&force_window,         "window", 'w');
     def (OPT_GAME,              "game", true);
     def (OPT_DATA,              "data", true, 'd');

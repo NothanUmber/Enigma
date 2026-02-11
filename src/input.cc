@@ -1,5 +1,7 @@
 #include "input.hh"
 
+#include "options.hh"
+
 #include <bitset>
 #include <cstdlib>
 #include <map>
@@ -76,14 +78,23 @@ void Reset() {
 
 void SetNetworked(bool enabled) {
     g_networked = enabled;
-    g_zerofill_missing_inputs = enabled && env_bool_numeric("ENIGMA_MP_ZEROFILL_INPUTS");
+    bool zerofill = false;
+    if (const char *env = std::getenv("ENIGMA_MP_ZEROFILL_INPUTS")) {
+        (void)env;
+        zerofill = env_bool_numeric("ENIGMA_MP_ZEROFILL_INPUTS");
+    } else {
+        zerofill = options::GetBool("MultiplayerDebugZeroFillInputs");
+    }
+    g_zerofill_missing_inputs = enabled && zerofill;
     // When the lockstep does not stall on missing inputs, allow predicting missing
     // mouse-force inputs by holding the last consumed value for a few ticks.
     // This reduces visible stutter for a player on a lossy connection, without
     // repeating discrete actions like rotate/activate.
     g_predict_missing_mouse_ticks =
         (enabled && g_zerofill_missing_inputs)
-            ? env_uint("ENIGMA_MP_PREDICT_MISSING_MOUSE_TICKS", 0, 20)
+            ? (std::getenv("ENIGMA_MP_PREDICT_MISSING_MOUSE_TICKS")
+                   ? env_uint("ENIGMA_MP_PREDICT_MISSING_MOUSE_TICKS", 0, 20)
+                   : static_cast<unsigned>(options::GetInt("MultiplayerDebugPredictMissingMouseTicks")))
             : 0;
 }
 

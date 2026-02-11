@@ -28,6 +28,8 @@
 #include "SoundEngine.hh"
 #include "options.hh"
 #include "server.hh"
+
+#include "SDL.h"
 #include "lua.hh"
 #include "client.hh"
 #include "main.hh"
@@ -59,6 +61,9 @@ const double ActorTimeStep = 0.0025;
 
 namespace {
 
+double g_render_frame_dtime = 0.0;
+Uint32 g_render_frame_last_ms = 0;
+
 /*! Find an already existing contact point in the ContactList that is
   similar to the second argument. */
 bool has_nearby_contact(const Contact *ca, int ca_count, const Contact &c) {
@@ -76,6 +81,8 @@ bool has_nearby_contact(const Contact *ca, int ca_count, const Contact &c) {
 
 ActorInfo::ActorInfo()
 : pos(),
+  render_pos(),
+  render_initialized(false),
   gridpos(),
   field(nullptr),
   charge(0),
@@ -2595,10 +2602,27 @@ void WorldTick(double dtime) {
 }
 
 void TickFinished(double dtime) {
+    // Use wall-clock time to drive render-only smoothing even when simulation
+    // does not advance (e.g. lockstep stalls). Clamp to avoid extreme spikes
+    // after long hitches.
+    const Uint32 now_ms = SDL_GetTicks();
+    if (g_render_frame_last_ms == 0) {
+        g_render_frame_dtime = 0.0;
+    } else {
+        Uint32 delta_ms = now_ms - g_render_frame_last_ms;
+        if (delta_ms > 250)
+            delta_ms = 250;
+        g_render_frame_dtime = static_cast<double>(delta_ms) / 1000.0;
+    }
+    g_render_frame_last_ms = now_ms;
     for (auto &actor : level->actorlist)
         actor->move_screen();
     for (auto &other : level->others)
         other->tick(dtime);
+}
+
+double RenderFrameDtime() {
+    return g_render_frame_dtime;
 }
 
 void InitWorld() {

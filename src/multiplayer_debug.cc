@@ -19,6 +19,7 @@
 #include "multiplayer_internal.hh"
 
 #include "enet_ver.hh"
+#include "options.hh"
 
 #include <cstdarg>
 #include <cstdio>
@@ -65,17 +66,23 @@ const char *transport_kind_name(TransportKind kind) {
 
 bool debug_enabled() {
     const char *env = std::getenv("ENIGMA_MP_DEBUG");
-    return env && *env;
+    if (env && *env)
+        return true;
+    return options::GetBool("MultiplayerDebugLogging");
 }
 
 bool force_relay_enabled() {
     const char *env = std::getenv("ENIGMA_MP_FORCE_RELAY");
-    return env && *env;
+    if (env && *env)
+        return true;
+    return options::GetBool("MultiplayerDebugForceRelay");
 }
 
 bool dump_state_enabled() {
     const char *env = std::getenv("ENIGMA_MP_DUMP_STATE");
-    return env && *env;
+    if (env && *env)
+        return true;
+    return options::GetBool("MultiplayerDebugDumpState");
 }
 
 void debug_log(const char *fmt, ...) {

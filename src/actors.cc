@@ -24,9 +24,12 @@
 #include "Inventory.hh"
 #include "SoundEffectManager.hh"
 #include "server.hh"
+#include "multiplayer.hh"
+#include "options.hh"
 #include "world.hh"
 #include "main.hh"
 
+#include <cmath>
 #include <iostream>
 #include <set>
 
@@ -306,9 +309,38 @@ void Actor::move() {
     m_actorinfo.last_gridpos = m_actorinfo.gridpos;
 }
 
-void Actor::move_screen() {
-    m_sprite.move(m_actorinfo.pos);
-}
+	void Actor::move_screen() {
+	    // Optional render-only smoothing to hide abrupt actor teleports caused by
+	    // multiplayer resyncs. This does not affect simulation state.
+	    if (!multiplayer::IsActive() || !options::GetBool("MultiplayerDebugSmoothRender")) {
+	        m_actorinfo.render_pos = m_actorinfo.pos;
+	        m_actorinfo.render_initialized = true;
+	        m_sprite.move(m_actorinfo.pos);
+	        return;
+	    }
+	    if (!m_actorinfo.render_initialized) {
+	        m_actorinfo.render_pos = m_actorinfo.pos;
+	        m_actorinfo.render_initialized = true;
+	    } else {
+	        const ecl::V2 delta = m_actorinfo.pos - m_actorinfo.render_pos;
+	        if (length(delta) > 5.0) {
+	            // Too far off: snap to avoid visibly drifting through walls.
+	            m_actorinfo.render_pos = m_actorinfo.pos;
+	        } else {
+	            const double dt = RenderFrameDtime();
+	            const double tau = 0.05;  // seconds
+	            double alpha = 1.0;
+	            if (dt > 0.0 && tau > 0.0)
+	                alpha = 1.0 - std::exp(-dt / tau);
+	            if (alpha < 0.0)
+	                alpha = 0.0;
+	            if (alpha > 1.0)
+	                alpha = 1.0;
+	            m_actorinfo.render_pos += delta * alpha;
+	        }
+	    }
+	    m_sprite.move(m_actorinfo.render_pos);
+	}
 
 void Actor::set_model(const std::string &name) {
     m_sprite.replace_model(display::MakeModel(name));

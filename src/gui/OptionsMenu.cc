@@ -108,6 +108,12 @@ namespace enigma { namespace gui {
         0
     };
 
+    static const char *helptext_options_debug[] = {
+        N_("Debug options:"),
+        N_("These options are intended for multiplayer development/testing. They may affect networking and determinism and are not recommended for normal play."),
+        0
+    };
+
 /* -------------------- Options Buttons -------------------- */
 
 class FullscreenButton : public BoolOptionButton {
@@ -718,10 +724,11 @@ public:
       language(NULL),
       but_main_options(NULL),
       but_video_options(NULL),
-      but_audio_options(NULL),
-      but_config_options(NULL),
-      but_multiplayer_options(NULL),
-      fullscreen(NULL),
+	      but_audio_options(NULL),
+	      but_config_options(NULL),
+	      but_multiplayer_options(NULL),
+	      but_debug_options(NULL),
+	      fullscreen(NULL),
       fullscreenmode(NULL),
       windowsize(NULL),
       fullscreentileset(NULL),
@@ -734,10 +741,15 @@ public:
       userImagePathTF(NULL),
       localizationPathTF(NULL),
       multiplayerLobbyTF(NULL),
-      multiplayerLobbyPortTF(NULL),
-      multiplayerUdpRelayPortTF(NULL),
-      multiplayerTcpRelayPortTF(NULL),
-      menuMusicTF(NULL),
+	      multiplayerLobbyPortTF(NULL),
+	      multiplayerUdpRelayPortTF(NULL),
+	      multiplayerTcpRelayPortTF(NULL),
+	      mpNetSimDelayTF(NULL),
+	      mpNetSimJitterTF(NULL),
+	      mpNetSimDropTF(NULL),
+	      mpNetSimDupTF(NULL),
+	      mpPredictMissingMouseTicksTF(NULL),
+	      menuMusicTF(NULL),
       background(background_),
       gameIsOngoing(gameIsOngoing_),
       videoSettingsTouched(false),
@@ -807,18 +819,24 @@ public:
             but_config_options->setHighlight(new_page == OPTIONS_CONFIG);
             but_multiplayer_options = new StaticTextButton(N_("Multiplayer"), this);
             but_multiplayer_options->setHighlight(new_page == OPTIONS_MULTIPLAYER);
-            but_paths_options = new StaticTextButton(N_("Paths"), this);
-            but_paths_options->setHighlight(new_page == OPTIONS_PATHS);
-            back = new StaticTextButton(N_("Ok"), this);
+	            but_paths_options = new StaticTextButton(N_("Paths"), this);
+	            but_paths_options->setHighlight(new_page == OPTIONS_PATHS);
+	            if (ShowDebugOptions) {
+	                but_debug_options = new StaticTextButton(N_("Debug"), this);
+	                but_debug_options->setHighlight(new_page == OPTIONS_DEBUG);
+	            }
+	            back = new StaticTextButton(N_("Ok"), this);
             pagesVList->add_back(but_main_options);
             pagesVList->add_back(new Label(""));
             pagesVList->add_back(but_video_options);
             pagesVList->add_back(but_audio_options);
             pagesVList->add_back(but_config_options);
-            pagesVList->add_back(but_multiplayer_options);
-            pagesVList->add_back(but_paths_options);
-            for (int j = 8; j < param[vtt].rows; j++)
-                pagesVList->add_back(new Label(""));
+	            pagesVList->add_back(but_multiplayer_options);
+	            pagesVList->add_back(but_paths_options);
+	            if (but_debug_options)
+	                pagesVList->add_back(but_debug_options);
+	            for (int j = but_debug_options ? 9 : 8; j < param[vtt].rows; j++)
+	                pagesVList->add_back(new Label(""));
             pagesVList->add_back(back);
             this->add(pagesVList, Rect(0, 0, param[vtt].pageb_width,
                                        param[vtt].rows * param[vtt].button_height +
@@ -984,21 +1002,71 @@ public:
                 }
                 break;
             }
-            case OPTIONS_PATHS:
-                userPathTF = new TextField(XMLtoUtf8(LocalToXML(app.userPath.c_str()).x_str()).c_str());
-                OPTIONS_NEW_L(N_("User path: "))
-                OPTIONS_NEW_T(userPathTF)
-                userImagePathTF = new TextField(XMLtoUtf8(LocalToXML(app.userImagePath.c_str()).x_str()).c_str());
-                OPTIONS_NEW_L(N_("User image path: "))
-                OPTIONS_NEW_T(userImagePathTF)
-                localizationPathTF = new TextField(XMLtoUtf8(LocalToXML(app.l10nPath.c_str()).x_str()).c_str());
-                OPTIONS_NEW_L(N_("Localization/translation path: "))
-                OPTIONS_NEW_T(localizationPathTF)
-                break;
-            case OPTIONS_VIDEOCHECK:
-                videocheck_button_yes = new StaticTextButton(N_("Yes"), this);
-                videocheck_button_no = new StaticTextButton(N_("No"), this);
-                OPTIONS_NEW_L(N_("Use these video settings?"));
+	            case OPTIONS_PATHS:
+	                userPathTF = new TextField(XMLtoUtf8(LocalToXML(app.userPath.c_str()).x_str()).c_str());
+	                OPTIONS_NEW_L(N_("User path: "))
+	                OPTIONS_NEW_T(userPathTF)
+	                userImagePathTF = new TextField(XMLtoUtf8(LocalToXML(app.userImagePath.c_str()).x_str()).c_str());
+	                OPTIONS_NEW_L(N_("User image path: "))
+	                OPTIONS_NEW_T(userImagePathTF)
+	                localizationPathTF = new TextField(XMLtoUtf8(LocalToXML(app.l10nPath.c_str()).x_str()).c_str());
+	                OPTIONS_NEW_L(N_("Localization/translation path: "))
+	                OPTIONS_NEW_T(localizationPathTF)
+	                break;
+	            case OPTIONS_DEBUG: {
+	                optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
+	                optionsVList->set_spacing(0);
+
+	                OPTIONS_NEW_LB(N_("MP debug logs: "),
+	                              new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP force relay: "),
+	                              new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP dump state: "),
+	                              new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP trace world init: "),
+	                              new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP bind local: "),
+	                              new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP zerofill inputs: "),
+	                              new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP smooth render: "),
+	                              new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP skip local resync: "),
+	                              new ToggleOptionButton("MultiplayerDebugSkipLocalResync", N_("On"), N_("Off")))
+
+	                OPTIONS_NEW_LB(N_("MP netsim: "),
+	                              new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")))
+	                OPTIONS_NEW_LB(N_("MP netsim all packets: "),
+	                              new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")))
+
+	                auto make_int_field = [](int value, int max_chars) -> TextField * {
+	                    TextField *tf = new TextField(std::to_string(value));
+	                    tf->setMaxChars(max_chars);
+	                    return tf;
+	                };
+	                mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
+	                mpNetSimJitterTF = make_int_field(options::GetInt("MultiplayerDebugNetSimJitterMs"), 5);
+	                mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
+	                mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
+	                mpPredictMissingMouseTicksTF =
+	                    make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+
+	                OPTIONS_NEW_L(N_("MP netsim delay ms: "))
+	                OPTIONS_NEW_T(mpNetSimDelayTF)
+	                OPTIONS_NEW_L(N_("MP netsim jitter ms: "))
+	                OPTIONS_NEW_T(mpNetSimJitterTF)
+	                OPTIONS_NEW_L(N_("MP netsim drop pct: "))
+	                OPTIONS_NEW_T(mpNetSimDropTF)
+	                OPTIONS_NEW_L(N_("MP netsim dup pct: "))
+	                OPTIONS_NEW_T(mpNetSimDupTF)
+	                OPTIONS_NEW_L(N_("MP predict missing mouse ticks: "))
+	                OPTIONS_NEW_T(mpPredictMissingMouseTicksTF)
+	                break;
+	            }
+	            case OPTIONS_VIDEOCHECK:
+	                videocheck_button_yes = new StaticTextButton(N_("Yes"), this);
+	                videocheck_button_no = new StaticTextButton(N_("No"), this);
+	                OPTIONS_NEW_L(N_("Use these video settings?"));
                 OPTIONS_NEW_LB("", videocheck_button_yes);
                 OPTIONS_NEW_LB("", videocheck_button_no);
                 lb = new HList;
@@ -1102,11 +1170,54 @@ public:
                                   options::GetInt("MultiplayerInternetUdpRelayPort"));
             app.prefs->setProperty("MultiplayerInternetUdpRelayPort", static_cast<double>(port));
         }
-        if (multiplayerTcpRelayPortTF) {
-            int port = parse_port(multiplayerTcpRelayPortTF->getText(),
-                                  options::GetInt("MultiplayerInternetTcpRelayPort"));
-            app.prefs->setProperty("MultiplayerInternetTcpRelayPort", static_cast<double>(port));
-        }
+	        if (multiplayerTcpRelayPortTF) {
+	            int port = parse_port(multiplayerTcpRelayPortTF->getText(),
+	                                  options::GetInt("MultiplayerInternetTcpRelayPort"));
+	            app.prefs->setProperty("MultiplayerInternetTcpRelayPort", static_cast<double>(port));
+	        }
+	        auto parse_int_clamped = [](const std::string &s, int fallback, int minv, int maxv) -> int {
+	            if (s.empty())
+	                return fallback;
+	            char *end = nullptr;
+	            long v = std::strtol(s.c_str(), &end, 10);
+	            if (!end || *end != '\0')
+	                return fallback;
+	            if (v < minv)
+	                v = minv;
+	            if (v > maxv)
+	                v = maxv;
+	            return static_cast<int>(v);
+	        };
+	        if (mpNetSimDelayTF) {
+	            int v = parse_int_clamped(mpNetSimDelayTF->getText(),
+	                                      options::GetInt("MultiplayerDebugNetSimDelayMs"),
+	                                      0, 60000);
+	            app.prefs->setProperty("MultiplayerDebugNetSimDelayMs", static_cast<double>(v));
+	        }
+	        if (mpNetSimJitterTF) {
+	            int v = parse_int_clamped(mpNetSimJitterTF->getText(),
+	                                      options::GetInt("MultiplayerDebugNetSimJitterMs"),
+	                                      0, 60000);
+	            app.prefs->setProperty("MultiplayerDebugNetSimJitterMs", static_cast<double>(v));
+	        }
+	        if (mpNetSimDropTF) {
+	            int v = parse_int_clamped(mpNetSimDropTF->getText(),
+	                                      options::GetInt("MultiplayerDebugNetSimDropPct"),
+	                                      0, 100);
+	            app.prefs->setProperty("MultiplayerDebugNetSimDropPct", static_cast<double>(v));
+	        }
+	        if (mpNetSimDupTF) {
+	            int v = parse_int_clamped(mpNetSimDupTF->getText(),
+	                                      options::GetInt("MultiplayerDebugNetSimDupPct"),
+	                                      0, 100);
+	            app.prefs->setProperty("MultiplayerDebugNetSimDupPct", static_cast<double>(v));
+	        }
+	        if (mpPredictMissingMouseTicksTF) {
+	            int v = parse_int_clamped(mpPredictMissingMouseTicksTF->getText(),
+	                                      options::GetInt("MultiplayerDebugPredictMissingMouseTicks"),
+	                                      0, 20);
+	            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
+	        }
         // Delete widgets.
         if (pagesVList != NULL) {
             pagesVList->clear();
@@ -1116,10 +1227,11 @@ public:
         }
         but_main_options = NULL;
         but_video_options = NULL;
-        but_audio_options = NULL;
-        but_config_options = NULL;
-        but_multiplayer_options = NULL;
-        but_paths_options = NULL;
+	        but_audio_options = NULL;
+	        but_config_options = NULL;
+	        but_multiplayer_options = NULL;
+	        but_paths_options = NULL;
+	        but_debug_options = NULL;
         if (commandHList != NULL) {
             commandHList->clear();
             remove_child(commandHList);
@@ -1148,9 +1260,14 @@ public:
         userImagePathTF = NULL;
         localizationPathTF = NULL;
         multiplayerLobbyTF = NULL;
-        multiplayerLobbyPortTF = NULL;
-        multiplayerUdpRelayPortTF = NULL;
-        multiplayerTcpRelayPortTF = NULL;
+	        multiplayerLobbyPortTF = NULL;
+	        multiplayerUdpRelayPortTF = NULL;
+	        multiplayerTcpRelayPortTF = NULL;
+	        mpNetSimDelayTF = NULL;
+	        mpNetSimJitterTF = NULL;
+	        mpNetSimDropTF = NULL;
+	        mpNetSimDupTF = NULL;
+	        mpPredictMissingMouseTicksTF = NULL;
         pageAfterVideoCheck = OPTIONS_MAIN;
         currentPage = OPTIONS_MAIN;
         showVideoCheck = false;
@@ -1205,14 +1322,18 @@ public:
                     displayInfo(helptext_options_paths);
                     draw_all();
                     break; }
-                case OPTIONS_MULTIPLAYER: {
-                    displayInfo(helptext_options_multiplayer);
-                    draw_all();
-                    break; }
-                case OPTIONS_VIDEOCHECK:
-                    // no op
-                    break;
-                }
+	                case OPTIONS_MULTIPLAYER: {
+	                    displayInfo(helptext_options_multiplayer);
+	                    draw_all();
+	                    break; }
+	                case OPTIONS_DEBUG: {
+	                    displayInfo(helptext_options_debug);
+	                    draw_all();
+	                    break; }
+	                case OPTIONS_VIDEOCHECK:
+	                    // no op
+	                    break;
+	                }
             }
         }
         return handled;
@@ -1256,13 +1377,16 @@ public:
         } else if (w == but_multiplayer_options) {
             close_page();
             open_page(OPTIONS_MULTIPLAYER);
-        } else if (w == but_paths_options) {
-            close_page();
-            open_page(OPTIONS_PATHS);
-        } else if (w == videocheck_button_yes) {
-            close_page();
-            if (pageAfterVideoCheck == OPTIONS_VIDEOCHECK) {
-                // This happens when video check has been called
+	        } else if (w == but_paths_options) {
+	            close_page();
+	            open_page(OPTIONS_PATHS);
+	        } else if (w == but_debug_options) {
+	            close_page();
+	            open_page(OPTIONS_DEBUG);
+	        } else if (w == videocheck_button_yes) {
+	            close_page();
+	            if (pageAfterVideoCheck == OPTIONS_VIDEOCHECK) {
+	                // This happens when video check has been called
                 // from OptionsMenu::quit() or pageAfterVideoCheck
                 // has not been set at all. Either way, we should
                 // exit the menu.

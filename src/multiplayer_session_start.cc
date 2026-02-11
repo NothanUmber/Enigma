@@ -163,7 +163,8 @@ bool should_bind_local_interface_for_enet(const std::string &host) {
     // multi-homed machines (VPNs), but it can also break in VM/NAT setups where
     // the OS/network stack rewrites or routes differently than our probe expects.
     // Default: do not bind for LAN/private targets; allow opting in via env var.
-    if (std::getenv("ENIGMA_MP_BIND_LOCAL") != nullptr)
+    if (std::getenv("ENIGMA_MP_BIND_LOCAL") != nullptr ||
+        options::GetBool("MultiplayerDebugBindLocal"))
         return true;
 
     auto ends_with = [](const std::string &s, const char *suffix) -> bool {

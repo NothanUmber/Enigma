@@ -20,6 +20,7 @@
 
 #include "multiplayer_session_impl.hh"
 #include "multiplayer_protocol.hh"
+#include "options.hh"
 
 #include "SDL.h"
 
@@ -73,16 +74,12 @@ int env_int(const char *name, int def, int minv, int maxv) {
 
 const NetSimConfig &netsim_config() {
     static NetSimConfig cfg;
-    static bool init = false;
-    if (init)
-        return cfg;
-    init = true;
-    cfg.enabled = env_bool("ENIGMA_MP_NETSIM");
-    cfg.all_packets = env_bool("ENIGMA_MP_NETSIM_ALL");
-    cfg.delay_ms = env_int("ENIGMA_MP_NETSIM_DELAY_MS", 0, 0, 60000);
-    cfg.jitter_ms = env_int("ENIGMA_MP_NETSIM_JITTER_MS", 0, 0, 60000);
-    cfg.drop_pct = env_int("ENIGMA_MP_NETSIM_DROP_PCT", 0, 0, 100);
-    cfg.dup_pct = env_int("ENIGMA_MP_NETSIM_DUP_PCT", 0, 0, 100);
+    cfg.enabled = env_bool("ENIGMA_MP_NETSIM") || options::GetBool("MultiplayerDebugNetSimEnabled");
+    cfg.all_packets = env_bool("ENIGMA_MP_NETSIM_ALL") || options::GetBool("MultiplayerDebugNetSimAll");
+    cfg.delay_ms = env_int("ENIGMA_MP_NETSIM_DELAY_MS", options::GetInt("MultiplayerDebugNetSimDelayMs"), 0, 60000);
+    cfg.jitter_ms = env_int("ENIGMA_MP_NETSIM_JITTER_MS", options::GetInt("MultiplayerDebugNetSimJitterMs"), 0, 60000);
+    cfg.drop_pct = env_int("ENIGMA_MP_NETSIM_DROP_PCT", options::GetInt("MultiplayerDebugNetSimDropPct"), 0, 100);
+    cfg.dup_pct = env_int("ENIGMA_MP_NETSIM_DUP_PCT", options::GetInt("MultiplayerDebugNetSimDupPct"), 0, 100);
     return cfg;
 }
 

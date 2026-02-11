@@ -76,14 +76,16 @@ struct StoneContact;
  * This class contains the information the physics engine
  * maintains about dynamic objects ("actors").
  */
-struct ActorInfo {
-    // ---------- Variables ----------
+	struct ActorInfo {
+	    // ---------- Variables ----------
 
-    ecl::V2 pos;           // Absolute position
-    GridPos gridpos;       // Grid position for pos
-    GridPos last_gridpos;  // last pos handled by actor move
-    const Field *field;    // Field of pos
-    ecl::V2 vel;           // Velocity
+	    ecl::V2 pos;           // Absolute position
+	    ecl::V2 render_pos;    // Smoothed position used for rendering (optional)
+	    bool render_initialized;
+	    GridPos gridpos;       // Grid position for pos
+	    GridPos last_gridpos;  // last pos handled by actor move
+	    const Field *field;    // Field of pos
+	    ecl::V2 vel;           // Velocity
     ecl::V2 frozen_vel;    // Velocity backup for forzen actors
     ecl::V2 pos_force;     // Extrapolated position for global force calc
     ecl::V2 forceacc;      // Force accumulator

@@ -37,7 +37,9 @@ namespace {
 
 bool force_relay_enabled() {
     const char *env = std::getenv("ENIGMA_MP_FORCE_RELAY");
-    return env && *env;
+    if (env && *env)
+        return true;
+    return options::GetBool("MultiplayerDebugForceRelay");
 }
 
 std::uint16_t clamp_port(int value, std::uint16_t fallback) {
