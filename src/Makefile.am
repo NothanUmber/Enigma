@@ -29,6 +29,11 @@ endif
 
 CXXFLAGS += -I$(top_srcdir)/lib-src @SDL_CFLAGS@
 
+# Embed a short git revision in the binary so testers can quickly verify that
+# they are running compatible builds. Works in a git checkout; falls back to
+# "unknown" for tarball builds without .git metadata.
+ENIGMA_GIT_REV := $(shell cd $(top_srcdir) && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+AM_CPPFLAGS += -DENIGMA_GIT_REV=\"$(ENIGMA_GIT_REV)\"
 
 enigma_SOURCES = 		\
 	actors.hh 		\

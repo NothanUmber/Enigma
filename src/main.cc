@@ -70,6 +70,10 @@
 #include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
+#ifndef ENIGMA_GIT_REV
+#define ENIGMA_GIT_REV "unknown"
+#endif
+
 #ifdef MACOSX
 // for search paths
 #include "NSSystemDirectories.h"
@@ -433,7 +437,12 @@ void Application::init(int argc, char **argv)
 
     // ----- Initialize video subsystem
     VideoInit();
-    video_engine->SetCaption("Enigma v" PACKAGE_VERSION);
+    {
+        std::string caption = std::string("Enigma v") + PACKAGE_VERSION;
+        if (ENIGMA_GIT_REV[0] != '\0')
+            caption += std::string(" [") + ENIGMA_GIT_REV + "]";
+        video_engine->SetCaption(caption.c_str());
+    }
     errorInit = true;
 
 
@@ -516,6 +525,8 @@ std::string Application::getVersionInfo() {
             " (development version - v" +
             ecl::strf("%.2f",ENIGMACOMPATIBITLITY) + " compatibility branch)";
     }
+    if (ENIGMA_GIT_REV[0] != '\0')
+        versionInfo += std::string(" [") + ENIGMA_GIT_REV + "]";
     return versionInfo;
 }
 
