@@ -256,12 +256,17 @@ Snapshot CaptureSnapshot() {
 }
 
 void RestoreSnapshot(const Snapshot &snap) {
+    // `local_pending` is fed by real-time SDL events (mouse/keys) and is not part of
+    // deterministic per-tick simulation state. When rollback restores an old snapshot,
+    // overwriting `local_pending` would effectively "eat" recent user input on that
+    // machine (especially the host), making marbles appear unresponsive.
+    const auto live_local_pending = g_local_pending;
     g_networked = snap.networked;
     g_zerofill_missing_inputs = snap.zerofill_missing_inputs;
     g_predict_missing_mouse_ticks = snap.predict_missing_mouse_ticks;
     g_expected_players = snap.expected_players;
     g_current_tick = snap.current_tick;
-    g_local_pending = snap.local_pending;
+    g_local_pending = live_local_pending;
     g_last_consumed = snap.last_consumed;
     g_missing_streak = snap.missing_streak;
     g_queue.clear();
