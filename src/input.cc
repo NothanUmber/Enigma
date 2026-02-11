@@ -88,7 +88,10 @@ void EnqueueInput(uint32_t tick, unsigned player, const PlayerInput &input) {
     if (!valid_player(player))
         return;
     TickInputs &slot = g_queue[tick];
-    slot.inputs[player].merge(input);
+    // In multiplayer each (tick, player) should be treated as a single input
+    // sample. When transport redundancy is used (re-sending a few ticks),
+    // duplicates must not accumulate.
+    slot.inputs[player] = input;
     slot.present.set(player);
 }
 
