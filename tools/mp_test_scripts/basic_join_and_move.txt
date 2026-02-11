@@ -26,4 +26,3 @@ both STATE
 sleep 200
 
 both QUIT
-

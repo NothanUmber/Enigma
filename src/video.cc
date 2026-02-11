@@ -22,6 +22,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <sstream>
 
@@ -767,6 +768,25 @@ bool VideoEngineImpl::OpenWindow(int width, int height, bool fullscreen) {
                               flags);
     if (!window)
         return false;
+
+    // External harnesses often use `SDL_VIDEO_WINDOW_POS` to position windows.
+    // We create our window with UNDEFINED coordinates, so apply that env var
+    // explicitly here (windowed mode only).
+    if (!fullscreen) {
+        const char *pos = std::getenv("SDL_VIDEO_WINDOW_POS");
+        if (pos && *pos) {
+            char *end = nullptr;
+            long lx = std::strtol(pos, &end, 10);
+            if (end && (*end == ',' || *end == 'x')) {
+                const char *p2 = end + 1;
+                char *end2 = nullptr;
+                long ly = std::strtol(p2, &end2, 10);
+                if (end2 && end2 != p2) {
+                    SDL_SetWindowPosition(window, static_cast<int>(lx), static_cast<int>(ly));
+                }
+            }
+        }
+    }
 
     assert(GetTileset());
     int tilesize = GetTileset()->tilesize;

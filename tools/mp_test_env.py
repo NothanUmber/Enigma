@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _now_ms() -> int:
@@ -59,6 +59,51 @@ def _parse_kv(tokens: List[str]) -> Dict[str, str]:
     return out
 
 
+def _try_parse_float(s: str) -> Optional[float]:
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def _try_parse_int(s: str) -> Optional[int]:
+    try:
+        return int(s, 10)
+    except Exception:
+        return None
+
+
+def _parse_evt_line(line: str) -> Optional[Dict[str, str]]:
+    if not line.startswith("EVT "):
+        return None
+    toks = line.split()
+    kv = _parse_kv(toks[1:])
+    if "name" not in kv:
+        return None
+    return kv
+
+
+def _parse_state_evt(line: str) -> Optional[Dict[str, Any]]:
+    kv = _parse_evt_line(line)
+    if not kv or kv.get("name") != "STATE":
+        return None
+    out: Dict[str, Any] = {"name": "STATE"}
+    for k, v in kv.items():
+        if k == "name":
+            continue
+        # Try int, then float, else string.
+        iv = _try_parse_int(v)
+        if iv is not None:
+            out[k] = iv
+            continue
+        fv = _try_parse_float(v)
+        if fv is not None:
+            out[k] = fv
+            continue
+        out[k] = v
+    return out
+
+
 @dataclass
 class PeerConn:
     sock: socket.socket
@@ -79,6 +124,7 @@ class Controller:
         self.conns: List[PeerConn] = []
         self.by_role: Dict[str, PeerConn] = {}
         self.events: List[Tuple[int, str, str]] = []  # (ts_ms, role, line)
+        self.last_state: Dict[str, Dict[str, Any]] = {}
 
     def listen(self, host: str, port: int) -> int:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -171,6 +217,11 @@ class Controller:
                             pc.role = r
                             pc.pid = kv.get("pid")
                             self.by_role[r] = pc
+                            role = r
+
+                st = _parse_state_evt(line)
+                if st is not None and role != "unknown":
+                    self.last_state[role] = st
 
     def wait_for_roles(self, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
@@ -243,7 +294,12 @@ def _spawn_enigma(
     data_dir: str,
     extra_args: List[str],
     log_path: str,
+    window_pos: Optional[Tuple[int, int]],
 ) -> Tuple[subprocess.Popen, object]:
+    env = dict(os.environ)
+    if window_pos is not None:
+        env["SDL_VIDEO_CENTERED"] = "0"
+        env["SDL_VIDEO_WINDOW_POS"] = f"{window_pos[0]},{window_pos[1]}"
     argv = [
         enigma_bin,
         "--log",
@@ -261,7 +317,7 @@ def _spawn_enigma(
         connect_host,
     ] + extra_args
     logf = open(log_path, "wb")
-    return subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT), logf
+    return subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT, env=env), logf
 
 
 def _run_script(ctrl: Controller, script_path: str) -> None:
@@ -309,6 +365,46 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                 ctrl.wait_line_contains(role=role, needle=needle, timeout_s=timeout_ms / 1000.0)
                 continue
 
+            if op == "wait_state_change":
+                kv = _parse_kv(toks[1:])
+                role = kv.get("role", "").lower()
+                field = kv.get("field", "")
+                min_abs_delta = float(kv.get("min_abs_delta", "0"))
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                if role not in ("host", "client"):
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_change role=host|client required")
+                if not field:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_change field=... required")
+                if min_abs_delta <= 0:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_change min_abs_delta>0 required")
+
+                # Ensure we have a baseline state.
+                deadline = time.time() + (timeout_ms / 1000.0)
+                while time.time() < deadline and role not in ctrl.last_state:
+                    ctrl.pump(timeout_s=0.05)
+                baseline = ctrl.last_state.get(role)
+                if not baseline or field not in baseline:
+                    raise RuntimeError(f"{script_path}:{lineno}: no baseline STATE for {role} (missing {field})")
+                base_val = baseline[field]
+                if not isinstance(base_val, (int, float)):
+                    raise RuntimeError(f"{script_path}:{lineno}: field {field} not numeric in baseline")
+
+                while time.time() < deadline:
+                    ctrl.pump(timeout_s=0.05)
+                    cur = ctrl.last_state.get(role)
+                    if not cur:
+                        continue
+                    cur_val = cur.get(field)
+                    if not isinstance(cur_val, (int, float)):
+                        continue
+                    if abs(float(cur_val) - float(base_val)) >= min_abs_delta:
+                        break
+                else:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: timeout waiting for {role} {field} change >= {min_abs_delta}"
+                    )
+                continue
+
             raise RuntimeError(f"{script_path}:{lineno}: unknown op {op!r}")
 
 
@@ -325,6 +421,14 @@ def main(argv: List[str]) -> int:
         default="",
         help="Enigma data directory (default: auto-detect repo ./data; use 'none' to skip)",
     )
+    ap.add_argument(
+        "--side-by-side",
+        action="store_true",
+        help="Position host/client windows side-by-side (best-effort via SDL env vars)",
+    )
+    ap.add_argument("--window-x0", type=int, default=40, help="Left window X when --side-by-side")
+    ap.add_argument("--window-y0", type=int, default=40, help="Window Y when --side-by-side")
+    ap.add_argument("--window-dx", type=int, default=820, help="Delta X between windows when --side-by-side")
     ap.add_argument(
         "--workdir",
         default="",
@@ -360,8 +464,17 @@ def main(argv: List[str]) -> int:
     logs: List[object] = []
     try:
         print(f"mp test workdir: {tmp_root}", flush=True)
-        ph, lfh = _spawn_enigma(ns.enigma, "host", connect, pref_host, data_dir, ns.extra_arg, log_host)
-        pc, lfc = _spawn_enigma(ns.enigma, "client", connect, pref_client, data_dir, ns.extra_arg, log_client)
+        host_pos = None
+        client_pos = None
+        if ns.side_by_side:
+            host_pos = (ns.window_x0, ns.window_y0)
+            client_pos = (ns.window_x0 + ns.window_dx, ns.window_y0)
+        ph, lfh = _spawn_enigma(
+            ns.enigma, "host", connect, pref_host, data_dir, ns.extra_arg, log_host, host_pos
+        )
+        pc, lfc = _spawn_enigma(
+            ns.enigma, "client", connect, pref_client, data_dir, ns.extra_arg, log_client, client_pos
+        )
         procs.extend([ph, pc])
         logs.extend([lfh, lfc])
 

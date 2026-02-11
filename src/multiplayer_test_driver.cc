@@ -207,38 +207,70 @@ static lev::Proxy *find_proxy_by_norm(const std::string &norm_level_path) {
     return nullptr;
 }
 
-static std::string format_actor(unsigned player) {
+static void append_actor(std::ostringstream &os, const char *prefix, unsigned player) {
     Actor *a = player::GetMainActor(player);
-    if (!a)
-        return "valid=0";
+    if (!a) {
+        os << " " << prefix << "valid=0";
+        return;
+    }
     const ecl::V2 &p = a->get_pos();
     const ecl::V2 &v = a->get_vel();
-    std::ostringstream os;
     os.setf(std::ios::fixed);
     os.precision(3);
-    os << "valid=1"
-       << " kind=" << a->getKind()
-       << " obj=" << a->getId()
-       << " ctrl=" << a->get_controllers()
-       << " x=" << p[0] << " y=" << p[1]
-       << " vx=" << v[0] << " vy=" << v[1];
-    return os.str();
+    os << " " << prefix << "valid=1"
+       << " " << prefix << "kind=" << a->getKind()
+       << " " << prefix << "obj=" << a->getId()
+       << " " << prefix << "ctrl=" << a->get_controllers()
+       << " " << prefix << "x=" << p[0]
+       << " " << prefix << "y=" << p[1]
+       << " " << prefix << "vx=" << v[0]
+       << " " << prefix << "vy=" << v[1];
 }
 
 static void emit_state_snapshot() {
     if (!g_drv.enabled)
         return;
     const uint32_t tick = input::CurrentTick();
+    const internal::SessionState &s = internal::g_session;
+    unsigned direct_ready = 0;
+    for (const auto &kv : s.peer_ready) {
+        if (kv.second)
+            direct_ready += 1;
+    }
+    unsigned udp_ready = 0;
+    for (const auto &kv : s.relay_ready) {
+        if (kv.second)
+            udp_ready += 1;
+    }
+    unsigned tcp_ready = 0;
+    for (const auto &kv : s.tcp_relay_ready) {
+        if (kv.second)
+            tcp_ready += 1;
+    }
     std::ostringstream os;
     os << "tick=" << tick
        << " mp_active=" << (multiplayer::IsActive() ? 1 : 0)
        << " mp_host=" << (multiplayer::IsHost() ? 1 : 0)
        << " expected=" << multiplayer::ExpectedPlayers()
        << " local=" << multiplayer::LocalPlayer()
+       << " mp_defer=" << (multiplayer::ShouldDeferStart() ? 1 : 0)
+       << " mp_phase=" << static_cast<int>(s.phase)
+       << " mp_epoch=" << static_cast<unsigned>(s.input_epoch)
+       << " mp_load=" << static_cast<unsigned>(s.load_id)
+       << " mp_last_load=" << static_cast<unsigned>(s.last_load_id)
+       << " mp_direct=" << static_cast<unsigned>(s.peer_players.size())
+       << " mp_direct_ready=" << direct_ready
+       << " mp_udp=" << static_cast<unsigned>(s.relay_players.size())
+       << " mp_udp_ready=" << udp_ready
+       << " mp_tcp=" << static_cast<unsigned>(s.tcp_relay_players.size())
+       << " mp_tcp_ready=" << tcp_ready
+       << " mp_local_ready_sent=" << (s.local_ready_sent ? 1 : 0)
+       << " mp_paused=" << (s.paused ? 1 : 0)
+       << " sv_world_init=" << (server::WorldInitialized ? 1 : 0)
        << " net=" << (input::IsNetworked() ? 1 : 0);
     // Always report the first two players for convenience.
-    os << " p0_" << format_actor(0);
-    os << " p1_" << format_actor(1);
+    append_actor(os, "p0_", 0);
+    append_actor(os, "p1_", 1);
     send_evt("STATE", os.str());
 }
 

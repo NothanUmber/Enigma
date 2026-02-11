@@ -20,6 +20,6 @@ Supported operations:
 - `both <CMD...>`: send a command to both instances.
 - `sleep <ms>` or `sleep ms=<ms>`: wait.
 - `wait role=<host|client|any> contains="<substring>" timeout_ms=<ms>`: wait until a received frame contains the substring.
+- `wait_state_change role=<host|client> field=<key> min_abs_delta=<float> timeout_ms=<ms>`: wait until the latest `EVT name=STATE` changes by at least the given delta compared to the current baseline.
 
 Enigma emits framed lines like `EVT ...`, `OK ...`, `ERR ...` back to the controller; `mp_test_env.py` prints them with timestamps.
-
