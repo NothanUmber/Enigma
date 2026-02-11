@@ -88,6 +88,12 @@ Set environment variables before launching Enigma:
 - `ENIGMA_MP_FORCE_RELAY=1` forces relay use (skips direct connect), useful for testing.
 - `ENIGMA_MP_DUMP_STATE=1` dumps a one-time deterministic actor digest when a sync mismatch is detected.
 - `ENIGMA_MP_TRACE_WORLDINIT=1` traces how `WorldInitLevel()` initializes actors (useful for tracking controller/ownership changes from Lua/compat).
+- `ENIGMA_MP_NETSIM=1` enables artificial packet delay/loss/jitter for multiplayer payloads (debug only):
+  - `ENIGMA_MP_NETSIM_DELAY_MS=<n>` base one-way delay
+  - `ENIGMA_MP_NETSIM_JITTER_MS=<n>` adds +/- jitter
+  - `ENIGMA_MP_NETSIM_DROP_PCT=<0..100>` packet drop percentage
+  - `ENIGMA_MP_NETSIM_DUP_PCT=<0..100>` packet duplication percentage
+  - `ENIGMA_MP_NETSIM_ALL=1` applies simulation to all session packets (default is gameplay packets only)
 
 ## Architecture
 
