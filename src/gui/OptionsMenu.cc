@@ -1025,15 +1025,11 @@ public:
 	                break;
 	            case OPTIONS_DEBUG:
 	            case OPTIONS_DEBUG2: {
-	                const int rowh = param[vtt].small_label_height;
+	                int rowh = param[vtt].button_height;
+	                if (vtt == VTS_16)
+	                    rowh = param[vtt].small_label_height;
 	                optionsVList->set_default_size(label_button_total_width, rowh);
 	                optionsVList->set_spacing(0);
-
-	                int field_w = 160;
-	                if (vtt == VTS_16)
-	                    field_w = 90;
-	                else if (vtt == VTS_32)
-	                    field_w = 110;
 
 	                auto make_int_field = [](int value, int max_chars) -> TextField * {
 	                    TextField *tf = new TextField(std::to_string(value));
@@ -1045,37 +1041,11 @@ public:
 	                    HList *row = new HList;
 	                    row->set_spacing(param[vtt].hoption_option);
 	                    row->set_alignment(HALIGN_LEFT, VALIGN_TOP);
-	                    row->set_size(label_button_total_width, rowh);
-	                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER), List::EXPAND);
-	                    if (control) {
-	                        control->set_size(field_w, rowh);
-	                        row->add_back(control);
-	                    }
-	                    optionsVList->add_back(row);
-	                };
-
-	                auto add_two_fields = [&](const std::string &label, const std::string &a_label,
-	                                          TextField *a, const std::string &b_label, TextField *b) {
-	                    HList *row = new HList;
-	                    row->set_spacing(param[vtt].hoption_option);
-	                    row->set_alignment(HALIGN_LEFT, VALIGN_TOP);
-	                    row->set_size(label_button_total_width, rowh);
-	                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER), List::EXPAND);
-
-	                    const int sub_w = std::max(40, (field_w - param[vtt].hoption_option) / 2);
-	                    HList *fields = new HList;
-	                    fields->set_spacing(param[vtt].hoption_option);
-	                    fields->set_alignment(HALIGN_LEFT, VALIGN_TOP);
-	                    fields->set_size(field_w, rowh);
-
-	                    fields->add_back(new Label(a_label, HALIGN_LEFT, VALIGN_CENTER));
-	                    a->set_size(sub_w, rowh);
-	                    fields->add_back(a);
-	                    fields->add_back(new Label(b_label, HALIGN_LEFT, VALIGN_CENTER));
-	                    b->set_size(sub_w, rowh);
-	                    fields->add_back(b);
-
-	                    row->add_back(fields);
+	                    // Like OPTIONS_NEW_LB: fixed label column, control expands to rest.
+	                    row->set_default_size(param[vtt].optionl_width, rowh);
+	                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER));
+	                    if (control)
+	                        row->add_back(control, List::EXPAND);
 	                    optionsVList->add_back(row);
 	                };
 
@@ -1118,8 +1088,10 @@ public:
 	                    mpNetSimJitterTF = make_int_field(options::GetInt("MultiplayerDebugNetSimJitterMs"), 5);
 	                    mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
 	                    mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
-	                    add_two_fields(N_("Netsim ms"), N_("D"), mpNetSimDelayTF, N_("J"), mpNetSimJitterTF);
-	                    add_two_fields(N_("Netsim pct"), N_("Drop"), mpNetSimDropTF, N_("Dup"), mpNetSimDupTF);
+	                    add_row(N_("Netsim delay ms"), mpNetSimDelayTF);
+	                    add_row(N_("Netsim jitter ms"), mpNetSimJitterTF);
+	                    add_row(N_("Netsim drop %"), mpNetSimDropTF);
+	                    add_row(N_("Netsim dup %"), mpNetSimDupTF);
 	                }
 	                break;
 	            }
