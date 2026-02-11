@@ -215,6 +215,7 @@ struct SessionState {
     double input_clock_accu = 0.0;
     bool input_clock_frozen = false;
     double sync_timer = 0.0;
+    uint32_t last_host_resync_broadcast_tick = UINT32_MAX;
     bool desync_reported = false;
     bool paused = false;
     std::vector<bool> menu_open;

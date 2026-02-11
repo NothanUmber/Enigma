@@ -62,6 +62,7 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
                         const SessionState::ChecksumSample &sample);
 void record_checksum_sample();
 void send_sync_to_peers();
+void broadcast_resync_state_unreliable();
 void apply_resync_state(const protocol::ResyncState &state);
 void send_resync_state(ENetPeer *peer);
 void send_resync_state_to_relay(Uint32 client_id);

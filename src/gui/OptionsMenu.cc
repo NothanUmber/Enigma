@@ -749,10 +749,12 @@ public:
 	      mpNetSimDropTF(NULL),
 	      mpNetSimDupTF(NULL),
 	      mpPredictMissingMouseTicksTF(NULL),
+	      mpInputDelayTicksTF(NULL),
+	      mpHostBroadcastResyncStrideTicksTF(NULL),
 	      menuMusicTF(NULL),
-      background(background_),
-      gameIsOngoing(gameIsOngoing_),
-      videoSettingsTouched(false),
+	      background(background_),
+	      gameIsOngoing(gameIsOngoing_),
+	      videoSettingsTouched(false),
       showVideoCheck(false),
       pageAfterVideoCheck(OPTIONS_VIDEOCHECK),
       currentPage(OPTIONS_MAIN) {
@@ -1046,10 +1048,13 @@ public:
 	                };
 	                mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
 	                mpNetSimJitterTF = make_int_field(options::GetInt("MultiplayerDebugNetSimJitterMs"), 5);
-	                mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
-	                mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
-	                mpPredictMissingMouseTicksTF =
-	                    make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+		                mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
+		                mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
+		                mpPredictMissingMouseTicksTF =
+		                    make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+		                mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
+		                mpHostBroadcastResyncStrideTicksTF =
+		                    make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
 
 	                OPTIONS_NEW_L(N_("MP netsim delay ms: "))
 	                OPTIONS_NEW_T(mpNetSimDelayTF)
@@ -1059,10 +1064,14 @@ public:
 	                OPTIONS_NEW_T(mpNetSimDropTF)
 	                OPTIONS_NEW_L(N_("MP netsim dup pct: "))
 	                OPTIONS_NEW_T(mpNetSimDupTF)
-	                OPTIONS_NEW_L(N_("MP predict missing mouse ticks: "))
-	                OPTIONS_NEW_T(mpPredictMissingMouseTicksTF)
-	                break;
-	            }
+		                OPTIONS_NEW_L(N_("MP predict missing mouse ticks: "))
+		                OPTIONS_NEW_T(mpPredictMissingMouseTicksTF)
+		                OPTIONS_NEW_L(N_("MP input delay ticks (0=auto): "))
+		                OPTIONS_NEW_T(mpInputDelayTicksTF)
+		                OPTIONS_NEW_L(N_("MP host resync broadcast stride ticks (0=off): "))
+		                OPTIONS_NEW_T(mpHostBroadcastResyncStrideTicksTF)
+		                break;
+		            }
 	            case OPTIONS_VIDEOCHECK:
 	                videocheck_button_yes = new StaticTextButton(N_("Yes"), this);
 	                videocheck_button_no = new StaticTextButton(N_("No"), this);
@@ -1212,12 +1221,25 @@ public:
 	                                      0, 100);
 	            app.prefs->setProperty("MultiplayerDebugNetSimDupPct", static_cast<double>(v));
 	        }
-	        if (mpPredictMissingMouseTicksTF) {
-	            int v = parse_int_clamped(mpPredictMissingMouseTicksTF->getText(),
-	                                      options::GetInt("MultiplayerDebugPredictMissingMouseTicks"),
-	                                      0, 20);
-	            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
-	        }
+		        if (mpPredictMissingMouseTicksTF) {
+		            int v = parse_int_clamped(mpPredictMissingMouseTicksTF->getText(),
+		                                      options::GetInt("MultiplayerDebugPredictMissingMouseTicks"),
+		                                      0, 20);
+		            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
+		        }
+		        if (mpInputDelayTicksTF) {
+		            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
+		                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
+		                                      0, 32);
+		            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
+		        }
+		        if (mpHostBroadcastResyncStrideTicksTF) {
+		            int v = parse_int_clamped(mpHostBroadcastResyncStrideTicksTF->getText(),
+		                                      options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"),
+		                                      0, 1000);
+		            app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks",
+		                                   static_cast<double>(v));
+		        }
         // Delete widgets.
         if (pagesVList != NULL) {
             pagesVList->clear();
@@ -1264,13 +1286,15 @@ public:
 	        multiplayerUdpRelayPortTF = NULL;
 	        multiplayerTcpRelayPortTF = NULL;
 	        mpNetSimDelayTF = NULL;
-	        mpNetSimJitterTF = NULL;
-	        mpNetSimDropTF = NULL;
-	        mpNetSimDupTF = NULL;
-	        mpPredictMissingMouseTicksTF = NULL;
-        pageAfterVideoCheck = OPTIONS_MAIN;
-        currentPage = OPTIONS_MAIN;
-        showVideoCheck = false;
+		        mpNetSimJitterTF = NULL;
+		        mpNetSimDropTF = NULL;
+		        mpNetSimDupTF = NULL;
+		        mpPredictMissingMouseTicksTF = NULL;
+		        mpInputDelayTicksTF = NULL;
+		        mpHostBroadcastResyncStrideTicksTF = NULL;
+	        pageAfterVideoCheck = OPTIONS_MAIN;
+	        currentPage = OPTIONS_MAIN;
+	        showVideoCheck = false;
         if (videoSettingsTouched && !gameIsOngoing)
             showVideoCheck = video_engine->ApplySettings();
         videoSettingsTouched = false;

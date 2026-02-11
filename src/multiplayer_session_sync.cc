@@ -371,6 +371,19 @@ void send_sync_to_peers() {
 }
 
 namespace {
+protocol::ResyncState build_resync_state_snapshot();
+}  // namespace
+
+void broadcast_resync_state_unreliable() {
+    if (!g_session.host || !has_remote_peers())
+        return;
+    protocol::ResyncState state = build_resync_state_snapshot();
+    ecl::Buffer buf;
+    protocol::encode_resync_state(buf, state);
+    g_transport.HostBroadcastUnreliable(buf);
+}
+
+namespace {
 
 void send_resync_request() {
     protocol::ResyncRequest req;

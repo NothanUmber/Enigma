@@ -85,7 +85,9 @@ namespace enigma { namespace gui {
 	        gui::TextField *mpNetSimDropTF;
 	        gui::TextField *mpNetSimDupTF;
 	        gui::TextField *mpPredictMissingMouseTicksTF;
-	        gui::TextField *menuMusicTF;
+	        gui::TextField *mpInputDelayTicksTF;
+	        gui::TextField *mpHostBroadcastResyncStrideTicksTF;
+		        gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;
         bool videoSettingsTouched;

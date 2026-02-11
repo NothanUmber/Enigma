@@ -64,6 +64,12 @@ void configure_input_session(unsigned expected_players) {
     // other players' inputs for that tick.
     g_session.input_delay =
         (g_session.active_transport == TransportKind::TCP_RELAY) ? kInputDelayTcpRelay : kInputDelay;
+    int delay_override = options::GetInt("MultiplayerDebugInputDelayTicks");
+    if (delay_override > 0) {
+        if (delay_override > static_cast<int>(kMaxInputLead))
+            delay_override = static_cast<int>(kMaxInputLead);
+        g_session.input_delay = static_cast<uint32_t>(delay_override);
+    }
     if (debug_enabled())
         debug_log("mp input delay=%u transport=%s", static_cast<unsigned>(g_session.input_delay),
                   transport_name(g_session.active_transport));
@@ -80,6 +86,7 @@ void configure_input_session(unsigned expected_players) {
     g_session.local_history.clear();
     g_session.input_clock_tick = input::CurrentTick();
     g_session.input_clock_accu = 0.0;
+    g_session.last_host_resync_broadcast_tick = UINT32_MAX;
 }
 
 namespace {
