@@ -4,7 +4,9 @@
 #include "ecl_math.hh"
 
 #include <array>
+#include <bitset>
 #include <cstdint>
+#include <vector>
 
 namespace enigma {
 namespace input {
@@ -50,6 +52,27 @@ bool PeekInput(uint32_t tick, unsigned player, PlayerInput &out);
 bool CanAdvanceTick();
 PlayerInput ConsumeInput(uint32_t tick, unsigned player);
 void AdvanceTick();
+
+struct TickInputsSnapshot {
+    uint32_t tick = 0;
+    std::array<PlayerInput, kMaxPlayers> inputs;
+    std::bitset<kMaxPlayers> present;
+};
+
+struct Snapshot {
+    bool networked = false;
+    bool zerofill_missing_inputs = false;
+    unsigned predict_missing_mouse_ticks = 0;
+    unsigned expected_players = 1;
+    uint32_t current_tick = 0;
+    std::array<PlayerInput, kMaxPlayers> local_pending;
+    std::array<PlayerInput, kMaxPlayers> last_consumed;
+    std::array<unsigned, kMaxPlayers> missing_streak;
+    std::vector<TickInputsSnapshot> queue;
+};
+
+Snapshot CaptureSnapshot();
+void RestoreSnapshot(const Snapshot &snap);
 
 }  // namespace input
 }  // namespace enigma

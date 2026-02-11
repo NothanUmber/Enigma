@@ -92,6 +92,8 @@ enigma_SOURCES = 		\
 			multiplayer_session_start.cc \
 			multiplayer_session_sync.cc \
 			multiplayer_session_transport.cc \
+			multiplayer_sim_snapshot.cc \
+			multiplayer_sim_snapshot.hh \
 			multiplayer_state.hh	\
 			multiplayer_transport.cc \
 			multiplayer_transport.hh \

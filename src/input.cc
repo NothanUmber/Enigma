@@ -5,6 +5,7 @@
 #include <bitset>
 #include <cstdlib>
 #include <map>
+#include <vector>
 
 namespace enigma {
 namespace input {
@@ -230,6 +231,45 @@ PlayerInput ConsumeInput(uint32_t tick, unsigned player) {
 
 void AdvanceTick() {
     ++g_current_tick;
+}
+
+Snapshot CaptureSnapshot() {
+    Snapshot snap;
+    snap.networked = g_networked;
+    snap.zerofill_missing_inputs = g_zerofill_missing_inputs;
+    snap.predict_missing_mouse_ticks = g_predict_missing_mouse_ticks;
+    snap.expected_players = g_expected_players;
+    snap.current_tick = g_current_tick;
+    snap.local_pending = g_local_pending;
+    snap.last_consumed = g_last_consumed;
+    snap.missing_streak = g_missing_streak;
+    snap.queue.clear();
+    snap.queue.reserve(g_queue.size());
+    for (const auto &kv : g_queue) {
+        TickInputsSnapshot e;
+        e.tick = kv.first;
+        e.inputs = kv.second.inputs;
+        e.present = kv.second.present;
+        snap.queue.push_back(e);
+    }
+    return snap;
+}
+
+void RestoreSnapshot(const Snapshot &snap) {
+    g_networked = snap.networked;
+    g_zerofill_missing_inputs = snap.zerofill_missing_inputs;
+    g_predict_missing_mouse_ticks = snap.predict_missing_mouse_ticks;
+    g_expected_players = snap.expected_players;
+    g_current_tick = snap.current_tick;
+    g_local_pending = snap.local_pending;
+    g_last_consumed = snap.last_consumed;
+    g_missing_streak = snap.missing_streak;
+    g_queue.clear();
+    for (const auto &e : snap.queue) {
+        TickInputs &slot = g_queue[e.tick];
+        slot.inputs = e.inputs;
+        slot.present = e.present;
+    }
 }
 
 }  // namespace input

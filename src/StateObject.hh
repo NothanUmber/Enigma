@@ -78,6 +78,10 @@ namespace enigma {
          * "setState()". New state values are checked against min and max. 
          */
         virtual void setAttr(const std::string& key, const Value &val) override;
+
+        // Rollback/replay snapshot support.
+        int snapshot_internal_state() const { return state; }
+        void restore_internal_state(int internal_state) { state = internal_state; }
         
     protected:
         /**

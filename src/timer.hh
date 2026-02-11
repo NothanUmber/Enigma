@@ -20,6 +20,7 @@
 
 #include "ecl_util.hh"
 #include <memory>
+#include <vector>
 
 namespace enigma {
 
@@ -47,12 +48,30 @@ public:
     Timer();
     ~Timer();
 
+    struct AlarmSnapshot {
+        // Timer alarms are predominantly used by objects (stones/items/floors) that also
+        // derive from TimeHandler. We store the object's id so alarms can be restored
+        // after rollback/replay without relying on raw pointers.
+        int handler_object_id = -1;
+        double interval = 0.0;
+        double timeleft = 0.0;
+        bool repeatp = false;
+        int alarmnr = 0;
+    };
+
+    struct Snapshot {
+        std::vector<AlarmSnapshot> alarms;
+    };
+
     void activate(TimeHandler *th);
     void set_alarm(TimeHandler *th, double interval, bool repeatp = false, int alarmnr = 0);
     double remove_alarm(TimeHandler *th, int alarmnr = 0);
     void clear();
 
     void tick(double dtime);
+
+    Snapshot snapshot() const;
+    void restore(const Snapshot &snap);
 
 private:
     struct Rep;

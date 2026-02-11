@@ -1998,6 +1998,24 @@ void PerformSecureAction(int senderId, bool isCallback, int targetId, std::strin
     level->actionList.push_back(Action(senderId, isCallback, targetId, name, val));
 }
 
+std::vector<Action> CapturePendingActions() {
+    std::vector<Action> out;
+    if (!level)
+        return out;
+    out.reserve(level->actionList.size());
+    for (const auto &a : level->actionList)
+        out.push_back(a);
+    return out;
+}
+
+void RestorePendingActions(const std::vector<Action> &actions) {
+    if (!level)
+        return;
+    level->actionList.clear();
+    for (const auto &a : actions)
+        level->actionList.push_back(a);
+}
+
 namespace {
 void explosion(GridPos source, GridPos dest, const char *explosion_item) {
     if (Stone *stone = GetStone(dest))

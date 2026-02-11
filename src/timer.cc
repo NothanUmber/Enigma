@@ -20,9 +20,11 @@
 #include <list>
 #include <algorithm>
 #include <functional>
+#include <vector>
 
 #include "ecl_util.hh"
 #include "errors.hh"
+#include "Object.hh"
 
 namespace enigma {
 
@@ -137,6 +139,40 @@ void Timer::tick(double dtime) {
 void Timer::clear() {
     self->handlers.clear();
     self->alarms.clear();
+}
+
+Timer::Snapshot Timer::snapshot() const {
+    Snapshot snap;
+    snap.alarms.reserve(self->alarms.size());
+    for (const auto &alarm : self->alarms) {
+        AlarmSnapshot a;
+        a.interval = alarm.interval;
+        a.timeleft = alarm.timeleft;
+        a.repeatp = alarm.repeatp;
+        a.alarmnr = alarm.alarmnr;
+        const Object *obj = dynamic_cast<const Object *>(alarm.handler);
+        a.handler_object_id = obj ? obj->getId() : -1;
+        snap.alarms.push_back(a);
+    }
+    return snap;
+}
+
+void Timer::restore(const Snapshot &snap) {
+    // Rollback/replay cares about alarms only. Activated tick-handlers are not
+    // used by Enigma gameplay code (and would be harder to restore safely).
+    self->alarms.clear();
+    for (const auto &a : snap.alarms) {
+        if (a.handler_object_id < 0)
+            continue;
+        Object *obj = Object::getObject(a.handler_object_id);
+        if (!obj)
+            continue;
+        TimeHandler *th = dynamic_cast<TimeHandler *>(obj);
+        if (!th)
+            continue;
+        self->alarms.push_back(Alarm(th, a.interval, a.repeatp, a.alarmnr));
+        self->alarms.back().timeleft = a.timeleft;
+    }
 }
 
 }  // namespace enigma

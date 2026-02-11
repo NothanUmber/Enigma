@@ -233,6 +233,10 @@ Value SendMessage(Object *obj, const Message &m);
 
 void PerformSecureAction(int senderId, bool isCallback, int targetId, std::string name, Value val);
 
+// Multiplayer rollback/replay support: snapshot/restore of pending secure actions.
+std::vector<Action> CapturePendingActions();
+void RestorePendingActions(const std::vector<Action> &actions);
+
 /* -------------------- Actors -------------------- */
 
 void AddActor(Actor *a);
