@@ -1,0 +1,29 @@
+# Basic smoke script:
+# - start host session
+# - join client
+# - load a level
+# - apply mouse forces
+# - query state snapshots
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+# Pick a level by its `Proxy::getNormLevelPath()` (typically "<pack>/<base_name>").
+host LOAD_LEVEL level_id="enigma_vii/ais05_1"
+sleep 500
+both START_GAME
+
+both STREAM_STATE interval_ms=250
+sleep 500
+
+host MOUSE_FORCE player=0 fx=1.0 fy=0.0
+client MOUSE_FORCE player=1 fx=-1.0 fy=0.0
+sleep 500
+
+both STATE
+sleep 200
+
+both QUIT
+

@@ -105,6 +105,8 @@ enigma_SOURCES = 		\
 			multiplayer_transport.cc \
 			multiplayer_transport.hh \
 			multiplayer_tcp_socket.cc \
+			multiplayer_test_driver.cc \
+			multiplayer_test_driver.hh \
 			multiplayer_util.cc	\
 			KindDescriptor.cc	\
 		KindDescriptor.hh	\

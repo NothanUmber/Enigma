@@ -37,6 +37,7 @@
 #include "world.hh"
 #include "game.hh"
 #include "multiplayer.hh"
+#include "multiplayer_test_driver.hh"
 #include "nls.hh"
 #include "LocalToXML.hh"
 #include "ObjectValidator.hh"
@@ -137,13 +138,15 @@ static void usage()
            "    --assert       Evaluate all debugging assertions\n"
            "    --data -d path Load data from additional directory\n"
            "    --help -h      Show this help\n"
-           "    --lang -l lang Set game language\n"
-           "    --l10n path    Set path to translation/localization files\n"
-           "    --log          Turn on logging to the standard output\n"
-           "    --nograb       Do not use exclusive mouse/keyboard access\n"
-           "    --nomusic      Disable music\n"
-           "    --nosound      Disable music and sound effects\n"
-	           "    --pref -p file Use filename or dirname for preferences\n"
+	           "    --lang -l lang Set game language\n"
+	           "    --l10n path    Set path to translation/localization files\n"
+	           "    --log          Turn on logging to the standard output\n"
+	           "    --mp-test-connect host:port  Connect to test controller\n"
+	           "    --mp-test-role role          Test role (host/client)\n"
+	           "    --nograb       Do not use exclusive mouse/keyboard access\n"
+	           "    --nomusic      Disable music\n"
+	           "    --nosound      Disable music and sound effects\n"
+		           "    --pref -p file Use filename or dirname for preferences\n"
 	           "    --redirect     Redirect stdout/stderr to files on user path\n"
 	           "    --robinson     avoid connections to the internet\n"
 	           "    --show-debugoptions Enable debug options tab in Settings\n"
@@ -163,17 +166,20 @@ namespace
         AP();
 
         // Variables.
-        bool nosound, nomusic, show_help, show_version, do_log, do_assert, force_window;
-        bool dumpinfo, makepreview, measureperformance, show_fps, redirect;
-        string gamename;
-        string datapath;
-        string preffilename;
-        std::vector<string> levelnames;
+	        bool nosound, nomusic, show_help, show_version, do_log, do_assert, force_window;
+	        bool dumpinfo, makepreview, measureperformance, show_fps, redirect;
+	        string gamename;
+	        string datapath;
+	        string preffilename;
+	        string mp_test_connect;
+	        string mp_test_role;
+	        std::vector<string> levelnames;
 
-    private:
-        enum {
-            OPT_WINDOW, OPT_GAME, OPT_DATA, OPT_LANG, OPT_PREF, OPT_LOCALE
-        };
+	    private:
+	        enum {
+	            OPT_WINDOW, OPT_GAME, OPT_DATA, OPT_LANG, OPT_PREF, OPT_LOCALE,
+	            OPT_MP_TEST_CONNECT, OPT_MP_TEST_ROLE
+	        };
 
         // ArgParser interface.
         void on_error (ErrorType t, const string &option) {
@@ -191,8 +197,10 @@ AP::AP() : ArgParser (app.args.begin(), app.args.end())
     nosound  = nomusic = show_help = show_version = do_log = do_assert = force_window = false;
     dumpinfo = makepreview = measureperformance = show_fps = redirect = false;
     gamename = "";
-    datapath = "";
-    preffilename = PREFFILENAME;
+	    datapath = "";
+	    preffilename = PREFFILENAME;
+	    mp_test_connect = "";
+	    mp_test_role = "";
 
     def (&nosound,              "nosound");
     def (&nomusic,              "nomusic");
@@ -207,14 +215,16 @@ AP::AP() : ArgParser (app.args.begin(), app.args.end())
     def (&measureperformance,   "measureperformance");
     def (&show_fps,             "showfps");
     def (&redirect,             "redirect");
-    def (&Robinson,             "robinson");
-    def (&ShowDebugOptions,     "show-debugoptions");
-    def (&force_window,         "window", 'w');
-    def (OPT_GAME,              "game", true);
-    def (OPT_DATA,              "data", true, 'd');
-    def (OPT_LANG,              "lang", true, 'l');
-    def (OPT_PREF,              "pref", true, 'p');
-    def (OPT_LOCALE,            "l10n", true);
+	    def (&Robinson,             "robinson");
+	    def (&ShowDebugOptions,     "show-debugoptions");
+	    def (&force_window,         "window", 'w');
+	    def (OPT_MP_TEST_CONNECT,   "mp-test-connect", true);
+	    def (OPT_MP_TEST_ROLE,      "mp-test-role", true);
+	    def (OPT_GAME,              "game", true);
+	    def (OPT_DATA,              "data", true, 'd');
+	    def (OPT_LANG,              "lang", true, 'l');
+	    def (OPT_PREF,              "pref", true, 'p');
+	    def (OPT_LOCALE,            "l10n", true);
 }
 
 void AP::on_option (int id, const string &param)
@@ -236,10 +246,17 @@ void AP::on_option (int id, const string &param)
     case OPT_PREF:
         preffilename = param;
         break;
-    case OPT_LOCALE:
-        app.l10nPath = param;
-    }
-}
+	    case OPT_LOCALE:
+	        app.l10nPath = param;
+	        break;
+	    case OPT_MP_TEST_CONNECT:
+	        mp_test_connect = param;
+	        break;
+	    case OPT_MP_TEST_ROLE:
+	        mp_test_role = param;
+	        break;
+	    }
+	}
 
 void AP::on_argument (const string &arg)
 {
@@ -462,6 +479,8 @@ void Application::init(int argc, char **argv)
         fprintf (stderr, "An error occurred while initializing ENet.\n");
         exit (1);
     }
+
+    multiplayer::testdriver::Configure(ap.mp_test_role, ap.mp_test_connect);
 
     // ----- Load models
     display::Init(ap.show_fps);
@@ -1008,8 +1027,12 @@ int main(int argc, char **argv)
 {
     try {
         app.init(argc,argv);
-        if (!app.isMakePreviews && !app.isMeasurePerformance)
-            gui::ShowMainMenu();
+        if (!app.isMakePreviews && !app.isMeasurePerformance) {
+            if (multiplayer::testdriver::Enabled())
+                multiplayer::testdriver::Run();
+            else
+                gui::ShowMainMenu();
+        }
         app.shutdown();
         return 0;
     }
