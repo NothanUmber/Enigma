@@ -95,6 +95,7 @@ Set environment variables before launching Enigma:
   - `ENIGMA_MP_NETSIM_DUP_PCT=<0..100>` packet duplication percentage
   - `ENIGMA_MP_NETSIM_ALL=1` applies simulation to all session packets (default is gameplay packets only)
 - `ENIGMA_MP_ZEROFILL_INPUTS=1` disables lockstep stalling on missing per-tick inputs (missing inputs are treated as zero force/actions, which may increase desync corrections under loss/latency).
+- `ENIGMA_MP_PREDICT_MISSING_MOUSE_TICKS=<n>` (requires `ENIGMA_MP_ZEROFILL_INPUTS=1`) predicts missing mouse-force inputs by holding the last value and linearly decaying it to zero over `n` missing ticks. Discrete inputs (rotate/activate) are never repeated.
 
 ## Architecture
 

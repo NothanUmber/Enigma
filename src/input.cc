@@ -16,10 +16,13 @@ struct TickInputs {
 
 bool g_networked = false;
 bool g_zerofill_missing_inputs = false;
+unsigned g_predict_missing_mouse_ticks = 0;
 unsigned g_expected_players = 1;
 uint32_t g_current_tick = 0;
 std::array<PlayerInput, kMaxPlayers> g_local_pending;
 std::map<uint32_t, TickInputs> g_queue;
+std::array<PlayerInput, kMaxPlayers> g_last_consumed;
+std::array<unsigned, kMaxPlayers> g_missing_streak;
 
 bool env_bool_numeric(const char *name) {
     const char *value = std::getenv(name);
@@ -30,6 +33,21 @@ bool env_bool_numeric(const char *name) {
     if (end == value)
         return false;
     return v != 0;
+}
+
+unsigned env_uint(const char *name, unsigned minv, unsigned maxv) {
+    const char *value = std::getenv(name);
+    if (!value || !*value)
+        return 0;
+    char *end = nullptr;
+    unsigned long v = std::strtoul(value, &end, 10);
+    if (end == value)
+        return 0;
+    if (v < minv)
+        v = minv;
+    if (v > maxv)
+        v = maxv;
+    return static_cast<unsigned>(v);
 }
 
 PlayerInput empty_input() {
@@ -47,14 +65,26 @@ void Reset() {
     g_queue.clear();
     g_networked = false;
     g_zerofill_missing_inputs = false;
+    g_predict_missing_mouse_ticks = 0;
     g_expected_players = 1;
     for (auto &pending : g_local_pending)
         pending = PlayerInput();
+    for (auto &entry : g_last_consumed)
+        entry = PlayerInput();
+    g_missing_streak.fill(0);
 }
 
 void SetNetworked(bool enabled) {
     g_networked = enabled;
     g_zerofill_missing_inputs = enabled && env_bool_numeric("ENIGMA_MP_ZEROFILL_INPUTS");
+    // When the lockstep does not stall on missing inputs, allow predicting missing
+    // mouse-force inputs by holding the last consumed value for a few ticks.
+    // This reduces visible stutter for a player on a lossy connection, without
+    // repeating discrete actions like rotate/activate.
+    g_predict_missing_mouse_ticks =
+        (enabled && g_zerofill_missing_inputs)
+            ? env_uint("ENIGMA_MP_PREDICT_MISSING_MOUSE_TICKS", 0, 20)
+            : 0;
 }
 
 bool IsNetworked() {
@@ -151,13 +181,35 @@ PlayerInput ConsumeInput(uint32_t tick, unsigned player) {
     if (!g_networked)
         return DrainLocalPending(player);
     auto it = g_queue.find(tick);
-    if (it == g_queue.end() || !it->second.present.test(player))
-        return empty_input();
+    if (it == g_queue.end() || !it->second.present.test(player)) {
+        if (!g_zerofill_missing_inputs)
+            return empty_input();
+        PlayerInput predicted;
+        // Only predict continuous mouse force, never repeat discrete actions.
+        predicted.rotate_steps = 0;
+        predicted.activate_count = 0;
+        if (g_predict_missing_mouse_ticks == 0) {
+            predicted.mouse_force = ecl::V2(0, 0);
+        } else {
+            unsigned streak = g_missing_streak[player] + 1;
+            g_missing_streak[player] = streak;
+            float factor = 0.0f;
+            if (streak <= g_predict_missing_mouse_ticks) {
+                // Linear decay to zero over N missing ticks.
+                factor = static_cast<float>(g_predict_missing_mouse_ticks - (streak - 1)) /
+                         static_cast<float>(g_predict_missing_mouse_ticks);
+            }
+            predicted.mouse_force = g_last_consumed[player].mouse_force * factor;
+        }
+        return predicted;
+    }
     PlayerInput input = it->second.inputs[player];
     it->second.inputs[player] = PlayerInput();
     it->second.present.reset(player);
     if (it->second.present.none())
         g_queue.erase(it);
+    g_last_consumed[player] = input;
+    g_missing_streak[player] = 0;
     return input;
 }
 
