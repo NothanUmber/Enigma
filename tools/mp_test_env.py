@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -125,6 +126,7 @@ class Controller:
         self.by_role: Dict[str, PeerConn] = {}
         self.events: List[Tuple[int, str, str]] = []  # (ts_ms, role, line)
         self.last_state: Dict[str, Dict[str, Any]] = {}
+        self.state_lines: Dict[str, deque[str]] = {}
 
     def listen(self, host: str, port: int) -> int:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -222,6 +224,9 @@ class Controller:
                 st = _parse_state_evt(line)
                 if st is not None and role != "unknown":
                     self.last_state[role] = st
+                    if role not in self.state_lines:
+                        self.state_lines[role] = deque(maxlen=30)
+                    self.state_lines[role].append(line)
 
     def wait_for_roles(self, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
@@ -269,6 +274,16 @@ def _tail_text(path: str, max_bytes: int = 16 * 1024) -> str:
     except Exception as e:
         return f"<unable to read {path}: {e}>"
 
+def _dump_last_states(ctrl: Controller) -> str:
+    parts: List[str] = []
+    for role in ("host", "client"):
+        lines = ctrl.state_lines.get(role)
+        if not lines:
+            continue
+        parts.append(f"----- {role} STATE (last {len(lines)}) -----")
+        parts.extend(list(lines))
+    return "\n".join(parts)
+
 
 def _find_default_enigma_bin() -> str:
     # Prefer repo-local build output.
@@ -297,6 +312,8 @@ def _spawn_enigma(
     window_pos: Optional[Tuple[int, int]],
 ) -> Tuple[subprocess.Popen, object]:
     env = dict(os.environ)
+    # Default to verbose multiplayer logs for harness runs (written into host.log/client.log).
+    env.setdefault("ENIGMA_MP_DEBUG", "1")
     if window_pos is not None:
         env["SDL_VIDEO_CENTERED"] = "0"
         env["SDL_VIDEO_WINDOW_POS"] = f"{window_pos[0]},{window_pos[1]}"
@@ -494,6 +511,9 @@ def main(argv: List[str]) -> int:
         # Helpful diagnostics: show logs if something prevented startup/HELLO.
         try:
             print(f"mp test error: {e}", flush=True)
+            dump = _dump_last_states(ctrl)
+            if dump:
+                print(dump, flush=True)
             if os.path.exists(log_host):
                 print("----- host.log (tail) -----", flush=True)
                 print(_tail_text(log_host), flush=True)

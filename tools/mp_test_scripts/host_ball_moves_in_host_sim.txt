@@ -18,20 +18,18 @@ host STATE
 wait role=host contains="EVT name=STATE" timeout_ms=2000
 sleep 100
 
+# Log steerable actors once for debugging (controllers/owners).
+host LIST_STEERABLE
+sleep 200
+
 # Sanity: simulation should actually advance on the host.
 wait_state_change role=host field=tick min_abs_delta=1 timeout_ms=5000
 
-# Apply a few mouse-force pulses to the host player.
-host MOUSE_FORCE player=0 fx=4.0 fy=0.0
+# Force a sustained input sample for a short period to ensure the marble gets moving.
+host OVERRIDE_INPUT player=0 ticks=120 fx=300.0 fy=0.0
 sleep 50
-host MOUSE_FORCE player=0 fx=4.0 fy=0.0
-sleep 50
-host MOUSE_FORCE player=0 fx=4.0 fy=0.0
-sleep 50
-host MOUSE_FORCE player=0 fx=4.0 fy=0.0
-sleep 50
-host MOUSE_FORCE player=0 fx=4.0 fy=0.0
-sleep 200
+host STATE
+wait role=host contains="in0_fx=300.000" timeout_ms=2000
 
 # The host should observe its own p0_x changing.
 wait_state_change role=host field=p0_x min_abs_delta=0.05 timeout_ms=5000

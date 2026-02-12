@@ -3,6 +3,7 @@
 #include "multiplayer.hh"
 #include "multiplayer_internal.hh"
 #include "multiplayer_protocol.hh"
+#include "multiplayer_rollback.hh"
 
 #include "client.hh"
 #include "game.hh"
@@ -12,6 +13,7 @@
 #include "options.hh"
 #include "player.hh"
 #include "server.hh"
+#include "world.hh"
 
 #include "SDL.h"
 
@@ -58,6 +60,13 @@ struct DriverState {
     // Periodic state streaming.
     int stream_state_interval_ms = 0;
     Uint32 next_stream_state_ms = 0;
+
+    // Test-only: force a specific input sample for a number of simulation ticks.
+    bool input_override_enabled = false;
+    unsigned input_override_player = 0;
+    input::PlayerInput input_override_value;
+    int input_override_ticks_left = 0;
+    uint32_t input_override_last_tick = UINT32_MAX;
 };
 
 DriverState g_drv;
@@ -207,6 +216,37 @@ static lev::Proxy *find_proxy_by_norm(const std::string &norm_level_path) {
     return nullptr;
 }
 
+static void emit_steerable_actors() {
+    std::vector<Actor *> actors;
+    GetActors(actors);
+    unsigned idx = 0;
+    for (Actor *a : actors) {
+        if (!a || !a->isSteerable())
+            continue;
+        const ecl::V2 &p = a->get_pos();
+        const ecl::V2 &v = a->get_vel();
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "idx=" << idx
+           << " kind=" << a->getKind()
+           << " obj=" << a->getId()
+           << " ctrl=" << a->get_controllers()
+           << " mf=" << a->get_mouseforce()
+           << " x=" << p[0] << " y=" << p[1]
+           << " vx=" << v[0] << " vy=" << v[1];
+        Value owner = a->getAttr("owner");
+        if (owner)
+            os << " owner=" << static_cast<int>(owner);
+        Value color = a->getAttr("color");
+        if (color)
+            os << " color=" << static_cast<int>(color);
+        send_evt("STEERABLE", os.str());
+        idx += 1;
+    }
+    send_ok("LIST_STEERABLE", "count=" + std::to_string(idx));
+}
+
 static void append_actor(std::ostringstream &os, const char *prefix, unsigned player) {
     Actor *a = player::GetMainActor(player);
     if (!a) {
@@ -221,10 +261,31 @@ static void append_actor(std::ostringstream &os, const char *prefix, unsigned pl
        << " " << prefix << "kind=" << a->getKind()
        << " " << prefix << "obj=" << a->getId()
        << " " << prefix << "ctrl=" << a->get_controllers()
+       << " " << prefix << "mf=" << a->get_mouseforce()
        << " " << prefix << "x=" << p[0]
        << " " << prefix << "y=" << p[1]
        << " " << prefix << "vx=" << v[0]
        << " " << prefix << "vy=" << v[1];
+}
+
+static void maybe_apply_input_override() {
+    if (!g_drv.enabled || !g_drv.input_override_enabled)
+        return;
+    if (g_drv.input_override_ticks_left <= 0) {
+        g_drv.input_override_enabled = false;
+        send_evt("INPUT_OVERRIDE_DONE");
+        return;
+    }
+    const uint32_t tick = input::CurrentTick();
+    // Always (re-)enqueue the override for the current tick so it wins even if
+    // transport code enqueues a later value for the same (tick, player).
+    input::EnqueueInput(tick, g_drv.input_override_player, g_drv.input_override_value);
+    rollback::RecordInput(tick, g_drv.input_override_player, g_drv.input_override_value);
+
+    if (tick != g_drv.input_override_last_tick) {
+        g_drv.input_override_last_tick = tick;
+        g_drv.input_override_ticks_left -= 1;
+    }
 }
 
 static void emit_state_snapshot() {
@@ -267,7 +328,32 @@ static void emit_state_snapshot() {
        << " mp_local_ready_sent=" << (s.local_ready_sent ? 1 : 0)
        << " mp_paused=" << (s.paused ? 1 : 0)
        << " sv_world_init=" << (server::WorldInitialized ? 1 : 0)
-       << " net=" << (input::IsNetworked() ? 1 : 0);
+       << " net=" << (input::IsNetworked() ? 1 : 0)
+       << " zerofill=" << (input::ZerofillMissingInputsEnabled() ? 1 : 0)
+       << " rb=" << (rollback::Enabled() ? 1 : 0)
+       << " rb_replay=" << (rollback::IsReplaying() ? 1 : 0)
+       << " ovr=" << (g_drv.input_override_enabled ? 1 : 0)
+       << " ovr_p=" << static_cast<unsigned>(g_drv.input_override_player)
+       << " ovr_left=" << static_cast<int>(g_drv.input_override_ticks_left);
+
+    // Input diagnostics for the current tick (first two players).
+    for (unsigned p = 0; p < 2; ++p) {
+        input::PlayerInput pi;
+        const bool present = input::PeekInput(tick, p, pi);
+        os << " in" << p << "_present=" << (present ? 1 : 0);
+        if (present) {
+            os.setf(std::ios::fixed);
+            os.precision(3);
+            os << " in" << p << "_fx=" << static_cast<double>(pi.mouse_force[0])
+               << " in" << p << "_fy=" << static_cast<double>(pi.mouse_force[1])
+               << " in" << p << "_rot=" << static_cast<int>(pi.rotate_steps)
+               << " in" << p << "_act=" << static_cast<unsigned>(pi.activate_count);
+        }
+    }
+
+    os << " mp_clock_tick=" << static_cast<unsigned>(s.input_clock_tick)
+       << " mp_next_local_tick=" << static_cast<unsigned>(s.next_local_tick)
+       << " mp_next_send_tick=" << static_cast<unsigned>(s.next_send_tick);
     // Always report the first two players for convenience.
     append_actor(os, "p0_", 0);
     append_actor(os, "p1_", 1);
@@ -286,6 +372,101 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "PING") {
         send_ok("PING", "pong=1");
+        return true;
+    }
+
+    if (cmd == "LIST_STEERABLE") {
+        emit_steerable_actors();
+        return true;
+    }
+
+    if (cmd == "INJECT_INPUT") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("INJECT_INPUT", "missing_player");
+            return true;
+        }
+        float fx = 0.0f, fy = 0.0f;
+        if (!parse_f32(kv, "fx", fx) || !parse_f32(kv, "fy", fy)) {
+            send_err("INJECT_INPUT", "missing_force");
+            return true;
+        }
+        int rot = 0;
+        int act = 0;
+        parse_i32(kv, "rot", rot);
+        parse_i32(kv, "act", act);
+        input::PlayerInput pi;
+        pi.mouse_force = ecl::V2(fx, fy);
+        pi.rotate_steps = rot;
+        pi.activate_count = act > 0 ? act : 0;
+        const uint32_t t = input::CurrentTick();
+        input::EnqueueInput(t, static_cast<unsigned>(player_u32), pi);
+        rollback::RecordInput(t, static_cast<unsigned>(player_u32), pi);
+        input::PlayerInput chk;
+        const bool present = input::PeekInput(t, static_cast<unsigned>(player_u32), chk);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "tick=" << static_cast<unsigned>(t)
+           << " player=" << static_cast<unsigned>(player_u32)
+           << " present=" << (present ? 1 : 0);
+        if (present) {
+            os << " fx=" << static_cast<double>(chk.mouse_force[0])
+               << " fy=" << static_cast<double>(chk.mouse_force[1])
+               << " rot=" << static_cast<int>(chk.rotate_steps)
+               << " act=" << static_cast<unsigned>(chk.activate_count);
+        }
+        send_ok("INJECT_INPUT", os.str());
+        return true;
+    }
+
+    if (cmd == "OVERRIDE_INPUT") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("OVERRIDE_INPUT", "missing_player");
+            return true;
+        }
+        int ticks = 0;
+        if (!parse_i32(kv, "ticks", ticks)) {
+            send_err("OVERRIDE_INPUT", "missing_ticks");
+            return true;
+        }
+        if (ticks <= 0) {
+            g_drv.input_override_enabled = false;
+            g_drv.input_override_ticks_left = 0;
+            send_ok("OVERRIDE_INPUT", "enabled=0");
+            return true;
+        }
+        float fx = 0.0f, fy = 0.0f;
+        if (!parse_f32(kv, "fx", fx) || !parse_f32(kv, "fy", fy)) {
+            send_err("OVERRIDE_INPUT", "missing_force");
+            return true;
+        }
+        int rot = 0;
+        int act = 0;
+        parse_i32(kv, "rot", rot);
+        parse_i32(kv, "act", act);
+
+        g_drv.input_override_player = static_cast<unsigned>(player_u32);
+        g_drv.input_override_value = input::PlayerInput();
+        g_drv.input_override_value.mouse_force = ecl::V2(fx, fy);
+        g_drv.input_override_value.rotate_steps = rot;
+        g_drv.input_override_value.activate_count = act > 0 ? act : 0;
+        g_drv.input_override_ticks_left = ticks;
+        g_drv.input_override_last_tick = UINT32_MAX;
+        g_drv.input_override_enabled = true;
+        // Apply once immediately so a script can query STATE right after.
+        maybe_apply_input_override();
+
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "enabled=1"
+           << " player=" << static_cast<unsigned>(player_u32)
+           << " ticks=" << ticks
+           << " fx=" << static_cast<double>(fx)
+           << " fy=" << static_cast<double>(fy);
+        send_ok("OVERRIDE_INPUT", os.str());
         return true;
     }
 
@@ -630,6 +811,9 @@ void Tick(double dtime) {
     pump_rx();
     poll_join();
 
+    // Apply any input override before the next simulation tick consumes inputs.
+    maybe_apply_input_override();
+
     if (g_drv.stream_state_interval_ms > 0) {
         Uint32 now = SDL_GetTicks();
         if (now >= g_drv.next_stream_state_ms) {
@@ -649,6 +833,8 @@ void Run() {
         Tick(dtime);
         multiplayer::Tick(dtime);
         client::Tick(dtime);
+        // Ensure override wins even if multiplayer transport enqueued after Tick().
+        maybe_apply_input_override();
         server::Tick(dtime);
 
         int sleeptime = 10 - (SDL_GetTicks() - last_tick_time);
