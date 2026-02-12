@@ -43,6 +43,7 @@
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 /* -------------------- Multiplayer session transport -------------------- */
@@ -417,7 +418,7 @@ bool handle_host_world_state_request_packet(const char *data, size_t len) {
         return true;
     // For now broadcast to all peers. This keeps everyone converging even if only
     // one client noticed the mismatch.
-    broadcast_world_state_unreliable();
+    broadcast_world_state_reliable();
     return true;
 }
 
@@ -743,6 +744,113 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
     const size_t count = static_cast<size_t>(w) * static_cast<size_t>(h);
     if (pkt.floor_state.size() != count || pkt.stone_state.size() != count || pkt.item_state.size() != count)
         return true;
+
+    // First, reconcile positions of movable stones (puzzle stones, doors, etc).
+    // Apply this before per-tile state so "stone_state" lands on the correct object.
+    if (!pkt.movable_stones.empty()) {
+        auto key = [](int x, int y) -> uint32_t {
+            return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
+        };
+        auto key_to_pos = [](uint32_t k) -> GridPos {
+            int x = static_cast<int>((k >> 16) & 0xFFFFu);
+            int y = static_cast<int>(k & 0xFFFFu);
+            return GridPos(x, y);
+        };
+
+        std::unordered_map<uint32_t, uint32_t> current_pos_by_id;
+        current_pos_by_id.reserve(pkt.movable_stones.size() * 2);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                GridPos p(x, y);
+                Stone *st = GetStone(p);
+                if (!st || !st->is_movable())
+                    continue;
+                current_pos_by_id[static_cast<uint32_t>(st->getId())] = key(x, y);
+            }
+        }
+
+        std::unordered_map<uint32_t, uint32_t> src_to_dst;
+        std::unordered_map<uint32_t, uint32_t> src_by_dst;
+        std::unordered_set<uint32_t> src_keys;
+        std::unordered_set<uint32_t> dst_keys;
+        src_to_dst.reserve(pkt.movable_stones.size());
+        src_by_dst.reserve(pkt.movable_stones.size());
+        src_keys.reserve(pkt.movable_stones.size());
+        dst_keys.reserve(pkt.movable_stones.size());
+        for (const auto &e : pkt.movable_stones) {
+            auto it = current_pos_by_id.find(static_cast<uint32_t>(e.object_id));
+            if (it == current_pos_by_id.end())
+                continue;
+            const uint32_t src = it->second;
+            const uint32_t dst = key(static_cast<int>(e.x), static_cast<int>(e.y));
+            if (src == dst)
+                continue;
+            src_to_dst[src] = dst;
+            src_by_dst[dst] = src;
+            src_keys.insert(src);
+            dst_keys.insert(dst);
+        }
+
+        uint32_t buffer_key = 0;
+        bool have_buffer = false;
+        for (int y = 0; y < h && !have_buffer; ++y) {
+            for (int x = 0; x < w && !have_buffer; ++x) {
+                uint32_t k = key(x, y);
+                if (src_keys.count(k) || dst_keys.count(k))
+                    continue;
+                GridPos p(x, y);
+                if (GetStone(p) != nullptr)
+                    continue;
+                buffer_key = k;
+                have_buffer = true;
+            }
+        }
+
+        // Resolve simple chains first: whenever a destination is empty, move into it.
+        bool progressed = true;
+        while (progressed) {
+            progressed = false;
+            for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
+                const uint32_t src = it->first;
+                const uint32_t dst = it->second;
+                GridPos dst_pos = key_to_pos(dst);
+                if (GetStone(dst_pos) != nullptr)
+                    continue;
+                MoveStone(key_to_pos(src), dst_pos);
+                src_by_dst.erase(dst);
+                src_to_dst.erase(it);
+                progressed = true;
+                break;
+            }
+        }
+
+        // Remaining moves are cycles. Break each cycle using the empty buffer cell.
+        while (!src_to_dst.empty() && have_buffer) {
+            const uint32_t start_src = src_to_dst.begin()->first;
+            const uint32_t start_dst = src_to_dst.begin()->second;
+            MoveStone(key_to_pos(start_src), key_to_pos(buffer_key));
+
+            uint32_t empty = start_src;
+            while (empty != start_dst) {
+                auto it_prev = src_by_dst.find(empty);
+                if (it_prev == src_by_dst.end()) {
+                    // Unexpected shape; stop trying to reorder this snapshot.
+                    break;
+                }
+                const uint32_t prev_src = it_prev->second;
+                MoveStone(key_to_pos(prev_src), key_to_pos(empty));
+                auto it_dst = src_to_dst.find(prev_src);
+                if (it_dst != src_to_dst.end()) {
+                    src_to_dst.erase(it_dst);
+                }
+                src_by_dst.erase(it_prev);
+                empty = prev_src;
+            }
+            MoveStone(key_to_pos(buffer_key), key_to_pos(start_dst));
+            src_by_dst.erase(start_dst);
+            src_to_dst.erase(start_src);
+        }
+    }
 
     auto apply_state = [](Object *obj, Uint16 s) {
         if (!obj || s == 0xFFFF)

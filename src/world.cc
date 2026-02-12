@@ -2486,6 +2486,76 @@ uint64_t WorldChecksum() {
     return h;
 }
 
+uint64_t WorldGridKindChecksum() {
+    if (!level)
+        return 0;
+    uint64_t h = kChecksumOffset;
+    hash_u64(h, static_cast<uint64_t>(level->w));
+    hash_u64(h, static_cast<uint64_t>(level->h));
+    for (int y = 0; y < level->h; ++y) {
+        for (int x = 0; x < level->w; ++x) {
+            GridPos p(x, y);
+            Object *fl = level->fl_layer.get(p);
+            Object *st = level->st_layer.get(p);
+            Object *it = level->it_layer.get(p);
+            if (fl)
+                hash_string(h, fl->getKind());
+            else
+                hash_u64(h, 0);
+            if (st)
+                hash_string(h, st->getKind());
+            else
+                hash_u64(h, 0);
+            if (it)
+                hash_string(h, it->getKind());
+            else
+                hash_u64(h, 0);
+        }
+    }
+    return h;
+}
+
+uint64_t WorldGridStateChecksum() {
+    if (!level)
+        return 0;
+    uint64_t h = kChecksumOffset;
+    hash_u64(h, static_cast<uint64_t>(level->w));
+    hash_u64(h, static_cast<uint64_t>(level->h));
+    auto hash_external_state = [&h](Object *obj) {
+        if (!obj) {
+            hash_u64(h, 0);
+            return;
+        }
+        Value state = obj->getAttr("state");
+        if (!state.isDefault()) {
+            int state_value = static_cast<int>(state);
+            hash_i64(h, static_cast<int64_t>(state_value));
+        } else {
+            hash_u64(h, 0);
+        }
+    };
+    for (int y = 0; y < level->h; ++y) {
+        for (int x = 0; x < level->w; ++x) {
+            GridPos p(x, y);
+            hash_external_state(level->fl_layer.get(p));
+            hash_external_state(level->st_layer.get(p));
+            hash_external_state(level->it_layer.get(p));
+        }
+    }
+    return h;
+}
+
+uint64_t WorldGridChecksum() {
+    if (!level)
+        return 0;
+    uint64_t h = kChecksumOffset;
+    uint64_t kind = WorldGridKindChecksum();
+    uint64_t state = WorldGridStateChecksum();
+    hash_u64(h, kind);
+    hash_u64(h, state);
+    return h;
+}
+
 uint64_t ActorChecksum() {
     if (!level)
         return 0;

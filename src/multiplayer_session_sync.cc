@@ -362,8 +362,10 @@ void send_sync_to_peers() {
     sync.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sync.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
     sync.p1_y = p1 ? static_cast<float>(p1->get_pos()[1]) : 0.0f;
-    sync.world_checksum = WorldChecksum();
+    sync.world_checksum = WorldGridChecksum();
     sync.actor_checksum = ActorChecksum();
+    sync.grid_kind_checksum = WorldGridKindChecksum();
+    sync.grid_state_checksum = WorldGridStateChecksum();
 
     ecl::Buffer buf;
     protocol::encode_sync(buf, sync);
@@ -383,7 +385,8 @@ void broadcast_resync_state_unreliable() {
     g_transport.HostBroadcastUnreliable(buf);
 }
 
-void broadcast_world_state_unreliable() {
+namespace {
+void broadcast_world_state_snapshot(bool reliable) {
     if (!g_session.host || !has_remote_peers())
         return;
     const int w = Width();
@@ -424,9 +427,38 @@ void broadcast_world_state_unreliable() {
         }
     }
 
+    pkt.movable_stones.clear();
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            GridPos p(x, y);
+            Stone *st = GetStone(p);
+            if (!st)
+                continue;
+            if (!st->is_movable())
+                continue;
+            protocol::WorldStatePacket::MovableStone entry;
+            entry.object_id = static_cast<Uint32>(st->getId());
+            entry.x = static_cast<Uint16>(x);
+            entry.y = static_cast<Uint16>(y);
+            pkt.movable_stones.push_back(entry);
+        }
+    }
+
     ecl::Buffer buf;
     protocol::encode_world_state(buf, pkt);
-    g_transport.HostBroadcastUnreliable(buf);
+    if (reliable)
+        g_transport.HostBroadcast(buf);
+    else
+        g_transport.HostBroadcastUnreliable(buf);
+}
+}  // namespace
+
+void broadcast_world_state_unreliable() {
+    broadcast_world_state_snapshot(false);
+}
+
+void broadcast_world_state_reliable() {
+    broadcast_world_state_snapshot(true);
 }
 
 namespace {
@@ -489,10 +521,13 @@ protocol::ResyncState build_resync_state_snapshot() {
     return state;
 }
 
-void update_checksum_sample_world(uint32_t tick, uint64_t world_checksum) {
+void update_checksum_sample_world(uint32_t tick, uint64_t world_checksum, uint64_t grid_kind_checksum,
+                                  uint64_t grid_state_checksum) {
     for (auto &entry : g_session.checksum_history) {
         if (entry.tick == tick) {
             entry.world_checksum = world_checksum;
+            entry.grid_kind_checksum = grid_kind_checksum;
+            entry.grid_state_checksum = grid_state_checksum;
             entry.world_valid = true;
             break;
         }
@@ -973,8 +1008,10 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
         debug_log("mp sync skip: sync tick=%u local tick=%u", sync.tick, local_tick);
         return;
     }
-    uint64_t local_checksum = WorldChecksum();
-    update_checksum_sample_world(local_tick, local_checksum);
+    uint64_t local_checksum = WorldGridChecksum();
+    uint64_t local_kind_checksum = WorldGridKindChecksum();
+    uint64_t local_state_checksum = WorldGridStateChecksum();
+    update_checksum_sample_world(local_tick, local_checksum, local_kind_checksum, local_state_checksum);
     g_session.last_world_checksum = local_checksum;
     bool checksum_mismatch =
         (sync.world_checksum != 0 && sync.world_checksum != local_checksum);
@@ -982,6 +1019,18 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
         debug_log("mp checksum mismatch: tick=%u local=%llu remote=%llu", sync.tick,
                   static_cast<unsigned long long>(local_checksum),
                   static_cast<unsigned long long>(sync.world_checksum));
+    }
+    bool kind_mismatch =
+        (sync.grid_kind_checksum != 0 && sync.grid_kind_checksum != local_kind_checksum);
+    bool state_mismatch =
+        (sync.grid_state_checksum != 0 && sync.grid_state_checksum != local_state_checksum);
+    if (kind_mismatch || state_mismatch) {
+        debug_log("mp grid mismatch: tick=%u kind(local=%llu remote=%llu) state(local=%llu remote=%llu)",
+                  sync.tick,
+                  static_cast<unsigned long long>(local_kind_checksum),
+                  static_cast<unsigned long long>(sync.grid_kind_checksum),
+                  static_cast<unsigned long long>(local_state_checksum),
+                  static_cast<unsigned long long>(sync.grid_state_checksum));
     }
     uint64_t local_actor_checksum = ActorChecksum();
     bool actor_mismatch =
@@ -1058,12 +1107,11 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
     // Actor/world checksums can diverge due to harmless platform floating-point
     // drift in physics-heavy levels. Drive recovery from position/RNG mismatch,
     // and keep checksums for diagnostics only.
-    if (world_only_mismatch) {
+    if (checksum_mismatch || kind_mismatch || state_mismatch) {
         g_session.world_only_desync_streak += 1;
-        if (!g_session.host && g_session.resync_cooldown <= 0.0) {
+        if (!g_session.host && g_session.world_state_cooldown <= 0.0) {
             send_world_state_request();
-            // Reuse resync cooldown to avoid spamming the host on persistent mismatch.
-            g_session.resync_cooldown = kResyncCooldown;
+            g_session.world_state_cooldown = kResyncCooldown;
         }
         if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
             g_session.desync_reported = true;
@@ -1137,6 +1185,14 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
     bool checksum_mismatch = false;
     if (sample.world_valid && sync.world_checksum != 0)
         checksum_mismatch = sync.world_checksum != sample.world_checksum;
+    bool kind_mismatch = false;
+    bool state_mismatch = false;
+    if (sample.world_valid) {
+        if (sync.grid_kind_checksum != 0)
+            kind_mismatch = sync.grid_kind_checksum != sample.grid_kind_checksum;
+        if (sync.grid_state_checksum != 0)
+            state_mismatch = sync.grid_state_checksum != sample.grid_state_checksum;
+    }
     bool actor_mismatch = (sync.actor_checksum != 0 && sync.actor_checksum != sample.actor_checksum);
     bool rand_mismatch = sync.random_state != sample.random_state;
     auto diff = [](float a, float b) { return fabs(a - b); };
@@ -1168,6 +1224,14 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
                   sync.tick,
                   static_cast<unsigned long long>(sample.world_checksum),
                   static_cast<unsigned long long>(sync.world_checksum));
+    }
+    if (kind_mismatch || state_mismatch) {
+        debug_log("mp grid mismatch (late): tick=%u kind(local=%llu remote=%llu) state(local=%llu remote=%llu)",
+                  sync.tick,
+                  static_cast<unsigned long long>(sample.grid_kind_checksum),
+                  static_cast<unsigned long long>(sync.grid_kind_checksum),
+                  static_cast<unsigned long long>(sample.grid_state_checksum),
+                  static_cast<unsigned long long>(sync.grid_state_checksum));
     }
     if (actor_mismatch) {
         debug_log("mp actor mismatch: tick=%u local=%llu remote=%llu",
@@ -1205,11 +1269,11 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
 
     // Actor checksums are useful diagnostics but too sensitive to drive recovery
     // on their own, especially in physics-heavy scenes.
-    if (world_only_mismatch) {
+    if (checksum_mismatch || kind_mismatch || state_mismatch) {
         g_session.world_only_desync_streak += 1;
-        if (!g_session.host && g_session.resync_cooldown <= 0.0) {
+        if (!g_session.host && g_session.world_state_cooldown <= 0.0) {
             send_world_state_request();
-            g_session.resync_cooldown = kResyncCooldown;
+            g_session.world_state_cooldown = kResyncCooldown;
         }
         if (g_session.world_only_desync_streak >= 3 && !g_session.desync_reported) {
             g_session.desync_reported = true;
@@ -1275,6 +1339,8 @@ void record_checksum_sample() {
     sample.tick = tick;
     sample.actor_checksum = ActorChecksum();
     sample.world_checksum = 0;
+    sample.grid_kind_checksum = 0;
+    sample.grid_state_checksum = 0;
     sample.world_valid = false;
     sample.random_state = server::RandomState;
     Actor *p0 = sync_reference_actor(0, tick);

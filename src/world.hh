@@ -154,6 +154,11 @@ int Height();
    the world to force laser beams to be recalculated etc. */
 bool WorldInitLevel();
 uint64_t WorldChecksum();
+// Checksums over the grid layers only (floors/stones/items). Used to detect and
+// repair authoritative world divergence without being sensitive to actor drift.
+uint64_t WorldGridKindChecksum();
+uint64_t WorldGridStateChecksum();
+uint64_t WorldGridChecksum();
 uint64_t ActorChecksum();
 void GetActors(std::vector<Actor *> &out);
 

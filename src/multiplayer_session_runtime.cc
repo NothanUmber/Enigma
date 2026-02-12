@@ -339,8 +339,11 @@ void SessionPrimeInputQueueForNewLevel() {
     g_session.resync_inflight = false;
     g_session.resync_inflight_timer = 0.0;
     g_session.resync_cooldown = 0.0;
+    g_session.world_state_cooldown = 0.0;
     g_session.resync_attempts = 0;
     g_session.desync_streak = 0;
+    g_session.actor_desync_streak = 0;
+    g_session.world_only_desync_streak = 0;
     g_session.ready_timer = 0.0;
     g_session.level_players = 0;
     g_session.placement_received.clear();
@@ -391,6 +394,14 @@ void tick_update_resync_cooldown(double dtime) {
     g_session.resync_cooldown -= dtime;
     if (g_session.resync_cooldown < 0.0)
         g_session.resync_cooldown = 0.0;
+}
+
+void tick_update_world_state_cooldown(double dtime) {
+    if (g_session.world_state_cooldown <= 0.0)
+        return;
+    g_session.world_state_cooldown -= dtime;
+    if (g_session.world_state_cooldown < 0.0)
+        g_session.world_state_cooldown = 0.0;
 }
 
 void tick_update_resync_inflight_timeout(double dtime) {
@@ -625,6 +636,7 @@ void SessionTick(double dtime) {
     tick_apply_pending_sync();
     record_checksum_sample();
     tick_update_resync_cooldown(dtime);
+    tick_update_world_state_cooldown(dtime);
     tick_update_resync_inflight_timeout(dtime);
     tick_send_periodic_ready(dtime);
     tick_debug_report_missing_input();

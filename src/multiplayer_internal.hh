@@ -248,6 +248,8 @@ struct SessionState {
     struct ChecksumSample {
         uint32_t tick = 0;
         uint64_t world_checksum = 0;
+        uint64_t grid_kind_checksum = 0;
+        uint64_t grid_state_checksum = 0;
         uint64_t actor_checksum = 0;
         uint32_t random_state = 0;
         float p0_x = 0.0f;
@@ -262,6 +264,7 @@ struct SessionState {
     bool resync_inflight = false;
     double resync_inflight_timer = 0.0;
     double resync_cooldown = 0.0;
+    double world_state_cooldown = 0.0;
     unsigned resync_attempts = 0;
     unsigned desync_streak = 0;
     unsigned actor_desync_streak = 0;

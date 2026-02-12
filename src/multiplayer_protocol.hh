@@ -105,6 +105,11 @@ struct SyncPacket {
     float p1_y;
     Uint64 world_checksum;
     Uint64 actor_checksum;
+    // Optional extensions (trailing fields):
+    // - `grid_kind_checksum`: floor/stone/item kinds per cell
+    // - `grid_state_checksum`: external "state" attrs per cell
+    Uint64 grid_kind_checksum = 0;
+    Uint64 grid_state_checksum = 0;
 };
 
 struct ResyncRequest {
@@ -141,6 +146,13 @@ struct WorldStatePacket {
     std::vector<Uint16> floor_state;
     std::vector<Uint16> stone_state;
     std::vector<Uint16> item_state;
+    struct MovableStone {
+        Uint32 object_id;
+        Uint16 x;
+        Uint16 y;
+    };
+    // Optional extension: authoritative positions of movable stones (puzzle stones, doors, etc).
+    std::vector<MovableStone> movable_stones;
 };
 
 struct WorldStateRequest {
@@ -217,6 +229,13 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
         buf << Uint16(msg.stone_state[i]);
     for (Uint32 i = 0; i < count; ++i)
         buf << Uint16(msg.item_state[i]);
+    // Optional extension: movable stone positions.
+    Uint16 mcount = static_cast<Uint16>(std::min<size_t>(msg.movable_stones.size(), 0xFFFF));
+    buf << mcount;
+    for (Uint16 i = 0; i < mcount; ++i) {
+        const auto &e = msg.movable_stones[i];
+        buf << Uint32(e.object_id) << Uint16(e.x) << Uint16(e.y);
+    }
 }
 
 inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
@@ -259,6 +278,20 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
         if (!(buf >> v))
             return false;
         msg.item_state[i] = v;
+    }
+    msg.movable_stones.clear();
+    // Optional extension: movable stone positions.
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        Uint16 mcount = 0;
+        if (!(buf >> mcount))
+            return false;
+        msg.movable_stones.reserve(mcount);
+        for (Uint16 i = 0; i < mcount; ++i) {
+            WorldStatePacket::MovableStone e;
+            if (!(buf >> e.object_id >> e.x >> e.y))
+                return false;
+            msg.movable_stones.push_back(e);
+        }
     }
     return true;
 }
@@ -414,7 +447,8 @@ inline bool decode_welcome(ecl::Buffer &buf, Uint8 &player_id, Uint8 &expected_p
 inline void encode_sync(ecl::Buffer &buf, const SyncPacket &msg) {
     buf << Uint8(NET_SYNC) << Uint32(msg.epoch) << Uint32(msg.tick) << Uint32(msg.random_state)
         << float(msg.p0_x) << float(msg.p0_y) << float(msg.p1_x) << float(msg.p1_y)
-        << Uint64(msg.world_checksum) << Uint64(msg.actor_checksum);
+        << Uint64(msg.world_checksum) << Uint64(msg.actor_checksum)
+        << Uint64(msg.grid_kind_checksum) << Uint64(msg.grid_state_checksum);
 }
 
 inline bool decode_sync(ecl::Buffer &buf, SyncPacket &msg) {
@@ -428,6 +462,8 @@ inline bool decode_sync(ecl::Buffer &buf, SyncPacket &msg) {
     float p1_y = 0.0f;
     Uint64 world_checksum = 0;
     Uint64 actor_checksum = 0;
+    Uint64 grid_kind_checksum = 0;
+    Uint64 grid_state_checksum = 0;
     if (!(buf >> type))
         return false;
     if (type != NET_SYNC)
@@ -444,6 +480,16 @@ inline bool decode_sync(ecl::Buffer &buf, SyncPacket &msg) {
     msg.p1_y = p1_y;
     msg.world_checksum = world_checksum;
     msg.actor_checksum = actor_checksum;
+    // Optional extension: grid checksums.
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        if (!(buf >> grid_kind_checksum >> grid_state_checksum))
+            return false;
+        msg.grid_kind_checksum = grid_kind_checksum;
+        msg.grid_state_checksum = grid_state_checksum;
+    } else {
+        msg.grid_kind_checksum = 0;
+        msg.grid_state_checksum = 0;
+    }
     return true;
 }
 
