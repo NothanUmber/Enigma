@@ -8,6 +8,9 @@ These scripts are consumed by `tools/mp_test_env.py` to drive two Enigma instanc
 ./tools/mp_test_env.py --script tools/mp_test_scripts/basic_join_and_move.txt
 ```
 
+Per-level scripts live in `tools/mp_test_scripts/` and are meant to be small,
+focused reproducers (for both failures and fixed regressions).
+
 ## Script Format
 
 - Empty lines and lines starting with `#` are ignored.

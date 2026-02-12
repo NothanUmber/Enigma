@@ -257,11 +257,16 @@ static void append_actor(std::ostringstream &os, const char *prefix, unsigned pl
     const ecl::V2 &v = a->get_vel();
     os.setf(std::ios::fixed);
     os.precision(3);
+    const ActorInfo *ai = a->get_actorinfo();
     os << " " << prefix << "valid=1"
        << " " << prefix << "kind=" << a->getKind()
        << " " << prefix << "obj=" << a->getId()
        << " " << prefix << "ctrl=" << a->get_controllers()
        << " " << prefix << "mf=" << a->get_mouseforce()
+       << " " << prefix << "grab=" << (ai && ai->grabbed ? 1 : 0)
+       << " " << prefix << "mov=" << (a->is_movable() ? 1 : 0)
+       << " " << prefix << "dead=" << (a->is_dead() ? 1 : 0)
+       << " " << prefix << "fly=" << (a->is_flying() ? 1 : 0)
        << " " << prefix << "x=" << p[0]
        << " " << prefix << "y=" << p[1]
        << " " << prefix << "vx=" << v[0]

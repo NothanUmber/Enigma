@@ -4,6 +4,7 @@
 #include "multiplayer_sim_snapshot.hh"
 #include "options.hh"
 #include "server.hh"
+#include "display.hh"
 
 #include <algorithm>
 #include <array>
@@ -255,6 +256,11 @@ void MaybeRollback(double timestep) {
         store_frame(t, sim_snapshot::Capture());
         g_last_snapshot_tick = t;
 
+        // Mirror the main loop order used by the test driver and typical gameplay:
+        // advance model animations (and their callbacks) before the next sim tick.
+        // This matters because some objects (e.g. balls) still couple gameplay state
+        // transitions to animation callbacks.
+        display::Tick(timestep);
         server::SimulateOneTick(timestep);
     }
 

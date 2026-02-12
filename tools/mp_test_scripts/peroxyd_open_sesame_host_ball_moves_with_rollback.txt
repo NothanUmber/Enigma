@@ -1,0 +1,44 @@
+# Confirms the host-controlled ball moves on the host instance with
+# zerofill + rollback enabled, using Per.Oxyd "Open Sesame".
+#
+# Intended to reproduce a regression where the host ball becomes unresponsive
+# under rollback/replay settings.
+
+# Configure debug options BEFORE session start (input::SetNetworked reads them).
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=1
+both SET_INT key=MultiplayerDebugRollbackKeepTicks value=200
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 2000
+both START_GAME
+
+# Stream state from host for movement assertions and option verification.
+host STREAM_STATE interval_ms=50
+host STATE
+wait role=host contains="EVT name=STATE" timeout_ms=2000
+wait role=host contains="zerofill=1" timeout_ms=2000
+wait role=host contains="rb=1" timeout_ms=2000
+
+# Log steerable actors once for debugging (controllers/adhesion/ownership).
+host LIST_STEERABLE
+sleep 200
+
+# Sanity: simulation should actually advance on the host.
+wait_state_change role=host field=tick min_abs_delta=1 timeout_ms=5000
+
+# Apply a sustained input sample for a short period to ensure the marble gets moving.
+host OVERRIDE_INPUT player=0 ticks=200 fx=300.0 fy=0.0
+sleep 50
+host STATE
+wait role=host contains="lc0_fx=300.000" timeout_ms=2000
+
+# The host should observe its own p0_x changing.
+wait_state_change role=host field=p0_x min_abs_delta=0.05 timeout_ms=5000
+
+both QUIT

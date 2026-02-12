@@ -86,6 +86,13 @@ namespace enigma {
         // ModelCallback interface  - Animation callback
         virtual void animcb();
 
+        // Multiplayer rollback/replay can restore simulation state without restoring
+        // render-model animation progress. Some gameplay-relevant states (notably
+        // APPEARING) rely on animation callbacks to transition to NORMAL; if the
+        // animation isn't running after restore, the marble can become permanently
+        // unresponsive. This helper makes the restored state playable again.
+        void MpFinishAppearingAfterSnapshotRestore();
+
     protected:
         virtual std::string getModelBaseName() const;
         virtual void sink(double dtime);

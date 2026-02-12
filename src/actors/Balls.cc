@@ -319,6 +319,16 @@ namespace enigma {
         }
     }
 
+    void BasicBall::MpFinishAppearingAfterSnapshotRestore() {
+        if (state != APPEARING)
+            return;
+        // Mirror the APPEARING->NORMAL transition that normally happens through
+        // the appear animation callback.
+        std::string kind = getModelBaseName();
+        set_model(kind);
+        change_state(NORMAL);
+    }
+
     std::string BasicBall::getModelBaseName() const {
         return getKind();
     }

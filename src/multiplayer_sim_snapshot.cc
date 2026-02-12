@@ -17,6 +17,7 @@
 #include "multiplayer_sim_snapshot.hh"
 
 #include "actors.hh"
+#include "actors/Balls.hh"
 #include "server.hh"
 #include "world.hh"
 
@@ -144,6 +145,9 @@ void Restore(const Snapshot &snap) {
             continue;
         a->restore_internal_state(it->second.internal_state);
         restore_actorinfo(*a, it->second.info);
+        if (BasicBall *ball = dynamic_cast<BasicBall *>(a)) {
+            ball->MpFinishAppearingAfterSnapshotRestore();
+        }
     }
 }
 
