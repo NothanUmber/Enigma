@@ -29,7 +29,7 @@ wait_state_change role=host field=tick min_abs_delta=1 timeout_ms=5000
 host OVERRIDE_INPUT player=0 ticks=120 fx=300.0 fy=0.0
 sleep 50
 host STATE
-wait role=host contains="in0_fx=300.000" timeout_ms=2000
+wait role=host contains="lc0_fx=300.000" timeout_ms=2000
 
 # The host should observe its own p0_x changing.
 wait_state_change role=host field=p0_x min_abs_delta=0.05 timeout_ms=5000

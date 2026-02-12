@@ -351,6 +351,23 @@ static void emit_state_snapshot() {
         }
     }
 
+    // Also report the last consumed input per player. This is often more useful
+    // than peeking the current tick because the sim may have just advanced and
+    // cleared the queue for the tick that applied movement.
+    for (unsigned p = 0; p < 2; ++p) {
+        input::PlayerInput last;
+        const bool ok = input::GetLastConsumed(p, last);
+        os << " lc" << p << "_present=" << (ok ? 1 : 0);
+        if (ok) {
+            os.setf(std::ios::fixed);
+            os.precision(3);
+            os << " lc" << p << "_fx=" << static_cast<double>(last.mouse_force[0])
+               << " lc" << p << "_fy=" << static_cast<double>(last.mouse_force[1])
+               << " lc" << p << "_rot=" << static_cast<int>(last.rotate_steps)
+               << " lc" << p << "_act=" << static_cast<unsigned>(last.activate_count);
+        }
+    }
+
     os << " mp_clock_tick=" << static_cast<unsigned>(s.input_clock_tick)
        << " mp_next_local_tick=" << static_cast<unsigned>(s.next_local_tick)
        << " mp_next_send_tick=" << static_cast<unsigned>(s.next_send_tick);

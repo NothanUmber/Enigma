@@ -52,6 +52,7 @@ bool PeekInput(uint32_t tick, unsigned player, PlayerInput &out);
 bool CanAdvanceTick();
 PlayerInput ConsumeInput(uint32_t tick, unsigned player);
 void AdvanceTick();
+bool GetLastConsumed(unsigned player, PlayerInput &out);
 
 struct TickInputsSnapshot {
     uint32_t tick = 0;

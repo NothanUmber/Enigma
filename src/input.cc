@@ -233,6 +233,13 @@ void AdvanceTick() {
     ++g_current_tick;
 }
 
+bool GetLastConsumed(unsigned player, PlayerInput &out) {
+    if (!valid_player(player))
+        return false;
+    out = g_last_consumed[player];
+    return true;
+}
+
 Snapshot CaptureSnapshot() {
     Snapshot snap;
     snap.networked = g_networked;
