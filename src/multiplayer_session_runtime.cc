@@ -21,11 +21,14 @@
 #include "multiplayer_extra_players.hh"
 #include "multiplayer_rollback.hh"
 #include "multiplayer_session_impl.hh"
+#include "multiplayer_transport.hh"
 
 #include "input.hh"
 #include "options.hh"
 #include "server.hh"
 #include "world.hh"
+
+#include "SDL.h"
 
 #include <algorithm>
 #include <cmath>
@@ -352,6 +355,16 @@ void SessionPrimeInputQueueForNewLevel() {
     g_session.placement_received.clear();
     g_session.needs_placement.clear();
     g_session.last_defer_start_log = -1;
+    g_session.auto_detect_active = false;
+    g_session.auto_detect_done = false;
+    g_session.auto_detect_next_ping_id = 1;
+    g_session.auto_detect_next_send_ms = 0;
+    g_session.auto_detect_end_ms = 0;
+    g_session.auto_detect_selected_preset = -1;
+    g_session.auto_detect_inflight_ms.clear();
+    g_session.auto_detect_rtts_ms.clear();
+    g_session.auto_detect_sent.clear();
+    g_session.auto_detect_recv.clear();
     if (g_session.host) {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;
@@ -363,6 +376,172 @@ void SessionPrimeInputQueueForNewLevel() {
 }
 
 namespace {
+
+Uint32 percentile_ms(std::vector<Uint32> samples, double p) {
+    if (samples.empty())
+        return 0;
+    if (p <= 0.0)
+        p = 0.0;
+    if (p >= 1.0)
+        p = 1.0;
+    std::sort(samples.begin(), samples.end());
+    const size_t idx = static_cast<size_t>(std::floor(p * static_cast<double>(samples.size() - 1)));
+    return samples[idx];
+}
+
+int classify_connectivity_preset(Uint32 worst_p90_ms) {
+    // Thresholds are conservative: we prefer a slower but stable experience.
+    if (worst_p90_ms <= 70)
+        return 0;  // good
+    if (worst_p90_ms <= 180)
+        return 1;  // mediocre
+    return 2;      // bad
+}
+
+void apply_connectivity_preset_to_options(int preset_id) {
+    // Keep in sync with the UI presets (OptionsMenu::apply_mp_debug_preset()).
+    bool zerofill = false;
+    bool rollback = false;
+    bool remote_local_ball = false;
+    int tick_ms = 10;
+    int input_delay_legacy_ticks = 4;
+    int predict_mouse_ticks = 0;
+    int host_resync_stride = 50;
+    int host_world_stride = 50;
+
+    if (preset_id == 1) {  // mediocre
+        zerofill = true;
+        rollback = true;
+        remote_local_ball = false;
+        tick_ms = 20;
+        input_delay_legacy_ticks = 8;
+        predict_mouse_ticks = 2;
+        host_resync_stride = 25;
+        host_world_stride = 25;
+    } else if (preset_id == 2) {  // bad
+        zerofill = true;
+        rollback = true;
+        remote_local_ball = true;
+        tick_ms = 50;
+        input_delay_legacy_ticks = 16;
+        predict_mouse_ticks = 5;
+        host_resync_stride = 10;
+        host_world_stride = 10;
+    }
+
+    options::SetOption("MultiplayerDebugSmoothRender", true);
+    options::SetOption("MultiplayerDebugZeroFillInputs", zerofill);
+    options::SetOption("MultiplayerDebugRollbackEnabled", rollback);
+    options::SetOption("MultiplayerDebugRemoteControlLocalBall", remote_local_ball);
+
+    options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(tick_ms));
+    options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(input_delay_legacy_ticks));
+    options::SetOption("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(predict_mouse_ticks));
+    options::SetOption("MultiplayerDebugHostBroadcastResyncStrideTicks", static_cast<double>(host_resync_stride));
+    options::SetOption("MultiplayerDebugHostBroadcastWorldStateStrideTicks", static_cast<double>(host_world_stride));
+    options::SetOption("MultiplayerDebugRollbackKeepTicks", 200.0);
+
+    // Ensure the host session uses the chosen tick immediately (before NET_START).
+    g_session.tick_ms = static_cast<Uint16>(tick_ms);
+    input::SetTickTimestep(static_cast<double>(g_session.tick_ms) / 1000.0);
+}
+
+void host_send_ping_to_remote(HostSource source, ENetPeer *peer, Uint32 relay_client_id, Uint32 ping_id) {
+    protocol::PingPacket msg;
+    msg.ping_id = ping_id;
+    ecl::Buffer payload;
+    protocol::encode_ping(payload, msg);
+    if (source == HostSource::DIRECT) {
+        g_transport.HostSendDirectUnreliable(peer, payload);
+        return;
+    }
+    if (source == HostSource::UDP_RELAY) {
+        g_transport.HostSendUdpRelay(relay_client_id, payload);
+        return;
+    }
+    if (source == HostSource::TCP_RELAY) {
+        g_transport.HostSendTcpRelay(relay_client_id, payload);
+        return;
+    }
+}
+
+void start_host_auto_detect_connectivity() {
+    g_session.auto_detect_active = true;
+    g_session.auto_detect_done = false;
+    g_session.auto_detect_selected_preset = -1;
+    g_session.auto_detect_next_ping_id = 1;
+    const Uint32 now_ms = SDL_GetTicks();
+    g_session.auto_detect_next_send_ms = now_ms;
+    g_session.auto_detect_end_ms = now_ms + 1200;  // ~12 pings @ 100ms
+
+    const size_t n = g_session.expected_players;
+    g_session.auto_detect_inflight_ms.assign(n, std::unordered_map<Uint32, Uint32>());
+    g_session.auto_detect_rtts_ms.assign(n, std::vector<Uint32>());
+    g_session.auto_detect_sent.assign(n, 0);
+    g_session.auto_detect_recv.assign(n, 0);
+}
+
+bool tick_host_auto_detect_connectivity() {
+    if (!g_session.auto_detect_active)
+        return true;
+    const Uint32 now_ms = SDL_GetTicks();
+
+    if (now_ms >= g_session.auto_detect_next_send_ms && now_ms < g_session.auto_detect_end_ms) {
+        // Send one ping per remote player.
+        for (const auto &entry : g_session.peer_players) {
+            ENetPeer *peer = entry.first;
+            const unsigned player_id = entry.second;
+            if (player_id >= g_session.expected_players)
+                continue;
+            const Uint32 ping_id = g_session.auto_detect_next_ping_id++;
+            g_session.auto_detect_inflight_ms[player_id][ping_id] = now_ms;
+            g_session.auto_detect_sent[player_id] += 1;
+            host_send_ping_to_remote(HostSource::DIRECT, peer, 0, ping_id);
+        }
+        for (const auto &entry : g_session.relay_players) {
+            const Uint32 client_id = entry.first;
+            const unsigned player_id = entry.second;
+            if (player_id >= g_session.expected_players)
+                continue;
+            const Uint32 ping_id = g_session.auto_detect_next_ping_id++;
+            g_session.auto_detect_inflight_ms[player_id][ping_id] = now_ms;
+            g_session.auto_detect_sent[player_id] += 1;
+            host_send_ping_to_remote(HostSource::UDP_RELAY, nullptr, client_id, ping_id);
+        }
+        for (const auto &entry : g_session.tcp_relay_players) {
+            const Uint32 client_id = entry.first;
+            const unsigned player_id = entry.second;
+            if (player_id >= g_session.expected_players)
+                continue;
+            const Uint32 ping_id = g_session.auto_detect_next_ping_id++;
+            g_session.auto_detect_inflight_ms[player_id][ping_id] = now_ms;
+            g_session.auto_detect_sent[player_id] += 1;
+            host_send_ping_to_remote(HostSource::TCP_RELAY, nullptr, client_id, ping_id);
+        }
+        g_transport.Flush();
+        g_session.auto_detect_next_send_ms = now_ms + 100;
+    }
+
+    if (now_ms < g_session.auto_detect_end_ms)
+        return false;
+
+    // Finish: classify based on worst p90 RTT across remotes.
+    Uint32 worst_p90 = 0;
+    for (unsigned player = 1; player < g_session.expected_players; ++player) {
+        Uint32 p90 = percentile_ms(g_session.auto_detect_rtts_ms[player], 0.90);
+        // If we got no responses, treat as extremely bad.
+        if (g_session.auto_detect_rtts_ms[player].empty())
+            p90 = 10000;
+        if (p90 > worst_p90)
+            worst_p90 = p90;
+    }
+    const int preset = classify_connectivity_preset(worst_p90);
+    g_session.auto_detect_selected_preset = preset;
+    g_session.auto_detect_active = false;
+    g_session.auto_detect_done = true;
+    debug_log("mp auto-detect: worst_p90_rtt_ms=%u preset=%d", static_cast<unsigned>(worst_p90), preset);
+    return true;
+}
 
 void tick_advance_input_clock(double dtime) {
     g_session.input_clock_accu += dtime;
@@ -534,6 +713,19 @@ void tick_update_start_phase() {
         g_session.load_announce_timer = 0.0;
         if (debug_enabled())
             debug_log("mp host: start allowed");
+
+        // Ensure all peers use the same host-selected debug/session settings before NET_START.
+        // If auto-detect is enabled, override the host's manual settings with the chosen preset.
+        if (options::GetBool("MultiplayerAutoDetectConnectivity") && g_session.expected_players > 1) {
+            if (!g_session.auto_detect_done && !g_session.auto_detect_active)
+                start_host_auto_detect_connectivity();
+            if (!tick_host_auto_detect_connectivity())
+                return;
+            if (g_session.auto_detect_selected_preset >= 0)
+                apply_connectivity_preset_to_options(g_session.auto_detect_selected_preset);
+        }
+        SessionBroadcastDebugOptions();
+
         g_session.input_epoch += 1;
         g_session.debug_state_dumped = false;
         configure_input_session(g_session.expected_players);

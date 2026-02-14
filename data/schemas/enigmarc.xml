@@ -16,6 +16,8 @@
     <property key="MultiplayerEnableDirect" value="1"/>
     <property key="MultiplayerEnableUdpRelay" value="1"/>
     <property key="MultiplayerEnableTcpRelay" value="1"/>
+    <property key="MultiplayerAutoDetectConnectivity" value="1"/>
+    <property key="MultiplayerConnectivityPreset" value="1"/>
     <property key="MultiplayerInternetLobbyPort" value="12347"/>
     <property key="MultiplayerInternetUdpRelayPort" value="12348"/>
     <property key="MultiplayerInternetTcpRelayPort" value="12349"/>

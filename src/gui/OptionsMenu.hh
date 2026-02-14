@@ -91,14 +91,18 @@ namespace enigma { namespace gui {
 	        gui::TextField *mpHostBroadcastResyncStrideTicksTF;
 	        gui::TextField *mpHostBroadcastWorldStateStrideTicksTF;
 	        gui::TextField *mpRollbackKeepTicksTF;
-		        gui::TextField *menuMusicTF;
+	        gui::StaticTextButton *mpPresetGoodConnButton;
+	        gui::StaticTextButton *mpPresetMediocreConnButton;
+	        gui::StaticTextButton *mpPresetBadConnButton;
+	        gui::TextField *menuMusicTF;
         ecl::Surface *background;
         bool gameIsOngoing;
         bool videoSettingsTouched;
         bool showVideoCheck;
         OptionsPage pageAfterVideoCheck;
         OptionsPage currentPage;
-    };
+	        void apply_mp_debug_preset(int preset_id);
+		    };
 
 
 /* -------------------- Functions -------------------- */

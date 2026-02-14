@@ -34,6 +34,8 @@
 #include "lev/Proxy.hh"
 #include "world.hh"
 
+#include "SDL.h"
+
 #include <algorithm>
 #include <cstdarg>
 #include <cstdint>
@@ -98,6 +100,14 @@ unsigned SessionConnectedRemotePlayers() {
                                  g_session.tcp_relay_players.size());
 }
 
+namespace {
+void host_broadcast_debug_options();
+}  // namespace
+
+void SessionBroadcastDebugOptions() {
+    host_broadcast_debug_options();
+}
+
 bool can_accept_more_remote_players() {
     if (!g_session.host)
         return false;
@@ -113,6 +123,121 @@ bool can_accept_more_remote_players() {
 }
 
 namespace {
+
+// Bit layout for protocol::DebugOptionsPacket::bool_mask.
+enum DebugOptBits : Uint32 {
+    DBG_LOGGING = 1u << 0,
+    DBG_DUMP_STATE = 1u << 1,
+    DBG_TRACE_INIT = 1u << 2,
+    DBG_SMOOTH_RENDER = 1u << 3,
+    DBG_SKIP_LOCAL_RESYNC = 1u << 4,
+    DBG_FORCE_RELAY = 1u << 5,
+    DBG_BIND_LOCAL = 1u << 6,
+    DBG_ZEROFILL = 1u << 7,
+    DBG_ROLLBACK = 1u << 8,
+    DBG_REMOTE_LOCAL_BALL = 1u << 9,
+    DBG_NETSIM = 1u << 10,
+    DBG_NETSIM_ALL = 1u << 11
+};
+
+protocol::DebugOptionsPacket build_debug_options_from_prefs() {
+    protocol::DebugOptionsPacket msg;
+    msg.version = 1;
+    msg.tick_ms = g_session.tick_ms;
+
+    Uint32 mask = 0;
+    if (options::GetBool("MultiplayerDebugLogging"))
+        mask |= DBG_LOGGING;
+    if (options::GetBool("MultiplayerDebugDumpState"))
+        mask |= DBG_DUMP_STATE;
+    if (options::GetBool("MultiplayerDebugTraceWorldInit"))
+        mask |= DBG_TRACE_INIT;
+    if (options::GetBool("MultiplayerDebugSmoothRender"))
+        mask |= DBG_SMOOTH_RENDER;
+    if (options::GetBool("MultiplayerDebugSkipLocalResync"))
+        mask |= DBG_SKIP_LOCAL_RESYNC;
+    if (options::GetBool("MultiplayerDebugForceRelay"))
+        mask |= DBG_FORCE_RELAY;
+    if (options::GetBool("MultiplayerDebugBindLocal"))
+        mask |= DBG_BIND_LOCAL;
+    if (options::GetBool("MultiplayerDebugZeroFillInputs"))
+        mask |= DBG_ZEROFILL;
+    if (options::GetBool("MultiplayerDebugRollbackEnabled"))
+        mask |= DBG_ROLLBACK;
+    if (options::GetBool("MultiplayerDebugRemoteControlLocalBall"))
+        mask |= DBG_REMOTE_LOCAL_BALL;
+    if (options::GetBool("MultiplayerDebugNetSimEnabled"))
+        mask |= DBG_NETSIM;
+    if (options::GetBool("MultiplayerDebugNetSimAll"))
+        mask |= DBG_NETSIM_ALL;
+
+    msg.bool_mask = mask;
+    msg.predict_missing_mouse_ticks =
+        static_cast<Uint16>(std::max(0, options::GetInt("MultiplayerDebugPredictMissingMouseTicks")));
+    msg.input_delay_legacy_ticks =
+        static_cast<Uint16>(std::max(0, options::GetInt("MultiplayerDebugInputDelayTicks")));
+    msg.host_resync_stride_legacy_ticks = static_cast<Uint16>(
+        std::max(0, options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks")));
+    msg.host_world_stride_legacy_ticks = static_cast<Uint16>(
+        std::max(0, options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks")));
+    msg.rollback_keep_ticks =
+        static_cast<Uint16>(std::max(0, options::GetInt("MultiplayerDebugRollbackKeepTicks")));
+    msg.netsim_delay_ms =
+        static_cast<Uint16>(std::max(0, options::GetInt("MultiplayerDebugNetSimDelayMs")));
+    msg.netsim_jitter_ms =
+        static_cast<Uint16>(std::max(0, options::GetInt("MultiplayerDebugNetSimJitterMs")));
+    msg.netsim_drop_pct = static_cast<Uint8>(
+        std::max(0, std::min(100, options::GetInt("MultiplayerDebugNetSimDropPct"))));
+    msg.netsim_dup_pct = static_cast<Uint8>(
+        std::max(0, std::min(100, options::GetInt("MultiplayerDebugNetSimDupPct"))));
+    return msg;
+}
+
+void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, bool allow_simulation_mutation) {
+    const Uint32 m = msg.bool_mask;
+
+    options::SetOption("MultiplayerDebugLogging", (m & DBG_LOGGING) != 0);
+    options::SetOption("MultiplayerDebugDumpState", (m & DBG_DUMP_STATE) != 0);
+    options::SetOption("MultiplayerDebugTraceWorldInit", (m & DBG_TRACE_INIT) != 0);
+    options::SetOption("MultiplayerDebugSmoothRender", (m & DBG_SMOOTH_RENDER) != 0);
+
+    if (!allow_simulation_mutation)
+        return;
+
+    options::SetOption("MultiplayerDebugSkipLocalResync", (m & DBG_SKIP_LOCAL_RESYNC) != 0);
+    options::SetOption("MultiplayerDebugForceRelay", (m & DBG_FORCE_RELAY) != 0);
+    options::SetOption("MultiplayerDebugBindLocal", (m & DBG_BIND_LOCAL) != 0);
+    options::SetOption("MultiplayerDebugZeroFillInputs", (m & DBG_ZEROFILL) != 0);
+    options::SetOption("MultiplayerDebugRollbackEnabled", (m & DBG_ROLLBACK) != 0);
+    options::SetOption("MultiplayerDebugRemoteControlLocalBall", (m & DBG_REMOTE_LOCAL_BALL) != 0);
+    options::SetOption("MultiplayerDebugNetSimEnabled", (m & DBG_NETSIM) != 0);
+    options::SetOption("MultiplayerDebugNetSimAll", (m & DBG_NETSIM_ALL) != 0);
+
+    options::SetOption("MultiplayerDebugPredictMissingMouseTicks",
+                       static_cast<double>(msg.predict_missing_mouse_ticks));
+    options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(msg.input_delay_legacy_ticks));
+    options::SetOption("MultiplayerDebugHostBroadcastResyncStrideTicks",
+                       static_cast<double>(msg.host_resync_stride_legacy_ticks));
+    options::SetOption("MultiplayerDebugHostBroadcastWorldStateStrideTicks",
+                       static_cast<double>(msg.host_world_stride_legacy_ticks));
+    options::SetOption("MultiplayerDebugRollbackKeepTicks", static_cast<double>(msg.rollback_keep_ticks));
+    options::SetOption("MultiplayerDebugNetSimDelayMs", static_cast<double>(msg.netsim_delay_ms));
+    options::SetOption("MultiplayerDebugNetSimJitterMs", static_cast<double>(msg.netsim_jitter_ms));
+    options::SetOption("MultiplayerDebugNetSimDropPct", static_cast<double>(msg.netsim_drop_pct));
+    options::SetOption("MultiplayerDebugNetSimDupPct", static_cast<double>(msg.netsim_dup_pct));
+    // Keep the Debug UI consistent with the negotiated tick length.
+    options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(msg.tick_ms));
+}
+
+void host_broadcast_debug_options() {
+    if (!g_session.active || !g_session.host || !has_remote_peers())
+        return;
+    protocol::DebugOptionsPacket msg = build_debug_options_from_prefs();
+    ecl::Buffer payload;
+    protocol::encode_debug_options(payload, msg);
+    g_transport.HostBroadcast(payload);
+    g_transport.Flush();
+}
 
 void host_send_current_load_to_remote(HostSource source, ENetPeer *peer, Uint32 relay_client_id) {
     if (!g_session.active || !g_session.host)
@@ -618,8 +743,39 @@ bool handle_host_placement_packet(const char *data, size_t len) {
     return true;
 }
 
+bool handle_host_pong_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
+                             Uint32 relay_client_id) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::PongPacket pong;
+    if (!protocol::decode_pong(buf, pong))
+        return false;
+    if (!g_session.host || !g_session.auto_detect_active)
+        return true;
+    unsigned player_id = 0;
+    if (!lookup_remote_player(source, peer, relay_client_id, player_id))
+        return true;
+    if (player_id >= g_session.auto_detect_inflight_ms.size())
+        return true;
+    auto &inflight = g_session.auto_detect_inflight_ms[player_id];
+    auto it = inflight.find(pong.ping_id);
+    if (it == inflight.end())
+        return true;
+    const Uint32 sent_ms = it->second;
+    inflight.erase(it);
+    const Uint32 now_ms = SDL_GetTicks();
+    const Uint32 rtt_ms = (now_ms >= sent_ms) ? (now_ms - sent_ms) : 0;
+    if (player_id < g_session.auto_detect_recv.size())
+        g_session.auto_detect_recv[player_id] += 1;
+    if (player_id < g_session.auto_detect_rtts_ms.size())
+        g_session.auto_detect_rtts_ms[player_id].push_back(rtt_ms);
+    return true;
+}
+
 bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                         Uint32 relay_client_id) {
+    if (handle_host_pong_packet(data, len, peer, source, relay_client_id))
+        return true;
     if (handle_host_input_bundle_packet(data, len, peer, source, relay_client_id))
         return true;
     if (handle_host_input_packet(data, len, peer, source, relay_client_id))
@@ -769,6 +925,44 @@ bool handle_client_welcome_packet(const char *data, size_t len) {
     // READY must mean "level pack switched + level loaded, waiting for NET_START".
     // If we send READY immediately after WELCOME, the host can start running while
     // the client is still switching packs (or even failing to load the level).
+    return true;
+}
+
+bool handle_client_debug_options_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::DebugOptionsPacket msg;
+    if (!protocol::decode_debug_options(buf, msg))
+        return false;
+    // Apply host-provided session settings before NET_START. Avoid mutating
+    // simulation-affecting settings while the world is already running.
+    const bool allow_sim_mutation = (g_session.phase != SessionState::Phase::RUNNING);
+    apply_debug_options_to_options(msg, allow_sim_mutation);
+    if (allow_sim_mutation && msg.tick_ms != 0) {
+        g_session.tick_ms = msg.tick_ms;
+        input::SetTickTimestep(static_cast<double>(g_session.tick_ms) / 1000.0);
+    }
+    if (debug_enabled()) {
+        debug_log("mp client: debug options applied tick_ms=%u sim_mut=%d",
+                  static_cast<unsigned>(msg.tick_ms),
+                  allow_sim_mutation ? 1 : 0);
+    }
+    return true;
+}
+
+bool handle_client_ping_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::PingPacket ping;
+    if (!protocol::decode_ping(buf, ping))
+        return false;
+    if (g_session.host)
+        return true;
+    protocol::PongPacket pong;
+    pong.ping_id = ping.ping_id;
+    ecl::Buffer out;
+    protocol::encode_pong(out, pong);
+    g_transport.ClientSendUnreliable(out);
     return true;
 }
 
@@ -1162,6 +1356,10 @@ void handle_client_payload(const char *data, size_t len) {
         return;
     if (handle_client_input_packet(data, len))
         return;
+    if (handle_client_debug_options_packet(data, len))
+        return;
+    if (handle_client_ping_packet(data, len))
+        return;
     if (handle_client_welcome_packet(data, len))
         return;
     if (handle_client_load_level_packet(data, len))
@@ -1219,6 +1417,7 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
         g_session.relay_ready[client_id] = false;
         debug_log("mp host: relay client -> player %u", player_id);
         g_transport.HostSendUdpRelay(client_id, welcome);
+        host_broadcast_debug_options();
         send_existing_placements_to_relay(client_id);
         host_send_current_load_to_remote(HostSource::UDP_RELAY, nullptr, client_id);
         return true;
@@ -1229,6 +1428,7 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
         g_session.tcp_relay_ready[client_id] = false;
         debug_log("mp host: tcp relay client -> player %u", player_id);
         g_transport.HostSendTcpRelay(client_id, welcome);
+        host_broadcast_debug_options();
         send_existing_placements_to_tcp_relay(client_id);
         host_send_current_load_to_remote(HostSource::TCP_RELAY, nullptr, client_id);
         return true;
@@ -1331,6 +1531,7 @@ bool handle_direct_connect_event(ENetPeer *peer) {
                              static_cast<Uint8>(g_session.expected_players), g_session.seed,
                              static_cast<Uint16>(g_session.tick_ms));
     g_transport.HostSendDirect(peer, buf);
+    host_broadcast_debug_options();
     send_existing_placements_to_peer(peer);
     host_send_current_load_to_remote(HostSource::DIRECT, peer, 0);
     g_transport.Flush();

@@ -60,6 +60,9 @@ TransportKind SessionActiveTransport();
 // reports menu-open changes and the host broadcasts the resulting pause/unpause decision.
 void SessionSetMenuOpen(bool open);
 void SessionRequestAbort();
+// Host -> clients: broadcast the host's current MultiplayerDebug* settings.
+// Intended to run before NET_START so all peers use the same session configuration.
+void SessionBroadcastDebugOptions();
 
 void SessionPrepareExtraActors();
 void SessionSetupExtraPlayerStartPositions();

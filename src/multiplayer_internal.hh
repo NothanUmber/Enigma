@@ -263,11 +263,26 @@ struct LobbyState {
 
 	    bool local_ready_sent = false;
 	    double ready_timer = 0.0;
-	    // While waiting for READY, periodically re-announce the current level load
-	    // to handle packet loss / late joins robustly.
-	    double load_announce_timer = 0.0;
-	    bool has_pending_sync = false;
-	    protocol::SyncPacket pending_sync;
+		    // While waiting for READY, periodically re-announce the current level load
+		    // to handle packet loss / late joins robustly.
+		    double load_announce_timer = 0.0;
+		    // Host-side connectivity auto-detect (optional).
+		    //
+		    // When enabled, the host probes RTT to each client before starting the
+		    // level and selects one of the connectivity presets based on the worst
+		    // observed link.
+		    bool auto_detect_active = false;
+		    bool auto_detect_done = false;
+		    Uint32 auto_detect_next_ping_id = 1;
+		    Uint32 auto_detect_next_send_ms = 0;
+		    Uint32 auto_detect_end_ms = 0;
+		    int auto_detect_selected_preset = -1;  // 0=good,1=mediocre,2=bad
+		    std::vector<std::unordered_map<Uint32, Uint32>> auto_detect_inflight_ms;
+		    std::vector<std::vector<Uint32>> auto_detect_rtts_ms;
+		    std::vector<Uint32> auto_detect_sent;
+		    std::vector<Uint32> auto_detect_recv;
+		    bool has_pending_sync = false;
+		    protocol::SyncPacket pending_sync;
     struct ChecksumSample {
         uint32_t tick = 0;
         uint64_t world_checksum = 0;

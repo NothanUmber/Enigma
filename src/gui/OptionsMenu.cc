@@ -752,10 +752,13 @@ public:
 		      mpNetSimDupTF(NULL),
 		      mpPredictMissingMouseTicksTF(NULL),
 		      mpInputDelayTicksTF(NULL),
-		      mpTickLengthMsTF(NULL),
-		      mpHostBroadcastResyncStrideTicksTF(NULL),
-		      mpHostBroadcastWorldStateStrideTicksTF(NULL),
-		      mpRollbackKeepTicksTF(NULL),
+	      mpTickLengthMsTF(NULL),
+	      mpHostBroadcastResyncStrideTicksTF(NULL),
+	      mpHostBroadcastWorldStateStrideTicksTF(NULL),
+	      mpRollbackKeepTicksTF(NULL),
+	      mpPresetGoodConnButton(NULL),
+	      mpPresetMediocreConnButton(NULL),
+	      mpPresetBadConnButton(NULL),
 	      menuMusicTF(NULL),
 	      background(background_),
 	      gameIsOngoing(gameIsOngoing_),
@@ -966,10 +969,10 @@ public:
                 OPTIONS_NEW_L(N_("User name: "))
                 OPTIONS_NEW_T(userNameTF)
                 break;
-            case OPTIONS_MULTIPLAYER: {
-                if (gameIsOngoing) {
-                    optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
-                    optionsVList->set_spacing(0);
+	            case OPTIONS_MULTIPLAYER: {
+	                if (gameIsOngoing) {
+	                    optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
+	                    optionsVList->set_spacing(0);
                     ecl::Font* f = enigma::GetFont("menufont");
                     const std::string text =
                         _("Leave current game to change multiplayer settings.");
@@ -979,20 +982,22 @@ public:
                         OPTIONS_NEW_USL(std::string(*it));
                     }
                 } else {
-                    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-                    std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
-                    multiplayerLobbyTF = new TextField(lobby_server);
-                    multiplayerLobbyTF->setMaxChars(128);
-                    OPTIONS_NEW_L(N_("Lobby/Relay server: "))
-                    OPTIONS_NEW_T(multiplayerLobbyTF)
+	                    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+	                    std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
+	                    multiplayerLobbyTF = new TextField(lobby_server);
+	                    multiplayerLobbyTF->setMaxChars(128);
+	                    OPTIONS_NEW_LB(N_("Lobby/Relay server: "), multiplayerLobbyTF)
 
-                    // Transport toggles (order is still direct > UDP relay > TCP relay).
-                    OPTIONS_NEW_LB(N_("Direct connect: "),
-                                  new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
-                    OPTIONS_NEW_LB(N_("UDP relay: "),
+	                    // Transport toggles (order is still direct > UDP relay > TCP relay).
+	                    OPTIONS_NEW_LB(N_("Direct connect: "),
+	                                  new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
+	                    OPTIONS_NEW_LB(N_("UDP relay: "),
                                   new ToggleOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
                     OPTIONS_NEW_LB(N_("TCP relay: "),
                                   new ToggleOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
+
+                    OPTIONS_NEW_LB(N_("Auto detect connectivity: "),
+                                  new ToggleOptionButton("MultiplayerAutoDetectConnectivity", N_("On"), N_("Off")))
 
                     // Port overrides. These are primarily for Internet mode hosting/debugging and
                     // should match the lobby/relay server deployment.
@@ -1001,18 +1006,38 @@ public:
                         tf->setMaxChars(5);
                         return tf;
                     };
-                    multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
-                    multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
-                    multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
-                    OPTIONS_NEW_L(N_("Lobby port: "))
-                    OPTIONS_NEW_T(multiplayerLobbyPortTF)
-                    OPTIONS_NEW_L(N_("UDP relay port: "))
-                    OPTIONS_NEW_T(multiplayerUdpRelayPortTF)
-                    OPTIONS_NEW_L(N_("TCP relay port: "))
-                    OPTIONS_NEW_T(multiplayerTcpRelayPortTF)
-                }
-                break;
-            }
+	                    multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
+	                    multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
+	                    multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
+	                    OPTIONS_NEW_LB(N_("Lobby port: "), multiplayerLobbyPortTF)
+	                    OPTIONS_NEW_LB(N_("UDP relay port: "), multiplayerUdpRelayPortTF)
+	                    OPTIONS_NEW_LB(N_("TCP relay port: "), multiplayerTcpRelayPortTF)
+
+	                    // Presets apply MultiplayerDebug* prefs. Keep this on the Multiplayer
+	                    // page so users can switch behavior without understanding all options.
+	                    mpPresetGoodConnButton = new StaticTextButton(N_("Good"), this);
+	                    mpPresetMediocreConnButton = new StaticTextButton(N_("Normal"), this);
+	                    mpPresetBadConnButton = new StaticTextButton(N_("Bad"), this);
+
+	                    HList *preset_row = new HList;
+	                    preset_row->set_spacing(param[vtt].hoption_option);
+	                    preset_row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
+	                    preset_row->set_size(label_button_total_width, param[vtt].button_height);
+	                    preset_row->set_default_size(param[vtt].optionl_width, param[vtt].button_height);
+	                    preset_row->add_back(new Label(N_("Connectivity:"), HALIGN_RIGHT, VALIGN_CENTER));
+
+	                    HList *preset_buttons = new HList;
+	                    preset_buttons->set_spacing(param[vtt].hoption_option / 2);
+	                    preset_buttons->set_alignment(HALIGN_LEFT, VALIGN_TOP);
+	                    preset_buttons->add_back(mpPresetGoodConnButton, List::EXPAND);
+	                    preset_buttons->add_back(mpPresetMediocreConnButton, List::EXPAND);
+	                    preset_buttons->add_back(mpPresetBadConnButton, List::EXPAND);
+
+	                    preset_row->add_back(preset_buttons, List::EXPAND);
+	                    optionsVList->add_back(preset_row);
+	                }
+	                break;
+	            }
 	            case OPTIONS_PATHS:
 	                userPathTF = new TextField(XMLtoUtf8(LocalToXML(app.userPath.c_str()).x_str()).c_str());
 	                OPTIONS_NEW_L(N_("User path: "))
@@ -1313,10 +1338,10 @@ public:
             commandHList = NULL;
         }
         back = NULL;
-        if (optionsVList != NULL) {
-            optionsVList->clear();
-            remove_child(optionsVList);
-            delete optionsVList;
+	        if (optionsVList != NULL) {
+	            optionsVList->clear();
+	            remove_child(optionsVList);
+	            delete optionsVList;
             optionsVList = NULL;
         }
         language = NULL;
@@ -1341,11 +1366,14 @@ public:
 		        mpNetSimJitterTF = NULL;
 		        mpNetSimDropTF = NULL;
 		        mpNetSimDupTF = NULL;
-		        mpPredictMissingMouseTicksTF = NULL;
-		        mpInputDelayTicksTF = NULL;
-		        mpHostBroadcastResyncStrideTicksTF = NULL;
-		        mpHostBroadcastWorldStateStrideTicksTF = NULL;
-		        mpRollbackKeepTicksTF = NULL;
+	        mpPredictMissingMouseTicksTF = NULL;
+	        mpInputDelayTicksTF = NULL;
+	        mpHostBroadcastResyncStrideTicksTF = NULL;
+	        mpHostBroadcastWorldStateStrideTicksTF = NULL;
+	        mpRollbackKeepTicksTF = NULL;
+	        mpPresetGoodConnButton = NULL;
+	        mpPresetMediocreConnButton = NULL;
+	        mpPresetBadConnButton = NULL;
 	        pageAfterVideoCheck = OPTIONS_MAIN;
 	        currentPage = OPTIONS_MAIN;
 	        showVideoCheck = false;
@@ -1468,6 +1496,12 @@ public:
 	        } else if (w == but_debug2_options) {
 	            close_page();
 	            open_page(OPTIONS_DEBUG2);
+	        } else if (w == mpPresetGoodConnButton) {
+	            apply_mp_debug_preset(0);
+	        } else if (w == mpPresetMediocreConnButton) {
+	            apply_mp_debug_preset(1);
+	        } else if (w == mpPresetBadConnButton) {
+	            apply_mp_debug_preset(2);
 	        } else if (w == videocheck_button_yes) {
 	            close_page();
 	            if (pageAfterVideoCheck == OPTIONS_VIDEOCHECK) {
@@ -1487,13 +1521,88 @@ public:
             video_engine->ApplySettings();
             background = enigma::GetImage("menu_bg", ".jpg");
             open_page(OPTIONS_VIDEO);
-        }
-    }
+	        }
+	    }
 
-    void OptionsMenu::draw_background(ecl::GC &gc)
-    {
-        const VMInfo *vminfo = video_engine->GetInfo();
-        set_caption(_("Enigma - Options Menu"));
+	    void OptionsMenu::apply_mp_debug_preset(int preset_id)
+	    {
+	        // Keep this explicit: presets directly set MultiplayerDebug* values so
+	        // users can inspect/modify them in Debug/Debug2 afterwards.
+	        struct Preset {
+	            bool zerofill = false;
+	            bool rollback = false;
+	            bool remote_local_ball = false;
+	            int tick_ms = 10;
+	            int input_delay_legacy_ticks = 4;
+	            int predict_mouse_ticks = 0;
+	            int host_resync_stride = 50;
+	            int host_world_stride = 50;
+	        };
+	        Preset p;
+	        switch (preset_id) {
+	        case 1:  // mediocre
+	            p.zerofill = true;
+	            p.rollback = true;
+	            p.remote_local_ball = false;
+	            p.tick_ms = 20;
+	            p.input_delay_legacy_ticks = 8;
+	            p.predict_mouse_ticks = 2;
+	            p.host_resync_stride = 25;
+	            p.host_world_stride = 25;
+	            break;
+	        case 2:  // bad
+	            p.zerofill = true;
+	            p.rollback = true;
+	            p.remote_local_ball = true;
+	            p.tick_ms = 50;
+	            p.input_delay_legacy_ticks = 16;
+	            p.predict_mouse_ticks = 5;
+	            p.host_resync_stride = 10;
+	            p.host_world_stride = 10;
+	            break;
+	        default:  // good
+	            p.zerofill = false;
+	            p.rollback = false;
+	            p.remote_local_ball = false;
+	            p.tick_ms = 10;
+	            p.input_delay_legacy_ticks = 4;
+	            p.predict_mouse_ticks = 0;
+	            p.host_resync_stride = 50;
+	            p.host_world_stride = 50;
+	            break;
+	        }
+
+	        app.prefs->setProperty("MultiplayerDebugSmoothRender", true);
+	        app.prefs->setProperty("MultiplayerDebugZeroFillInputs", p.zerofill);
+	        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", p.rollback);
+	        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", p.remote_local_ball);
+
+	        app.prefs->setProperty("MultiplayerDebugTickLengthMs", p.tick_ms);
+	        app.prefs->setProperty("MultiplayerDebugInputDelayTicks", p.input_delay_legacy_ticks);
+	        app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", p.predict_mouse_ticks);
+	        app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks", p.host_resync_stride);
+	        app.prefs->setProperty("MultiplayerDebugHostBroadcastWorldStateStrideTicks", p.host_world_stride);
+	        app.prefs->setProperty("MultiplayerDebugRollbackKeepTicks", 200);
+
+	        // Keep netsim off in presets (testers can enable it explicitly).
+	        app.prefs->setProperty("MultiplayerDebugNetSimEnabled", false);
+	        app.prefs->setProperty("MultiplayerDebugNetSimAll", false);
+	        app.prefs->setProperty("MultiplayerDebugNetSimDelayMs", 0);
+	        app.prefs->setProperty("MultiplayerDebugNetSimJitterMs", 0);
+	        app.prefs->setProperty("MultiplayerDebugNetSimDropPct", 0);
+	        app.prefs->setProperty("MultiplayerDebugNetSimDupPct", 0);
+
+	        // Conservative: ensure transport debug toggles don't surprise.
+	        app.prefs->setProperty("MultiplayerDebugForceRelay", false);
+	        app.prefs->setProperty("MultiplayerDebugBindLocal", false);
+
+	        invalidate_all();
+	    }
+
+	    void OptionsMenu::draw_background(ecl::GC &gc)
+	    {
+	        const VMInfo *vminfo = video_engine->GetInfo();
+	        set_caption(_("Enigma - Options Menu"));
         blit(gc, vminfo->mbg_offsetx, vminfo->mbg_offsety, background);
     }
 

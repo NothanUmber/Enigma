@@ -41,11 +41,16 @@ enum NetMessageType : Uint8 {
     // per-tick inputs (including a few repeats) to reduce lockstep stalls under
     // packet loss/jitter.
     NET_INPUT_BUNDLE = 14,
-    // Host -> clients: authoritative world state snapshot (grid object states).
-    NET_WORLD_STATE = 15,
-    // Client -> host: request an authoritative world state snapshot.
-    NET_WORLD_STATE_REQUEST = 16
-};
+	    // Host -> clients: authoritative world state snapshot (grid object states).
+	    NET_WORLD_STATE = 15,
+	    // Client -> host: request an authoritative world state snapshot.
+	    NET_WORLD_STATE_REQUEST = 16,
+	    // Host -> clients: host-selected debug/session settings (authoritative for the session).
+	    NET_DEBUG_OPTIONS = 17,
+	    // Host <-> clients: lightweight RTT probe for auto-detecting connectivity.
+	    NET_PING = 18,
+	    NET_PONG = 19
+	};
 
 struct LobbyAnnounce {
     std::string id;
@@ -167,6 +172,30 @@ struct WorldStatePacket {
 struct WorldStateRequest {
     Uint32 epoch;
     Uint32 tick;
+};
+
+struct DebugOptionsPacket {
+    // Packet format version (allows extending fields without breaking older builds).
+    Uint8 version = 1;
+    Uint16 tick_ms = 10;
+    Uint32 bool_mask = 0;
+    Uint16 predict_missing_mouse_ticks = 0;
+    Uint16 input_delay_legacy_ticks = 0;
+    Uint16 host_resync_stride_legacy_ticks = 0;
+    Uint16 host_world_stride_legacy_ticks = 0;
+    Uint16 rollback_keep_ticks = 0;
+    Uint16 netsim_delay_ms = 0;
+    Uint16 netsim_jitter_ms = 0;
+    Uint8 netsim_drop_pct = 0;
+    Uint8 netsim_dup_pct = 0;
+};
+
+struct PingPacket {
+    Uint32 ping_id = 0;
+};
+
+struct PongPacket {
+    Uint32 ping_id = 0;
 };
 
 struct RestartPacket {
@@ -382,6 +411,60 @@ inline bool decode_world_state_request(ecl::Buffer &buf, WorldStateRequest &msg)
         return false;
     msg.epoch = epoch;
     msg.tick = tick;
+    return true;
+}
+
+inline void encode_debug_options(ecl::Buffer &buf, const DebugOptionsPacket &msg) {
+    buf << Uint8(NET_DEBUG_OPTIONS) << Uint8(msg.version) << Uint16(msg.tick_ms) << Uint32(msg.bool_mask)
+        << Uint16(msg.predict_missing_mouse_ticks) << Uint16(msg.input_delay_legacy_ticks)
+        << Uint16(msg.host_resync_stride_legacy_ticks) << Uint16(msg.host_world_stride_legacy_ticks)
+        << Uint16(msg.rollback_keep_ticks) << Uint16(msg.netsim_delay_ms) << Uint16(msg.netsim_jitter_ms)
+        << Uint8(msg.netsim_drop_pct) << Uint8(msg.netsim_dup_pct);
+}
+
+inline bool decode_debug_options(ecl::Buffer &buf, DebugOptionsPacket &msg) {
+    Uint8 type = 0;
+    Uint8 ver = 0;
+    if (!(buf >> type >> ver))
+        return false;
+    if (type != NET_DEBUG_OPTIONS)
+        return false;
+    msg.version = ver;
+    if (!(buf >> msg.tick_ms >> msg.bool_mask >> msg.predict_missing_mouse_ticks >>
+          msg.input_delay_legacy_ticks >> msg.host_resync_stride_legacy_ticks >>
+          msg.host_world_stride_legacy_ticks >> msg.rollback_keep_ticks >> msg.netsim_delay_ms >>
+          msg.netsim_jitter_ms >> msg.netsim_drop_pct >> msg.netsim_dup_pct))
+        return false;
+    return true;
+}
+
+inline void encode_ping(ecl::Buffer &buf, const PingPacket &msg) {
+    buf << Uint8(NET_PING) << Uint32(msg.ping_id);
+}
+
+inline bool decode_ping(ecl::Buffer &buf, PingPacket &msg) {
+    Uint8 type = 0;
+    Uint32 ping_id = 0;
+    if (!(buf >> type >> ping_id))
+        return false;
+    if (type != NET_PING)
+        return false;
+    msg.ping_id = ping_id;
+    return true;
+}
+
+inline void encode_pong(ecl::Buffer &buf, const PongPacket &msg) {
+    buf << Uint8(NET_PONG) << Uint32(msg.ping_id);
+}
+
+inline bool decode_pong(ecl::Buffer &buf, PongPacket &msg) {
+    Uint8 type = 0;
+    Uint32 ping_id = 0;
+    if (!(buf >> type >> ping_id))
+        return false;
+    if (type != NET_PONG)
+        return false;
+    msg.ping_id = ping_id;
     return true;
 }
 
