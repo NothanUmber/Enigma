@@ -34,5 +34,6 @@ These are sent via `host ...` / `client ...` / `both ...` lines in scripts:
 - `STATE` / `STREAM_STATE interval_ms=<n>`: fetch or periodically emit `EVT name=STATE`.
 - `LIST_STEERABLE`: dump steerable actors (controllers/ownership hints).
 - `MOUSE_FORCE player=<p> fx=<f> fy=<f>`: add a one-shot local pending mouse force.
+- `HOLD_MOUSE_FORCE player=<p> ticks=<n> fx=<f> fy=<f>`: submit a fixed mouse-force delta once per simulation tick for the next `n` ticks.
 - `INJECT_INPUT player=<p> fx=<f> fy=<f> [rot=<i>] [act=<i>]`: enqueue an input sample for the current tick.
 - `OVERRIDE_INPUT player=<p> ticks=<n> fx=<f> fy=<f> [rot=<i>] [act=<i>]`: force an input sample for the next `n` simulation ticks.

@@ -1,0 +1,55 @@
+# Like peroxyd_open_sesame_fast_moves_with_netsim.txt, but also enables periodic
+# host resync broadcasts to reduce "seconds-long" divergence windows.
+
+both SET_BOOL key=MultiplayerDebugSmoothRender value=1
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=20
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=5
+
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=1
+both SET_INT key=MultiplayerDebugInputDelayTicks value=8
+both SET_INT key=MultiplayerDebugRollbackKeepTicks value=20
+
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=1
+both SET_BOOL key=MultiplayerDebugNetSimAll value=1
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=80
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=30
+both SET_INT key=MultiplayerDebugNetSimDropPct value=5
+both SET_INT key=MultiplayerDebugNetSimDupPct value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 2000
+both START_GAME
+
+both STREAM_STATE interval_ms=50
+sleep 200
+both STATE
+wait role=host contains="EVT name=STATE" timeout_ms=2000
+wait role=client contains="EVT name=STATE" timeout_ms=2000
+
+sleep 2000
+
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=0.0 fy=-300.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=300.0 fy=0.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=0.0 fy=300.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=-300.0 fy=0.0
+sleep 600
+
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=0.0 fy=-300.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=300.0 fy=0.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=0.0 fy=300.0
+sleep 600
+client HOLD_MOUSE_FORCE player=1 ticks=40 fx=-300.0 fy=0.0
+sleep 600
+
+sleep 2000
+both QUIT

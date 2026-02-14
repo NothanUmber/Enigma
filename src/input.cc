@@ -22,6 +22,7 @@ bool g_zerofill_missing_inputs = false;
 unsigned g_predict_missing_mouse_ticks = 0;
 unsigned g_expected_players = 1;
 uint32_t g_current_tick = 0;
+double g_tick_timestep = 0.01;
 std::array<PlayerInput, kMaxPlayers> g_local_pending;
 std::map<uint32_t, TickInputs> g_queue;
 std::array<PlayerInput, kMaxPlayers> g_last_consumed;
@@ -70,6 +71,7 @@ void Reset() {
     g_zerofill_missing_inputs = false;
     g_predict_missing_mouse_ticks = 0;
     g_expected_players = 1;
+    g_tick_timestep = 0.01;
     for (auto &pending : g_local_pending)
         pending = PlayerInput();
     for (auto &entry : g_last_consumed)
@@ -105,6 +107,19 @@ bool IsNetworked() {
 
 bool ZerofillMissingInputsEnabled() {
     return g_networked && g_zerofill_missing_inputs;
+}
+
+double TickTimestep() {
+    return g_tick_timestep;
+}
+
+void SetTickTimestep(double seconds) {
+    // Keep within a sane range; the engine expects a small fixed timestep.
+    if (seconds < 0.005)
+        seconds = 0.005;
+    if (seconds > 0.050)
+        seconds = 0.050;
+    g_tick_timestep = seconds;
 }
 
 void SetExpectedPlayers(unsigned count) {

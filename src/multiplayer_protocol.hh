@@ -429,20 +429,33 @@ inline bool decode_input_bundle(ecl::Buffer &buf, InputBundlePacket &msg) {
     return true;
 }
 
-inline void encode_welcome(ecl::Buffer &buf, Uint8 player_id, Uint8 expected_players, Uint32 seed) {
-    buf << Uint8(NET_WELCOME) << Uint8(player_id) << Uint8(expected_players) << Uint32(seed);
-}
+	inline void encode_welcome(ecl::Buffer &buf, Uint8 player_id, Uint8 expected_players, Uint32 seed,
+	                           Uint16 tick_ms) {
+	    buf << Uint8(NET_WELCOME) << Uint8(player_id) << Uint8(expected_players) << Uint32(seed)
+	        << Uint16(tick_ms);
+	}
 
-inline bool decode_welcome(ecl::Buffer &buf, Uint8 &player_id, Uint8 &expected_players, Uint32 &seed) {
-    Uint8 type = 0;
-    if (!(buf >> type))
-        return false;
-    if (type != NET_WELCOME)
-        return false;
-    if (!(buf >> player_id >> expected_players >> seed))
-        return false;
-    return true;
-}
+	inline bool decode_welcome(ecl::Buffer &buf, Uint8 &player_id, Uint8 &expected_players, Uint32 &seed,
+	                           Uint16 *tick_ms = nullptr) {
+	    Uint8 type = 0;
+	    if (!(buf >> type))
+	        return false;
+	    if (type != NET_WELCOME)
+	        return false;
+	    if (!(buf >> player_id >> expected_players >> seed))
+	        return false;
+	    // Optional extension: negotiated tick duration (ms).
+	    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+	        Uint16 ms = 0;
+	        if (!(buf >> ms))
+	            return false;
+	        if (tick_ms)
+	            *tick_ms = ms;
+	    } else if (tick_ms) {
+	        *tick_ms = 0;
+	    }
+	    return true;
+	}
 
 inline void encode_sync(ecl::Buffer &buf, const SyncPacket &msg) {
     buf << Uint8(NET_SYNC) << Uint32(msg.epoch) << Uint32(msg.tick) << Uint32(msg.random_state)

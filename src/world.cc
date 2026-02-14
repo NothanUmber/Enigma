@@ -2545,15 +2545,65 @@ uint64_t WorldGridStateChecksum() {
     return h;
 }
 
-uint64_t WorldGridChecksum() {
+uint64_t WorldGridMovableStoneChecksum() {
     if (!level)
         return 0;
     uint64_t h = kChecksumOffset;
-    uint64_t kind = WorldGridKindChecksum();
-    uint64_t state = WorldGridStateChecksum();
-    hash_u64(h, kind);
-    hash_u64(h, state);
+    hash_u64(h, static_cast<uint64_t>(level->w));
+    hash_u64(h, static_cast<uint64_t>(level->h));
+
+    struct MovableDigest {
+        uint32_t id = 0;
+        uint16_t x = 0;
+        uint16_t y = 0;
+    };
+    std::vector<MovableDigest> stones;
+    stones.reserve(static_cast<size_t>(level->w) * static_cast<size_t>(level->h) / 8);
+    for (int y = 0; y < level->h; ++y) {
+        for (int x = 0; x < level->w; ++x) {
+            GridPos p(x, y);
+            Object *obj = level->st_layer.get(p);
+            Stone *st = dynamic_cast<Stone *>(obj);
+            if (!st || !st->is_movable())
+                continue;
+            MovableDigest d;
+            d.id = static_cast<uint32_t>(st->getId());
+            d.x = static_cast<uint16_t>(x);
+            d.y = static_cast<uint16_t>(y);
+            stones.push_back(d);
+        }
+    }
+    std::sort(stones.begin(), stones.end(), [](const MovableDigest &a, const MovableDigest &b) {
+        if (a.id != b.id)
+            return a.id < b.id;
+        if (a.x != b.x)
+            return a.x < b.x;
+        return a.y < b.y;
+    });
+    hash_u64(h, static_cast<uint64_t>(stones.size()));
+    for (const auto &d : stones) {
+        hash_u64(h, static_cast<uint64_t>(d.id));
+        hash_u64(h, static_cast<uint64_t>(d.x));
+        hash_u64(h, static_cast<uint64_t>(d.y));
+    }
     return h;
+}
+
+uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checksum, uint64_t movable_checksum) {
+    uint64_t h = kChecksumOffset;
+    hash_u64(h, kind_checksum);
+    hash_u64(h, state_checksum);
+    hash_u64(h, movable_checksum);
+    return h;
+}
+
+uint64_t WorldGridChecksum() {
+    if (!level)
+        return 0;
+    const uint64_t kind = WorldGridKindChecksum();
+    const uint64_t state = WorldGridStateChecksum();
+    const uint64_t movable = WorldGridMovableStoneChecksum();
+    return CombineWorldGridChecksums(kind, state, movable);
 }
 
 uint64_t ActorChecksum() {

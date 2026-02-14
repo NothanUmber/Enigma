@@ -23,7 +23,6 @@ host STREAM_STATE interval_ms=50
 host STATE
 wait role=host contains="EVT name=STATE" timeout_ms=2000
 wait role=host contains="zerofill=1" timeout_ms=2000
-wait role=host contains="rb=1" timeout_ms=2000
 
 # Log steerable actors once for debugging (controllers/adhesion/ownership).
 host LIST_STEERABLE

@@ -31,6 +31,7 @@
 #include "input.hh"
 #include "multiplayer.hh"
 
+#include <array>
 #include <deque>
 #include <string>
 #include <unordered_map>
@@ -57,13 +58,17 @@ constexpr uint32_t kInputDelay = 4;
 // resyncs (or eventually a restart prompt).
 constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
-// Each NET_INPUT_BUNDLE covers a small sequential range of ticks. We resend a
-// few already-sent ticks (back window) to reduce lockstep stalls under packet
-// loss/jitter when using unreliable UDP transport.
-constexpr uint32_t kInputBundleBackTicks = 4;
-constexpr uint32_t kInputBundleMaxCount = 16;
-// Keep local input history long enough to resend the back window.
-constexpr uint32_t kInputHistoryKeepTicks = 64;
+// Each NET_INPUT_BUNDLE covers a short sequential range of ticks and includes a
+// resend back-window. A larger back-window improves robustness on high-jitter /
+// lossy links so the host can still receive late client input ticks.
+constexpr uint32_t kInputBundleBackTicksDirect = 12;
+constexpr uint32_t kInputBundleBackTicksUdpRelay = 24;
+constexpr uint32_t kInputBundleBackTicksTcpRelay = 12;
+constexpr uint32_t kInputBundleMaxCountDirect = 32;
+constexpr uint32_t kInputBundleMaxCountUdpRelay = 48;
+constexpr uint32_t kInputBundleMaxCountTcpRelay = 32;
+// Keep local input history long enough to cover the largest resend back-window.
+constexpr uint32_t kInputHistoryKeepTicks = 256;
 constexpr double kInputTimestep = 0.01;
 constexpr Uint32 kJoinTimeoutMs = 15000;
 // Allow extra time for direct connect handshakes while the host is still
@@ -175,11 +180,13 @@ struct SessionState {
     bool host = false;
     bool local_player_known = false;
     unsigned local_player = 0;
-    unsigned expected_players = 1;
-    TransportKind active_transport = TransportKind::NONE;
-    uint32_t input_delay = kInputDelay;
-    Uint32 session_id = 0;
-    Uint32 seed = 0;
+	    unsigned expected_players = 1;
+	    TransportKind active_transport = TransportKind::NONE;
+	    // Simulation tick duration in milliseconds. This must match across all peers.
+	    Uint16 tick_ms = 10;
+	    uint32_t input_delay = kInputDelay;
+	    Uint32 session_id = 0;
+	    Uint32 seed = 0;
     Uint32 input_epoch = 0;
     Uint32 restart_id = 0;
     Uint32 last_restart_id = 0;
@@ -211,6 +218,11 @@ struct SessionState {
     uint32_t next_local_tick = 0;
     uint32_t next_send_tick = 0;
     std::unordered_map<uint32_t, input::PlayerInput> local_history;
+    // Tracks late (clamped) mouse samples so out-of-order delivery doesn't cause
+    // "random kicks" by overwriting a newer sample with an older one.
+    std::array<bool, input::kMaxPlayers> late_mouse_valid = {};
+    std::array<uint32_t, input::kMaxPlayers> late_mouse_applied_tick = {};
+    std::array<uint32_t, input::kMaxPlayers> late_mouse_src_tick = {};
     uint32_t input_clock_tick = 0;
     double input_clock_accu = 0.0;
     bool input_clock_frozen = false;

@@ -118,7 +118,7 @@ class PeerConn:
 
 
 class Controller:
-    def __init__(self, expected: int) -> None:
+    def __init__(self, expected: int, controller_log: Optional[object] = None) -> None:
         self.expected = expected
         self.sel = selectors.DefaultSelector()
         self.listener: Optional[socket.socket] = None
@@ -127,6 +127,7 @@ class Controller:
         self.events: List[Tuple[int, str, str]] = []  # (ts_ms, role, line)
         self.last_state: Dict[str, Dict[str, Any]] = {}
         self.state_lines: Dict[str, deque[str]] = {}
+        self.controller_log = controller_log
 
     def listen(self, host: str, port: int) -> int:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -207,7 +208,14 @@ class Controller:
                 role = pc.role or "unknown"
                 ts = _now_ms()
                 self.events.append((ts, role, line))
-                print(f"[{ts}] {role}: {line}", flush=True)
+                out_line = f"[{ts}] {role}: {line}"
+                print(out_line, flush=True)
+                if self.controller_log is not None:
+                    try:
+                        self.controller_log.write(out_line + "\n")
+                        self.controller_log.flush()
+                    except Exception:
+                        pass
 
                 # Auto-learn role from HELLO.
                 if pc.role is None and line.startswith("EVT "):
@@ -463,10 +471,6 @@ def main(argv: List[str]) -> int:
     if data_dir and not os.path.isdir(data_dir):
         raise SystemExit(f"data dir not found: {data_dir} (use --data-dir to override)")
 
-    ctrl = Controller(expected=2)
-    port = ctrl.listen(ns.host, ns.port)
-    connect = f"{ns.host}:{port}"
-
     # Separate preference roots so two processes don't fight over config files.
     tmp_root = ns.workdir or tempfile.mkdtemp(prefix="enigma-mptest-")
     os.makedirs(tmp_root, exist_ok=True)
@@ -476,6 +480,11 @@ def main(argv: List[str]) -> int:
     os.makedirs(pref_client, exist_ok=True)
     log_host = os.path.join(tmp_root, "host.log")
     log_client = os.path.join(tmp_root, "client.log")
+    ctrl_log_path = os.path.join(tmp_root, "controller.log")
+    ctrl_logf: Optional[object] = open(ctrl_log_path, "w", encoding="utf-8", errors="replace")
+    ctrl = Controller(expected=2, controller_log=ctrl_logf)
+    port = ctrl.listen(ns.host, ns.port)
+    connect = f"{ns.host}:{port}"
 
     procs: List[subprocess.Popen] = []
     logs: List[object] = []
@@ -557,6 +566,11 @@ def main(argv: List[str]) -> int:
         for lf in logs:
             try:
                 lf.close()
+            except Exception:
+                pass
+        if ctrl_logf is not None:
+            try:
+                ctrl_logf.close()
             except Exception:
                 pass
 

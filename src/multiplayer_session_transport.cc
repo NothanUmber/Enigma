@@ -108,6 +108,23 @@ bool can_accept_more_remote_players() {
 
 namespace {
 
+bool should_apply_late_mouse_sample(unsigned player_id, uint32_t current_tick, uint32_t src_tick) {
+    if (player_id >= input::kMaxPlayers)
+        return false;
+    // Never overwrite an on-time sample for the current tick with a late one.
+    if (!g_session.late_mouse_valid[player_id] || g_session.late_mouse_applied_tick[player_id] != current_tick) {
+        if (input::HasInput(current_tick, player_id))
+            return false;
+        g_session.late_mouse_valid[player_id] = true;
+        g_session.late_mouse_applied_tick[player_id] = current_tick;
+        g_session.late_mouse_src_tick[player_id] = 0;
+    }
+    if (src_tick <= g_session.late_mouse_src_tick[player_id])
+        return false;
+    g_session.late_mouse_src_tick[player_id] = src_tick;
+    return true;
+}
+
 lev::Proxy *find_level_proxy_in_current_index(const std::string &level_id) {
     lev::Index *ind = lev::Index::getCurrentIndex();
     if (!ind)
@@ -258,17 +275,15 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
                   static_cast<unsigned>(input_msg.activate_count));
     }
     const uint32_t current_tick = input::CurrentTick();
-    if (input_msg.tick < current_tick) {
+    const uint32_t src_tick = input_msg.tick;
+    const bool late = (input_msg.tick < current_tick);
+    if (late) {
         if (!input::ZerofillMissingInputsEnabled())
             return true;
-        if (!rollback::Enabled()) {
-            // In zerofill mode without rollback/replay, clamp late input samples to the
-            // current tick so they still affect gameplay instead of being dropped forever.
-            input_msg.tick = current_tick;
-        } else if (input_msg.tick < rollback::EarliestTick(current_tick)) {
-            // Too old to roll back to safely; fall back to legacy clamping behavior.
-            input_msg.tick = current_tick;
-        }
+        // Monotonic processing: late inputs are applied at the current tick (best-effort).
+        // This avoids requiring rollback/replay and prevents unbounded growth of past-tick
+        // inputs that can never be consumed again.
+        input_msg.tick = current_tick;
     }
     unsigned player_id = 0;
     if (!lookup_remote_player(source, peer, relay_client_id, player_id)) {
@@ -287,6 +302,12 @@ bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, Host
             }
         } else {
             return true;
+        }
+    }
+    if (late) {
+        if (!should_apply_late_mouse_sample(player_id, current_tick, src_tick)) {
+            input_msg.mouse_x = 0.0f;
+            input_msg.mouse_y = 0.0f;
         }
     }
     input::PlayerInput pi;
@@ -343,6 +364,7 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
     // Instead, aggregate the late entries and apply at most one sample at `current_tick`.
     input::PlayerInput late_agg;
     bool late_mouse_set = false;
+    uint32_t late_mouse_src_tick = 0;
     bool have_late = false;
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
         uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
@@ -354,19 +376,19 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
         if (tick < current_tick) {
             if (!input::ZerofillMissingInputsEnabled())
                 continue;
-            // If rollback can still replay this tick, keep it as-is.
-            if (rollback::Enabled() && tick >= rollback::EarliestTick(current_tick)) {
-                input::EnqueueInput(tick, player_id, pi);
-                rollback::RecordInput(tick, player_id, pi);
-                continue;
-            }
             // Otherwise, best-effort apply at `current_tick` once.
             have_late = true;
             late_agg.rotate_steps += pi.rotate_steps;
             late_agg.activate_count += pi.activate_count;
+            // Mouse input is an impulse. If packets arrive out of order, applying an
+            // older impulse after a newer one causes visible "kicks". Keep only the
+            // newest non-zero impulse and ignore stale ones.
             if (pi.mouse_force[0] != 0.0f || pi.mouse_force[1] != 0.0f) {
                 late_mouse_set = true;
-                late_agg.mouse_force = pi.mouse_force;
+                if (!late_mouse_src_tick || tick > late_mouse_src_tick) {
+                    late_mouse_src_tick = tick;
+                    late_agg.mouse_force = pi.mouse_force;
+                }
             }
             continue;
         }
@@ -374,10 +396,16 @@ bool handle_host_input_bundle_packet(const char *data, size_t len, ENetPeer *pee
         rollback::RecordInput(tick, player_id, pi);
     }
     if (have_late) {
-        if (!late_mouse_set) {
+        if (late_mouse_set) {
+            if (!should_apply_late_mouse_sample(player_id, current_tick, late_mouse_src_tick))
+                late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
+        } else {
             late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
         }
-        if (!late_agg.empty() && !input::HasInput(current_tick, player_id)) {
+        const bool already_late =
+            (player_id < input::kMaxPlayers && g_session.late_mouse_valid[player_id] &&
+             g_session.late_mouse_applied_tick[player_id] == current_tick);
+        if (!late_agg.empty() && (!input::HasInput(current_tick, player_id) || already_late)) {
             input::EnqueueInput(current_tick, player_id, late_agg);
             rollback::RecordInput(current_tick, player_id, late_agg);
         }
@@ -591,13 +619,16 @@ bool handle_client_input_packet(const char *data, size_t len) {
                   static_cast<unsigned>(input_msg.activate_count));
     }
     const uint32_t current_tick = input::CurrentTick();
+    const uint32_t src_tick = input_msg.tick;
     if (input_msg.tick < current_tick) {
         if (!input::ZerofillMissingInputsEnabled())
             return true;
-        if (!rollback::Enabled())
-            input_msg.tick = current_tick;
-        else if (input_msg.tick < rollback::EarliestTick(current_tick))
-            input_msg.tick = current_tick;
+        // Monotonic processing: late inputs are applied at the current tick.
+        input_msg.tick = current_tick;
+        if (!should_apply_late_mouse_sample(static_cast<unsigned>(input_msg.player), current_tick, src_tick)) {
+            input_msg.mouse_x = 0.0f;
+            input_msg.mouse_y = 0.0f;
+        }
     }
     input::PlayerInput pi;
     pi.mouse_force = ecl::V2(input_msg.mouse_x, input_msg.mouse_y);
@@ -626,6 +657,7 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
     const uint32_t current_tick = input::CurrentTick();
     input::PlayerInput late_agg;
     bool late_mouse_set = false;
+    uint32_t late_mouse_src_tick = 0;
     bool have_late = false;
     for (size_t i = 0; i < bundle.entries.size(); ++i) {
         uint32_t tick = bundle.first_tick + static_cast<uint32_t>(i);
@@ -637,17 +669,15 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
         if (tick < current_tick) {
             if (!input::ZerofillMissingInputsEnabled())
                 continue;
-            if (rollback::Enabled() && tick >= rollback::EarliestTick(current_tick)) {
-                input::EnqueueInput(tick, bundle.player, pi);
-                rollback::RecordInput(tick, bundle.player, pi);
-                continue;
-            }
             have_late = true;
             late_agg.rotate_steps += pi.rotate_steps;
             late_agg.activate_count += pi.activate_count;
             if (pi.mouse_force[0] != 0.0f || pi.mouse_force[1] != 0.0f) {
                 late_mouse_set = true;
-                late_agg.mouse_force = pi.mouse_force;
+                if (!late_mouse_src_tick || tick > late_mouse_src_tick) {
+                    late_mouse_src_tick = tick;
+                    late_agg.mouse_force = pi.mouse_force;
+                }
             }
             continue;
         }
@@ -655,9 +685,17 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
         rollback::RecordInput(tick, bundle.player, pi);
     }
     if (have_late) {
-        if (!late_mouse_set)
+        const unsigned player_id = static_cast<unsigned>(bundle.player);
+        if (late_mouse_set) {
+            if (!should_apply_late_mouse_sample(player_id, current_tick, late_mouse_src_tick))
+                late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
+        } else {
             late_agg.mouse_force = ecl::V2(0.0f, 0.0f);
-        if (!late_agg.empty() && !input::HasInput(current_tick, bundle.player)) {
+        }
+        const bool already_late =
+            (player_id < input::kMaxPlayers && g_session.late_mouse_valid[player_id] &&
+             g_session.late_mouse_applied_tick[player_id] == current_tick);
+        if (!late_agg.empty() && (!input::HasInput(current_tick, player_id) || already_late)) {
             input::EnqueueInput(current_tick, bundle.player, late_agg);
             rollback::RecordInput(current_tick, bundle.player, late_agg);
         }
@@ -671,14 +709,19 @@ bool handle_client_welcome_packet(const char *data, size_t len) {
     Uint8 player_id = 0;
     Uint8 expected_players = 0;
     Uint32 seed = 0;
-    if (!protocol::decode_welcome(buf, player_id, expected_players, seed))
+    Uint16 tick_ms = 0;
+    if (!protocol::decode_welcome(buf, player_id, expected_players, seed, &tick_ms))
         return false;
     g_session.local_player = player_id;
     g_session.local_player_known = true;
     g_session.expected_players = expected_players;
     g_session.seed = seed;
+    if (tick_ms != 0)
+        g_session.tick_ms = tick_ms;
+    input::SetTickTimestep(static_cast<double>(g_session.tick_ms) / 1000.0);
     input::SetExpectedPlayers(expected_players);
-    debug_log("mp client: welcome player=%u expected=%u seed=%u", player_id, expected_players, seed);
+    debug_log("mp client: welcome player=%u expected=%u seed=%u tick_ms=%u",
+              player_id, expected_players, seed, static_cast<unsigned>(g_session.tick_ms));
     if (debug_enabled())
         debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
     // Do not send READY here.
@@ -721,6 +764,10 @@ bool handle_client_resync_state_packet(const char *data, size_t len) {
     protocol::ResyncState state;
     if (!protocol::decode_resync_state(buf, state))
         return false;
+    // If rollback is enabled, prefer reconciling via rollback/replay instead of
+    // teleporting immediately. This reduces visible zig-zagging under packet loss.
+    if (rollback::TryQueueReconcileResyncState(state))
+        return true;
     apply_resync_state(state);
     return true;
 }
@@ -1032,7 +1079,8 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
         return false;
     ecl::Buffer welcome;
     protocol::encode_welcome(welcome, static_cast<Uint8>(player_id),
-                             static_cast<Uint8>(g_session.expected_players), g_session.seed);
+                             static_cast<Uint8>(g_session.expected_players), g_session.seed,
+                             static_cast<Uint16>(g_session.tick_ms));
 
     if (source == HostSource::UDP_RELAY) {
         g_session.relay_players[client_id] = player_id;
@@ -1146,7 +1194,8 @@ bool handle_direct_connect_event(ENetPeer *peer) {
 
     ecl::Buffer buf;
     protocol::encode_welcome(buf, static_cast<Uint8>(player_id),
-                             static_cast<Uint8>(g_session.expected_players), g_session.seed);
+                             static_cast<Uint8>(g_session.expected_players), g_session.seed,
+                             static_cast<Uint16>(g_session.tick_ms));
     g_transport.HostSendDirect(peer, buf);
     send_existing_placements_to_peer(peer);
     return true;
@@ -1297,11 +1346,26 @@ void send_local_inputs() {
         target_tick += extra;
     }
     input::PlayerInput pending = input::DrainLocalPending(g_session.local_player);
-    bool applied = false;
+    const uint32_t ticks_to_fill =
+        (g_session.next_local_tick <= target_tick) ? (target_tick - g_session.next_local_tick + 1) : 0;
+    // Local pending inputs are accumulated across frames. If we need to fill
+    // multiple ticks at once (e.g. after a stall), distribute the accumulated
+    // mouse-force impulse across those ticks so physics stays consistent.
+    const float inv_ticks = ticks_to_fill ? (1.0f / static_cast<float>(ticks_to_fill)) : 0.0f;
+    const ecl::V2 per_tick_force = pending.mouse_force * inv_ticks;
+    bool applied_actions = false;
     bool sent_packets = false;
 
     while (g_session.next_local_tick <= target_tick) {
-        input::PlayerInput send = applied ? input::PlayerInput() : pending;
+        input::PlayerInput send;
+        send.mouse_force = per_tick_force;
+        if (!applied_actions) {
+            send.rotate_steps = pending.rotate_steps;
+            send.activate_count = pending.activate_count;
+        } else {
+            send.rotate_steps = 0;
+            send.activate_count = 0;
+        }
         if (!send.empty()) {
             float fx = static_cast<float>(send.mouse_force[0]);
             float fy = static_cast<float>(send.mouse_force[1]);
@@ -1319,7 +1383,7 @@ void send_local_inputs() {
         input::EnqueueInput(pkt.tick, g_session.local_player, send);
         rollback::RecordInput(pkt.tick, g_session.local_player, send);
         g_session.local_history[pkt.tick] = send;
-        applied = true;
+        applied_actions = true;
         ++g_session.next_local_tick;
     }
 
@@ -1344,17 +1408,43 @@ void send_local_inputs() {
         }
     }
 
+    auto bundle_back_ticks = []() -> uint32_t {
+        switch (g_session.active_transport) {
+        case TransportKind::UDP_RELAY:
+            return kInputBundleBackTicksUdpRelay;
+        case TransportKind::TCP_RELAY:
+            return kInputBundleBackTicksTcpRelay;
+        case TransportKind::DIRECT:
+        default:
+            return kInputBundleBackTicksDirect;
+        }
+    };
+    auto bundle_max_count = []() -> uint32_t {
+        switch (g_session.active_transport) {
+        case TransportKind::UDP_RELAY:
+            return kInputBundleMaxCountUdpRelay;
+        case TransportKind::TCP_RELAY:
+            return kInputBundleMaxCountTcpRelay;
+        case TransportKind::DIRECT:
+        default:
+            return kInputBundleMaxCountDirect;
+        }
+    };
+    const uint32_t back_ticks = bundle_back_ticks();
+    const uint32_t max_count = bundle_max_count();
+
     uint32_t send_base = g_session.next_send_tick;
-    if (send_base < current_tick)
-        send_base = current_tick;
+    uint32_t min_send_tick = current_tick;
+    if (send_base < min_send_tick)
+        send_base = min_send_tick;
     uint32_t bundle_start = 0;
-    if (send_base > kInputBundleBackTicks)
-        bundle_start = send_base - kInputBundleBackTicks;
-    if (bundle_start < current_tick)
-        bundle_start = current_tick;
+    if (send_base > back_ticks)
+        bundle_start = send_base - back_ticks;
+    if (bundle_start < min_send_tick)
+        bundle_start = min_send_tick;
     uint32_t bundle_end = g_session.next_local_tick;
-    if (bundle_end > bundle_start + kInputBundleMaxCount)
-        bundle_end = bundle_start + kInputBundleMaxCount;
+    if (bundle_end > bundle_start + max_count)
+        bundle_end = bundle_start + max_count;
 
     if (bundle_start < bundle_end) {
         protocol::InputBundlePacket bundle;

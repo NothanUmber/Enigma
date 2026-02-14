@@ -240,7 +240,7 @@ void RaiseError(const std::string &msg) {
 }
 
 void gametick(double dtime) {
-    const double timestep = 0.01;  // 10ms
+    const double timestep = input::TickTimestep();
     int count = 0;
 
     time_accu += dtime;

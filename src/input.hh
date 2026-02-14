@@ -36,6 +36,8 @@ void Reset();
 void SetNetworked(bool enabled);
 bool IsNetworked();
 bool ZerofillMissingInputsEnabled();
+double TickTimestep();
+void SetTickTimestep(double seconds);
 void SetExpectedPlayers(unsigned count);
 unsigned ExpectedPlayers();
 uint32_t CurrentTick();

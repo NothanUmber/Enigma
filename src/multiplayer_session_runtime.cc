@@ -365,8 +365,9 @@ void tick_advance_input_clock(double dtime) {
     g_session.input_clock_accu += dtime;
     if (g_session.input_clock_accu > 1.0)
         g_session.input_clock_accu = 1.0;
-    while (g_session.input_clock_accu >= kInputTimestep) {
-        g_session.input_clock_accu -= kInputTimestep;
+    const double step = input::TickTimestep();
+    while (g_session.input_clock_accu >= step) {
+        g_session.input_clock_accu -= step;
         g_session.input_clock_tick += 1;
     }
 }
@@ -468,7 +469,7 @@ void tick_update_start_phase() {
                     last_load = g_session.load_id;
                     wait_accu = 0.0;
                 }
-                wait_accu += kInputTimestep;
+                wait_accu += input::TickTimestep();
                 if (wait_accu >= 2.0) {
                     wait_accu = 0.0;
                     unsigned direct = static_cast<unsigned>(g_session.peer_players.size());

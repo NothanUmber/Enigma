@@ -7,6 +7,9 @@
 
 namespace enigma {
 namespace multiplayer {
+namespace protocol {
+struct ResyncState;
+}  // namespace protocol
 namespace rollback {
 
 // Experimental rollback/replay to reduce jitter when inputs arrive late under
@@ -24,6 +27,14 @@ void RecordInput(uint32_t tick, unsigned player, const input::PlayerInput &pi);
 
 // Capture a pre-tick snapshot for the given simulation tick.
 void OnBeforeSimTick(uint32_t tick);
+
+// Experimental: reconcile simulation to an authoritative host resync snapshot by
+// restoring a past local snapshot at `state.tick`, applying the authoritative
+// state at that tick, and replaying forward.
+//
+// Returns true if the reconcile was queued and the caller should NOT apply the
+// resync state directly.
+bool TryQueueReconcileResyncState(const protocol::ResyncState &state);
 
 // If rollback is pending, restore a snapshot and replay forward to the current
 // tick. Call from the simulation thread (server::gametick).

@@ -67,6 +67,13 @@ struct DriverState {
     input::PlayerInput input_override_value;
     int input_override_ticks_left = 0;
     uint32_t input_override_last_tick = UINT32_MAX;
+
+    // Test-only: submit a fixed mouse-force delta once per simulation tick.
+    bool hold_mouse_force_enabled = false;
+    unsigned hold_mouse_force_player = 0;
+    ecl::V2 hold_mouse_force_value;
+    int hold_mouse_force_ticks_left = 0;
+    uint32_t hold_mouse_force_last_tick = UINT32_MAX;
 };
 
 DriverState g_drv;
@@ -293,6 +300,22 @@ static void maybe_apply_input_override() {
     }
 }
 
+static void maybe_apply_hold_mouse_force() {
+    if (!g_drv.enabled || !g_drv.hold_mouse_force_enabled)
+        return;
+    if (g_drv.hold_mouse_force_ticks_left <= 0) {
+        g_drv.hold_mouse_force_enabled = false;
+        send_evt("HOLD_MOUSE_FORCE_DONE");
+        return;
+    }
+    const uint32_t tick = input::CurrentTick();
+    if (tick == g_drv.hold_mouse_force_last_tick)
+        return;
+    g_drv.hold_mouse_force_last_tick = tick;
+    input::SubmitMouseForce(g_drv.hold_mouse_force_player, g_drv.hold_mouse_force_value);
+    g_drv.hold_mouse_force_ticks_left -= 1;
+}
+
 static void emit_state_snapshot() {
     if (!g_drv.enabled)
         return;
@@ -339,7 +362,10 @@ static void emit_state_snapshot() {
        << " rb_replay=" << (rollback::IsReplaying() ? 1 : 0)
        << " ovr=" << (g_drv.input_override_enabled ? 1 : 0)
        << " ovr_p=" << static_cast<unsigned>(g_drv.input_override_player)
-       << " ovr_left=" << static_cast<int>(g_drv.input_override_ticks_left);
+       << " ovr_left=" << static_cast<int>(g_drv.input_override_ticks_left)
+       << " hold=" << (g_drv.hold_mouse_force_enabled ? 1 : 0)
+       << " hold_p=" << static_cast<unsigned>(g_drv.hold_mouse_force_player)
+       << " hold_left=" << static_cast<int>(g_drv.hold_mouse_force_ticks_left);
 
     // Input diagnostics for the current tick (first two players).
     for (unsigned p = 0; p < 2; ++p) {
@@ -374,6 +400,9 @@ static void emit_state_snapshot() {
     }
 
     os << " mp_clock_tick=" << static_cast<unsigned>(s.input_clock_tick)
+       << " mp_input_delay=" << static_cast<unsigned>(s.input_delay)
+       << " mp_tick_ms=" << static_cast<unsigned>(s.tick_ms)
+       << " mp_world_cs=" << static_cast<unsigned long long>(s.last_world_checksum)
        << " mp_next_local_tick=" << static_cast<unsigned>(s.next_local_tick)
        << " mp_next_send_tick=" << static_cast<unsigned>(s.next_send_tick);
     // Always report the first two players for convenience.
@@ -670,6 +699,48 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "HOLD_MOUSE_FORCE") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("HOLD_MOUSE_FORCE", "missing_player");
+            return true;
+        }
+        int ticks = 0;
+        if (!parse_i32(kv, "ticks", ticks)) {
+            send_err("HOLD_MOUSE_FORCE", "missing_ticks");
+            return true;
+        }
+        if (ticks <= 0) {
+            g_drv.hold_mouse_force_enabled = false;
+            g_drv.hold_mouse_force_ticks_left = 0;
+            send_ok("HOLD_MOUSE_FORCE", "enabled=0");
+            return true;
+        }
+        float fx = 0.0f, fy = 0.0f;
+        if (!parse_f32(kv, "fx", fx) || !parse_f32(kv, "fy", fy)) {
+            send_err("HOLD_MOUSE_FORCE", "missing_force");
+            return true;
+        }
+        g_drv.hold_mouse_force_player = static_cast<unsigned>(player_u32);
+        g_drv.hold_mouse_force_value = ecl::V2(fx, fy);
+        g_drv.hold_mouse_force_ticks_left = ticks;
+        g_drv.hold_mouse_force_last_tick = UINT32_MAX;
+        g_drv.hold_mouse_force_enabled = true;
+        // Apply once immediately so a script can query STATE right after.
+        maybe_apply_hold_mouse_force();
+
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "enabled=1"
+           << " player=" << static_cast<unsigned>(player_u32)
+           << " ticks=" << ticks
+           << " fx=" << static_cast<double>(fx)
+           << " fy=" << static_cast<double>(fy);
+        send_ok("HOLD_MOUSE_FORCE", os.str());
+        return true;
+    }
+
     if (cmd == "SET_INT") {
         std::string key;
         int value = 0;
@@ -834,6 +905,7 @@ void Tick(double dtime) {
     poll_join();
 
     // Apply any input override before the next simulation tick consumes inputs.
+    maybe_apply_hold_mouse_force();
     maybe_apply_input_override();
 
     if (g_drv.stream_state_interval_ms > 0) {

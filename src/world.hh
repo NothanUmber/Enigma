@@ -159,6 +159,11 @@ uint64_t WorldChecksum();
 uint64_t WorldGridKindChecksum();
 uint64_t WorldGridStateChecksum();
 uint64_t WorldGridChecksum();
+uint64_t WorldGridMovableStoneChecksum();
+
+// Combines the component world checksums into the value carried by SyncPacket::world_checksum.
+// Keeping this in world.cc ensures multiplayer and non-multiplayer callers use identical mixing.
+uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checksum, uint64_t movable_checksum);
 uint64_t ActorChecksum();
 void GetActors(std::vector<Actor *> &out);
 

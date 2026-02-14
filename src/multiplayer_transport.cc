@@ -83,6 +83,19 @@ const NetSimConfig &netsim_config() {
     return cfg;
 }
 
+bool netsim_drop_eligible_type(Uint8 type) {
+    // Only drop packets that are intended to be lossy at the application layer.
+    // Dropping reliable control-plane packets here is unrealistic: ENet/TCP would
+    // normally retransmit them, but dropping after encoding bypasses that layer.
+    switch (type) {
+    case protocol::NET_INPUT_BUNDLE:
+    case protocol::NET_INPUT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool netsim_should_apply(const ecl::Buffer &payload) {
     const NetSimConfig &cfg = netsim_config();
     if (!cfg.enabled)
@@ -248,7 +261,14 @@ bool netsim_send_or_queue(PendingKind kind, ENetPeer *peer, Uint32 client_id,
         return false;
     const NetSimConfig &cfg = netsim_config();
     std::mt19937 &rng = netsim_rng();
-    if (netsim_roll_pct(rng, cfg.drop_pct))
+    // Only drop packets that are meant to be lossy. For reliable packets, we
+    // still apply delay/jitter/dup, but avoid drop to preserve ENet's reliability.
+    bool allow_drop = false;
+    if (!reliable && payload.size() > 0) {
+        const Uint8 type = static_cast<Uint8>(payload.data()[0]);
+        allow_drop = netsim_drop_eligible_type(type);
+    }
+    if (allow_drop && netsim_roll_pct(rng, cfg.drop_pct))
         return true;  // dropped
 
     int delay_ms = netsim_pick_delay_ms(rng);
@@ -342,7 +362,12 @@ bool netsim_maybe_delay_recv(ITransportSink &sink, HostSource source, ENetPeer *
         return sink.OnPayload(source, peer, reinterpret_cast<const char *>(data), len);
     const NetSimConfig &cfg = netsim_config();
     std::mt19937 &rng = netsim_rng();
-    if (netsim_roll_pct(rng, cfg.drop_pct))
+    // Same rationale as send side: only drop payload types that are expected to
+    // be lossy at the application layer.
+    bool allow_drop = false;
+    if (data && len > 0)
+        allow_drop = netsim_drop_eligible_type(static_cast<Uint8>(data[0]));
+    if (allow_drop && netsim_roll_pct(rng, cfg.drop_pct))
         return true;
     int delay_ms = netsim_pick_delay_ms(rng);
     if (delay_ms <= 0)

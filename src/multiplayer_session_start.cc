@@ -58,6 +58,19 @@ namespace enigma {
 namespace multiplayer {
 namespace internal {
 
+namespace {
+Uint16 read_tick_ms_override() {
+    int ms = options::GetInt("MultiplayerDebugTickLengthMs");
+    if (ms <= 0)
+        ms = 10;
+    if (ms < 5)
+        ms = 5;
+    if (ms > 50)
+        ms = 50;
+    return static_cast<Uint16>(ms);
+}
+}  // namespace
+
 void configure_input_session(unsigned expected_players) {
     // The input stream is stamped for a future tick (input delay). A larger
     // delay reduces the odds that a peer reaches a tick before receiving the
@@ -74,6 +87,11 @@ void configure_input_session(unsigned expected_players) {
         debug_log("mp input delay=%u transport=%s", static_cast<unsigned>(g_session.input_delay),
                   transport_name(g_session.active_transport));
     input::Reset();
+    // Tick duration must match across peers; it is negotiated by the host and
+    // stored on g_session.tick_ms (clients receive it in WELCOME).
+    Uint16 tick_ms = g_session.tick_ms ? g_session.tick_ms : read_tick_ms_override();
+    g_session.tick_ms = tick_ms;
+    input::SetTickTimestep(static_cast<double>(tick_ms) / 1000.0);
     input::SetNetworked(true);
     input::SetExpectedPlayers(expected_players);
     for (uint32_t tick = 0; tick < g_session.input_delay; ++tick) {
@@ -84,6 +102,9 @@ void configure_input_session(unsigned expected_players) {
     g_session.next_local_tick = g_session.input_delay;
     g_session.next_send_tick = 0;
     g_session.local_history.clear();
+    g_session.late_mouse_valid.fill(false);
+    g_session.late_mouse_applied_tick.fill(0);
+    g_session.late_mouse_src_tick.fill(0);
     g_session.input_clock_tick = input::CurrentTick();
     g_session.input_clock_accu = 0.0;
     g_session.last_host_resync_broadcast_tick = UINT32_MAX;
@@ -558,6 +579,7 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
     g_session.expected_players = expected_players;
     g_session.session_id = start.session_id;
     g_session.seed = start.seed;
+    g_session.tick_ms = read_tick_ms_override();
     g_session.menu_open.assign(expected_players, false);
     g_session.player_in_use.assign(expected_players, false);
     if (is_host && expected_players > 0)

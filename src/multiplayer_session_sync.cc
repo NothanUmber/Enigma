@@ -283,8 +283,15 @@ void dump_actor_digest_once(const char *reason, uint32_t tick, const protocol::S
     }
 }
 
-constexpr uint32_t kSyncProbeStrideTicks =
-    static_cast<uint32_t>(kSyncInterval / kInputTimestep + 0.5);
+uint32_t sync_probe_stride_ticks() {
+    const double step = input::TickTimestep();
+    if (step <= 0.0)
+        return 1u;
+    uint32_t stride = static_cast<uint32_t>(kSyncInterval / step + 0.5);
+    if (stride == 0)
+        stride = 1u;
+    return stride;
+}
 
 Actor *sync_reference_actor(unsigned player, uint32_t tick) {
     // The legacy engine defines "main actor" as the first actor in the player's
@@ -323,7 +330,7 @@ Actor *sync_reference_actor(unsigned player, uint32_t tick) {
         std::sort(order.begin(), order.end(), [&](size_t ia, size_t ib) {
             return actor_key_less(keys[ia], keys[ib]);
         });
-        uint32_t stride = kSyncProbeStrideTicks ? kSyncProbeStrideTicks : 1u;
+        uint32_t stride = sync_probe_stride_ticks();
         size_t idx = static_cast<size_t>((tick / stride) % static_cast<uint32_t>(order.size()));
         return candidates[order[idx]];
     }
@@ -362,10 +369,16 @@ void send_sync_to_peers() {
     sync.p0_y = p0 ? static_cast<float>(p0->get_pos()[1]) : 0.0f;
     sync.p1_x = p1 ? static_cast<float>(p1->get_pos()[0]) : 0.0f;
     sync.p1_y = p1 ? static_cast<float>(p1->get_pos()[1]) : 0.0f;
-    sync.world_checksum = WorldGridChecksum();
+    // Include movable-stone layout (puzzle stones, doors) in the "world" checksum,
+    // otherwise swapping identical movable stones can evade checksum detection.
+    const uint64_t kind_cs = WorldGridKindChecksum();
+    const uint64_t state_cs = WorldGridStateChecksum();
+    const uint64_t movable_cs = WorldGridMovableStoneChecksum();
+    sync.world_checksum = CombineWorldGridChecksums(kind_cs, state_cs, movable_cs);
     sync.actor_checksum = ActorChecksum();
-    sync.grid_kind_checksum = WorldGridKindChecksum();
-    sync.grid_state_checksum = WorldGridStateChecksum();
+    sync.grid_kind_checksum = kind_cs;
+    sync.grid_state_checksum = state_cs;
+    g_session.last_world_checksum = sync.world_checksum;
 
     ecl::Buffer buf;
     protocol::encode_sync(buf, sync);
@@ -1008,9 +1021,11 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
         debug_log("mp sync skip: sync tick=%u local tick=%u", sync.tick, local_tick);
         return;
     }
-    uint64_t local_checksum = WorldGridChecksum();
-    uint64_t local_kind_checksum = WorldGridKindChecksum();
-    uint64_t local_state_checksum = WorldGridStateChecksum();
+    const uint64_t local_kind_checksum = WorldGridKindChecksum();
+    const uint64_t local_state_checksum = WorldGridStateChecksum();
+    const uint64_t local_movable_checksum = WorldGridMovableStoneChecksum();
+    const uint64_t local_checksum =
+        CombineWorldGridChecksums(local_kind_checksum, local_state_checksum, local_movable_checksum);
     update_checksum_sample_world(local_tick, local_checksum, local_kind_checksum, local_state_checksum);
     g_session.last_world_checksum = local_checksum;
     bool checksum_mismatch =

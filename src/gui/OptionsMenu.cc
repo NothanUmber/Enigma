@@ -742,19 +742,20 @@ public:
       userPathTF(NULL),
       userImagePathTF(NULL),
       localizationPathTF(NULL),
-      multiplayerLobbyTF(NULL),
+	      multiplayerLobbyTF(NULL),
 	      multiplayerLobbyPortTF(NULL),
-	      multiplayerUdpRelayPortTF(NULL),
-	      multiplayerTcpRelayPortTF(NULL),
-	      mpNetSimDelayTF(NULL),
-	      mpNetSimJitterTF(NULL),
-	      mpNetSimDropTF(NULL),
-	      mpNetSimDupTF(NULL),
-	      mpPredictMissingMouseTicksTF(NULL),
-	      mpInputDelayTicksTF(NULL),
-	      mpHostBroadcastResyncStrideTicksTF(NULL),
-	      mpHostBroadcastWorldStateStrideTicksTF(NULL),
-	      mpRollbackKeepTicksTF(NULL),
+		      multiplayerUdpRelayPortTF(NULL),
+		      multiplayerTcpRelayPortTF(NULL),
+		      mpNetSimDelayTF(NULL),
+		      mpNetSimJitterTF(NULL),
+		      mpNetSimDropTF(NULL),
+		      mpNetSimDupTF(NULL),
+		      mpPredictMissingMouseTicksTF(NULL),
+		      mpInputDelayTicksTF(NULL),
+		      mpTickLengthMsTF(NULL),
+		      mpHostBroadcastResyncStrideTicksTF(NULL),
+		      mpHostBroadcastWorldStateStrideTicksTF(NULL),
+		      mpRollbackKeepTicksTF(NULL),
 	      menuMusicTF(NULL),
 	      background(background_),
 	      gameIsOngoing(gameIsOngoing_),
@@ -1068,18 +1069,25 @@ public:
 	                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
 	                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
 
-	                    mpPredictMissingMouseTicksTF =
-	                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
-	                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
-	                    {
-	                        int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
-	                        if (keep <= 0)
-	                            keep = 200;
-	                        mpRollbackKeepTicksTF = make_int_field(keep, 4);
-	                    }
-	                    add_row(N_("Predict mouse ticks"), mpPredictMissingMouseTicksTF);
-	                    add_row(N_("Input delay ticks"), mpInputDelayTicksTF);
-	                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
+		                    mpPredictMissingMouseTicksTF =
+		                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+		                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
+		                    {
+		                        int ms = options::GetInt("MultiplayerDebugTickLengthMs");
+		                        if (ms <= 0)
+		                            ms = 10;
+		                        mpTickLengthMsTF = make_int_field(ms, 3);
+		                    }
+		                    {
+		                        int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
+		                        if (keep <= 0)
+		                            keep = 200;
+		                        mpRollbackKeepTicksTF = make_int_field(keep, 4);
+		                    }
+		                    add_row(N_("Predict mouse ticks"), mpPredictMissingMouseTicksTF);
+		                    add_row(N_("Input delay ticks"), mpInputDelayTicksTF);
+		                    add_row(N_("Tick length ms"), mpTickLengthMsTF);
+		                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
 
 	                    add_row(N_("MP netsim"), new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")));
 	                    add_row(N_("MP netsim all"), new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")));
@@ -1250,16 +1258,22 @@ public:
 		                                      0, 20);
 		            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
 		        }
-		        if (mpInputDelayTicksTF) {
-		            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
-		                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
-		                                      0, 32);
-		            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
-		        }
-		        if (mpHostBroadcastResyncStrideTicksTF) {
-		            int v = parse_int_clamped(mpHostBroadcastResyncStrideTicksTF->getText(),
-		                                      options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"),
-		                                      0, 1000);
+			        if (mpInputDelayTicksTF) {
+			            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
+			                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
+			                                      0, 32);
+			            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
+			        }
+			        if (mpTickLengthMsTF) {
+			            int v = parse_int_clamped(mpTickLengthMsTF->getText(),
+			                                      options::GetInt("MultiplayerDebugTickLengthMs"),
+			                                      5, 50);
+			            app.prefs->setProperty("MultiplayerDebugTickLengthMs", static_cast<double>(v));
+			        }
+			        if (mpHostBroadcastResyncStrideTicksTF) {
+			            int v = parse_int_clamped(mpHostBroadcastResyncStrideTicksTF->getText(),
+			                                      options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"),
+			                                      0, 1000);
 		            app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks",
 		                                   static_cast<double>(v));
 		        }

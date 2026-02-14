@@ -1,0 +1,20 @@
+# Verifies the host-selected tick length (ms) is negotiated to clients via WELCOME
+# and applied by both peers (mp_tick_ms reported in test-driver STATE).
+
+both SET_INT key=MultiplayerDebugTickLengthMs value=20
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 1500
+both START_GAME
+
+both STREAM_STATE interval_ms=50
+both STATE
+wait role=host contains="mp_tick_ms=20" timeout_ms=4000
+wait role=client contains="mp_tick_ms=20" timeout_ms=4000
+
+both QUIT
+
