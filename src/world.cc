@@ -571,10 +571,25 @@ ecl::V2 World::get_local_force(Actor *a) {
     double friction = 0;
 
     if (a->is_on_floor()) {
+        // Single-player: when standing on a yin/yang floor, mouseforce should be
+        // sourced from the current player (it_yinyang toggles current player),
+        // not from the actor's own controllers mask. This matches legacy yinyang
+        // semantics where the floor determines which player can move *any* ball
+        // on it.
+        ecl::V2 base_mouseforce;
+        bool have_base_mouseforce = false;
         if (Floor *floor = a->m_actorinfo.field->floor) {
             // Mouse force
             if (a->get_controllers() != 0) {
-                m = floor->process_mouseforce(a, m_mouseforce.get_force(a));
+                base_mouseforce = m_mouseforce.get_force(a);
+                have_base_mouseforce = true;
+                if (!input::IsNetworked() && floor->isKind("fl_yinyang")) {
+                    const int cp = player::CurrentPlayer();
+                    if (cp >= 0 && cp < static_cast<int>(input::kMaxPlayers)) {
+                        base_mouseforce = m_mouseforce.get_force_for_controllers(1 << cp, a->get_mouseforce());
+                    }
+                }
+                m = floor->process_mouseforce(a, base_mouseforce);
             }
             // Friction
             friction = floor->get_friction();
@@ -586,7 +601,11 @@ ecl::V2 World::get_local_force(Actor *a) {
         if (Item *item = a->m_actorinfo.field->item) {
             friction = item->getFriction(a->get_pos(), friction, a);
             if (a->get_controllers() != 0) {
-                m = item->calcMouseforce(a, m_mouseforce.get_force(a), m);
+                if (!have_base_mouseforce) {
+                    base_mouseforce = m_mouseforce.get_force(a);
+                    have_base_mouseforce = true;
+                }
+                m = item->calcMouseforce(a, base_mouseforce, m);
             }
             item->add_force(a, f);
         }

@@ -963,7 +963,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Simple floor types implementation."],
         ["Used by many levels."],
         [
-            "Restores upstream single-player `fl_yinyang` semantics (gated by current player), while making multiplayer `fl_yinyang` behave by ball affinity (color/owner parity) so cloned black/white marbles interact with yin/yang mechanics as expected.",
+            "Keeps upstream/master single-player `fl_yinyang` semantics (floor is keyed to the current player), while making multiplayer `fl_yinyang` behave by ball affinity (color/owner parity) so cloned black/white marbles interact with yin/yang mechanics as expected.",
         ],
     )
     add(

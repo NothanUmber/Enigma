@@ -169,11 +169,15 @@ namespace enigma {
     ecl::V2 YinyangFloor::process_mouseforce (Actor *a, ecl::V2 force) {
         // Single-player semantics:
         // - `fl_yinyang` is keyed to the *current player* (changed by it_yinyang).
+        //   Any ball on the active yin/yang floor responds to mouseforce.
+        //
         // Multiplayer semantics:
-        // - `player::CurrentPlayer()` is not meaningful (toggle is disabled).
-        // - Extra players can "clone" the authored black/white marbles; those clones
-        //   should still behave like black/white for yin/yang mechanics.
+        // - The "current player" toggle is not meaningful.
+        // - Extra players can "clone" authored black/white marbles; those clones should
+        //   still behave like black/white for yin/yang mechanics even if controllers
+        //   were redistributed to different session players.
         if (!input::IsNetworked()) {
+            (void)a;
             if (player::CurrentPlayer() == state)
                 return getAdhesion() * force;
             return ecl::V2();

@@ -30,7 +30,7 @@ h1 { margin: 0 0 8px; }
 </style>
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
-<div class="small">Generated 2026-02-15 00:12:15. Base: <code>master</code> (1825b8f6) &rarr; Working tree (HEAD 49095b31). Diff hash: <code>ab2b8cef686d</code>.</div>
+<div class="small">Generated 2026-02-15 00:56:22. Base: <code>master</code> (1825b8f6) &rarr; Working tree (HEAD 49bcd5eb). Diff hash: <code>e67cc697f211</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 <div class="warn" style="margin-top:12px"><b>Generator warning:</b> Narrative entries exist for files that are no longer in the diff. Consider removing them from build_narratives().<ul><li>data/levels/enigma_experimental/index.xml</li><li>data/schemas/level.xsd</li><li>src/actors/Rotors.cc</li><li>src/floors.cc</li><li>src/game.cc</li><li>src/gui/LevelPackMenu.cc</li><li>src/gui/LevelPackMenu.hh</li><li>src/gui/MainMenu.cc</li><li>src/gui/MainMenu.hh</li><li>src/gui/TextField.cc</li><li>src/gui/TextField.hh</li><li>src/lev/Proxy.cc</li><li>src/lev/Proxy.hh</li><li>src/player.hh</li><li>src/world_internal.hh</li><li>tests/test_input.cc</li><li>tests/test_multiplayer_protocol.cc</li></ul></div>
 
@@ -2366,12 +2366,12 @@ h1 { margin: 0 0 8px; }
 </ul>
 <div class="subhead">What changed vs upstream/master</div>
 <ul>
-<li>Restores upstream single-player `fl_yinyang` semantics (gated by current player), while making multiplayer `fl_yinyang` behave by ball affinity (color/owner parity) so cloned black/white marbles interact with yin/yang mechanics as expected.</li>
+<li>Keeps upstream/master single-player `fl_yinyang` semantics (floor is keyed to the current player), while making multiplayer `fl_yinyang` behave by ball affinity (color/owner parity) so cloned black/white marbles interact with yin/yang mechanics as expected.</li>
 </ul>
 </div>
 <div class="diff">
 <div class="line meta"><span class="code">diff --git a/src/floors/SimpleFloors.cc b/src/floors/SimpleFloors.cc</span></div>
-<div class="line meta"><span class="code">index 26624538..5e9d029f 100644</span></div>
+<div class="line meta"><span class="code">index 26624538..af56f47d 100644</span></div>
 <div class="line meta"><span class="code">--- a/src/floors/SimpleFloors.cc</span></div>
 <div class="line meta"><span class="code">+++ b/src/floors/SimpleFloors.cc</span></div>
 <div class="line hunkhdr"><span class="code">@@ -21,6 +21,7 @@</span></div>
@@ -2382,61 +2382,65 @@ h1 { margin: 0 0 8px; }
 <div class="line ctx"><span class="ln old">24</span><span class="ln new">25</span><span class="code">#include &quot;main.hh&quot;</span></div>
 <div class="line ctx"><span class="ln old">25</span><span class="ln new">26</span><span class="code">#include &quot;player.hh&quot;</span></div>
 <div class="line ctx"><span class="ln old">26</span><span class="ln new">27</span><span class="code">#include &quot;world.hh&quot;</span></div>
-<div class="line hunkhdr"><span class="code">@@ -166,7 +167,53 @@ namespace enigma {</span></div>
+<div class="line hunkhdr"><span class="code">@@ -166,7 +167,57 @@ namespace enigma {</span></div>
 <div class="line ctx"><span class="ln old">166</span><span class="ln new">167</span><span class="code">    }</span></div>
 <div class="line ctx"><span class="ln old">167</span><span class="ln new">168</span><span class="code">    </span></div>
 <div class="line ctx"><span class="ln old">168</span><span class="ln new">169</span><span class="code">    ecl::V2 YinyangFloor::process_mouseforce (Actor *a, ecl::V2 force) {</span></div>
 <div class="line del"><span class="ln old">169</span><span class="ln new"></span><span class="code">        if (a-&gt;controlled_by(state))</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">170</span><span class="code">        // Single-player semantics:</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">171</span><span class="code">        // - `fl_yinyang` is keyed to the *current player* (changed by it_yinyang).</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">172</span><span class="code">        // Multiplayer semantics:</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">173</span><span class="code">        // - `player::CurrentPlayer()` is not meaningful (toggle is disabled).</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">174</span><span class="code">        // - Extra players can &quot;clone&quot; the authored black/white marbles; those clones</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">175</span><span class="code">        //   should still behave like black/white for yin/yang mechanics.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">176</span><span class="code">        if (!input::IsNetworked()) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">177</span><span class="code">            if (player::CurrentPlayer() == state)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">178</span><span class="code">                return getAdhesion() * force;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">179</span><span class="code">            return ecl::V2();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">180</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">181</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">182</span><span class="code">        int affinity = -1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">183</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">184</span><span class="code">        // Prefer explicit actor color when available: BLACK/YIN is 0, WHITE/YANG is 1.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">185</span><span class="code">        if (Value c = a-&gt;getAttr(&quot;color&quot;)) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">186</span><span class="code">            int ci = static_cast&lt;int&gt;(c);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">187</span><span class="code">            if (ci == YIN || ci == YANG)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">188</span><span class="code">                affinity = ci;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">189</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">190</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">191</span><span class="code">        // Fallback: in multiplayer, owner is a player index; parity matches yin/yang grouping.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">192</span><span class="code">        if (affinity &lt; 0) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">193</span><span class="code">            if (Value o = a-&gt;getAttr(&quot;owner&quot;)) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">194</span><span class="code">                int oi = static_cast&lt;int&gt;(o);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">195</span><span class="code">                if (oi &gt;= 0)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">196</span><span class="code">                    affinity = (oi &amp; 1);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">197</span><span class="code">            }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">198</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">199</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">200</span><span class="code">        // Last-resort fallback: infer the controlling player from a single-bit controllers mask.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">201</span><span class="code">        if (affinity &lt; 0) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">202</span><span class="code">            int ctr = a-&gt;get_controllers();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">203</span><span class="code">            if (ctr != 0) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">204</span><span class="code">                unsigned mask = static_cast&lt;unsigned&gt;(ctr);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">205</span><span class="code">                unsigned idx = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">206</span><span class="code">                while ((mask &amp; 1u) == 0u) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">207</span><span class="code">                    mask &gt;&gt;= 1u;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">208</span><span class="code">                    ++idx;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">209</span><span class="code">                    if (idx &gt;= 31)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">210</span><span class="code">                        break;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">211</span><span class="code">                }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">212</span><span class="code">                affinity = static_cast&lt;int&gt;(idx &amp; 1u);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">213</span><span class="code">            }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">214</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">215</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">216</span><span class="code">        if (affinity == state)</span></div>
-<div class="line ctx"><span class="ln old">170</span><span class="ln new">217</span><span class="code">            return getAdhesion() * force;</span></div>
-<div class="line ctx"><span class="ln old">171</span><span class="ln new">218</span><span class="code">        else</span></div>
-<div class="line ctx"><span class="ln old">172</span><span class="ln new">219</span><span class="code">            return ecl::V2();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">172</span><span class="code">        //   Any ball on the active yin/yang floor responds to mouseforce.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">173</span><span class="code">        //</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">174</span><span class="code">        // Multiplayer semantics:</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">175</span><span class="code">        // - The &quot;current player&quot; toggle is not meaningful.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">176</span><span class="code">        // - Extra players can &quot;clone&quot; authored black/white marbles; those clones should</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">177</span><span class="code">        //   still behave like black/white for yin/yang mechanics even if controllers</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">178</span><span class="code">        //   were redistributed to different session players.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">179</span><span class="code">        if (!input::IsNetworked()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">180</span><span class="code">            (void)a;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">181</span><span class="code">            if (player::CurrentPlayer() == state)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">182</span><span class="code">                return getAdhesion() * force;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">183</span><span class="code">            return ecl::V2();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">184</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">185</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">186</span><span class="code">        int affinity = -1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">187</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">188</span><span class="code">        // Prefer explicit actor color when available: BLACK/YIN is 0, WHITE/YANG is 1.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">189</span><span class="code">        if (Value c = a-&gt;getAttr(&quot;color&quot;)) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">190</span><span class="code">            int ci = static_cast&lt;int&gt;(c);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">191</span><span class="code">            if (ci == YIN || ci == YANG)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">192</span><span class="code">                affinity = ci;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">193</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">194</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">195</span><span class="code">        // Fallback: in multiplayer, owner is a player index; parity matches yin/yang grouping.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">196</span><span class="code">        if (affinity &lt; 0) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">197</span><span class="code">            if (Value o = a-&gt;getAttr(&quot;owner&quot;)) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">198</span><span class="code">                int oi = static_cast&lt;int&gt;(o);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">199</span><span class="code">                if (oi &gt;= 0)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">200</span><span class="code">                    affinity = (oi &amp; 1);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">201</span><span class="code">            }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">202</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">203</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">204</span><span class="code">        // Last-resort fallback: infer the controlling player from a single-bit controllers mask.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">205</span><span class="code">        if (affinity &lt; 0) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">206</span><span class="code">            int ctr = a-&gt;get_controllers();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">207</span><span class="code">            if (ctr != 0) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">208</span><span class="code">                unsigned mask = static_cast&lt;unsigned&gt;(ctr);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">209</span><span class="code">                unsigned idx = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">210</span><span class="code">                while ((mask &amp; 1u) == 0u) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">211</span><span class="code">                    mask &gt;&gt;= 1u;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">212</span><span class="code">                    ++idx;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">213</span><span class="code">                    if (idx &gt;= 31)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">214</span><span class="code">                        break;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">215</span><span class="code">                }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">216</span><span class="code">                affinity = static_cast&lt;int&gt;(idx &amp; 1u);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">217</span><span class="code">            }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">218</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">219</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">220</span><span class="code">        if (affinity == state)</span></div>
+<div class="line ctx"><span class="ln old">170</span><span class="ln new">221</span><span class="code">            return getAdhesion() * force;</span></div>
+<div class="line ctx"><span class="ln old">171</span><span class="ln new">222</span><span class="code">        else</span></div>
+<div class="line ctx"><span class="ln old">172</span><span class="ln new">223</span><span class="code">            return ecl::V2();</span></div>
 </div>
 </div>
 <div class="section" id="src_gui_GameMenu_cc">
@@ -23653,7 +23657,7 @@ h1 { margin: 0 0 8px; }
 </div>
 <div class="diff">
 <div class="line meta"><span class="code">diff --git a/src/world.cc b/src/world.cc</span></div>
-<div class="line meta"><span class="code">index 723ce5ac..2d3c4412 100644</span></div>
+<div class="line meta"><span class="code">index 723ce5ac..cffb76ca 100644</span></div>
 <div class="line meta"><span class="code">--- a/src/world.cc</span></div>
 <div class="line meta"><span class="code">+++ b/src/world.cc</span></div>
 <div class="line hunkhdr"><span class="code">@@ -1,6 +1,7 @@</span></div>
@@ -23692,100 +23696,140 @@ h1 { margin: 0 0 8px; }
 <div class="line ctx"><span class="ln old">78</span><span class="ln new">86</span><span class="code">  gridpos(),</span></div>
 <div class="line ctx"><span class="ln old">79</span><span class="ln new">87</span><span class="code">  field(nullptr),</span></div>
 <div class="line ctx"><span class="ln old">80</span><span class="ln new">88</span><span class="code">  charge(0),</span></div>
-<div class="line hunkhdr"><span class="code">@@ -1990,6 +1998,62 @@ void PerformSecureAction(int senderId, bool isCallback, int targetId, std::strin</span></div>
-<div class="line ctx"><span class="ln old">1990</span><span class="ln new">1998</span><span class="code">    level-&gt;actionList.push_back(Action(senderId, isCallback, targetId, name, val));</span></div>
-<div class="line ctx"><span class="ln old">1991</span><span class="ln new">1999</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">1992</span><span class="ln new">2000</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2001</span><span class="code">std::vector&lt;Action&gt; CapturePendingActions() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2002</span><span class="code">    std::vector&lt;Action&gt; out;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2003</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2004</span><span class="code">        return out;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2005</span><span class="code">    out.reserve(level-&gt;actionList.size());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2006</span><span class="code">    for (const auto &amp;a : level-&gt;actionList)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2007</span><span class="code">        out.push_back(a);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2008</span><span class="code">    return out;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2009</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2010</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2011</span><span class="code">void RestorePendingActions(const std::vector&lt;Action&gt; &amp;actions) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2012</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2013</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2014</span><span class="code">    level-&gt;actionList.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2015</span><span class="code">    for (const auto &amp;a : actions)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2016</span><span class="code">        level-&gt;actionList.push_back(a);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2017</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2018</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2019</span><span class="code">void CaptureObjectStates(std::vector&lt;int&gt; &amp;ids, std::vector&lt;int&gt; &amp;states) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2020</span><span class="code">    ids.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2021</span><span class="code">    states.clear();</span></div>
+<div class="line hunkhdr"><span class="code">@@ -563,10 +571,25 @@ ecl::V2 World::get_local_force(Actor *a) {</span></div>
+<div class="line ctx"><span class="ln old">563</span><span class="ln new">571</span><span class="code">    double friction = 0;</span></div>
+<div class="line ctx"><span class="ln old">564</span><span class="ln new">572</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">565</span><span class="ln new">573</span><span class="code">    if (a-&gt;is_on_floor()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">574</span><span class="code">        // Single-player: when standing on a yin/yang floor, mouseforce should be</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">575</span><span class="code">        // sourced from the current player (it_yinyang toggles current player),</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">576</span><span class="code">        // not from the actor&#x27;s own controllers mask. This matches legacy yinyang</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">577</span><span class="code">        // semantics where the floor determines which player can move *any* ball</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">578</span><span class="code">        // on it.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">579</span><span class="code">        ecl::V2 base_mouseforce;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">580</span><span class="code">        bool have_base_mouseforce = false;</span></div>
+<div class="line ctx"><span class="ln old">566</span><span class="ln new">581</span><span class="code">        if (Floor *floor = a-&gt;m_actorinfo.field-&gt;floor) {</span></div>
+<div class="line ctx"><span class="ln old">567</span><span class="ln new">582</span><span class="code">            // Mouse force</span></div>
+<div class="line ctx"><span class="ln old">568</span><span class="ln new">583</span><span class="code">            if (a-&gt;get_controllers() != 0) {</span></div>
+<div class="line del"><span class="ln old">569</span><span class="ln new"></span><span class="code">                m = floor-&gt;process_mouseforce(a, m_mouseforce.get_force(a));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">584</span><span class="code">                base_mouseforce = m_mouseforce.get_force(a);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">585</span><span class="code">                have_base_mouseforce = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">586</span><span class="code">                if (!input::IsNetworked() &amp;&amp; floor-&gt;isKind(&quot;fl_yinyang&quot;)) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">587</span><span class="code">                    const int cp = player::CurrentPlayer();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">588</span><span class="code">                    if (cp &gt;= 0 &amp;&amp; cp &lt; static_cast&lt;int&gt;(input::kMaxPlayers)) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">589</span><span class="code">                        base_mouseforce = m_mouseforce.get_force_for_controllers(1 &lt;&lt; cp, a-&gt;get_mouseforce());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">590</span><span class="code">                    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">591</span><span class="code">                }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">592</span><span class="code">                m = floor-&gt;process_mouseforce(a, base_mouseforce);</span></div>
+<div class="line ctx"><span class="ln old">570</span><span class="ln new">593</span><span class="code">            }</span></div>
+<div class="line ctx"><span class="ln old">571</span><span class="ln new">594</span><span class="code">            // Friction</span></div>
+<div class="line ctx"><span class="ln old">572</span><span class="ln new">595</span><span class="code">            friction = floor-&gt;get_friction();</span></div>
+<div class="line hunkhdr"><span class="code">@@ -578,7 +601,11 @@ ecl::V2 World::get_local_force(Actor *a) {</span></div>
+<div class="line ctx"><span class="ln old">578</span><span class="ln new">601</span><span class="code">        if (Item *item = a-&gt;m_actorinfo.field-&gt;item) {</span></div>
+<div class="line ctx"><span class="ln old">579</span><span class="ln new">602</span><span class="code">            friction = item-&gt;getFriction(a-&gt;get_pos(), friction, a);</span></div>
+<div class="line ctx"><span class="ln old">580</span><span class="ln new">603</span><span class="code">            if (a-&gt;get_controllers() != 0) {</span></div>
+<div class="line del"><span class="ln old">581</span><span class="ln new"></span><span class="code">                m = item-&gt;calcMouseforce(a, m_mouseforce.get_force(a), m);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">604</span><span class="code">                if (!have_base_mouseforce) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">605</span><span class="code">                    base_mouseforce = m_mouseforce.get_force(a);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">606</span><span class="code">                    have_base_mouseforce = true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">607</span><span class="code">                }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">608</span><span class="code">                m = item-&gt;calcMouseforce(a, base_mouseforce, m);</span></div>
+<div class="line ctx"><span class="ln old">582</span><span class="ln new">609</span><span class="code">            }</span></div>
+<div class="line ctx"><span class="ln old">583</span><span class="ln new">610</span><span class="code">            item-&gt;add_force(a, f);</span></div>
+<div class="line ctx"><span class="ln old">584</span><span class="ln new">611</span><span class="code">        }</span></div>
+<div class="line hunkhdr"><span class="code">@@ -1990,6 +2017,62 @@ void PerformSecureAction(int senderId, bool isCallback, int targetId, std::strin</span></div>
+<div class="line ctx"><span class="ln old">1990</span><span class="ln new">2017</span><span class="code">    level-&gt;actionList.push_back(Action(senderId, isCallback, targetId, name, val));</span></div>
+<div class="line ctx"><span class="ln old">1991</span><span class="ln new">2018</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">1992</span><span class="ln new">2019</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2020</span><span class="code">std::vector&lt;Action&gt; CapturePendingActions() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2021</span><span class="code">    std::vector&lt;Action&gt; out;</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">2022</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2023</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2024</span><span class="code">    ids.reserve(static_cast&lt;size_t&gt;(level-&gt;w) * static_cast&lt;size_t&gt;(level-&gt;h) * 3u);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2025</span><span class="code">    states.reserve(ids.capacity());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2026</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2027</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2028</span><span class="code">            Field &amp;f = level-&gt;fields(x, y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2029</span><span class="code">            auto capture = [&amp;ids, &amp;states](GridObject *obj) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2030</span><span class="code">                if (!obj)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2031</span><span class="code">                    return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2032</span><span class="code">                ids.push_back(obj-&gt;getId());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2033</span><span class="code">                states.push_back(static_cast&lt;int&gt;(obj-&gt;getAttr(&quot;state&quot;)));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2034</span><span class="code">            };</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2035</span><span class="code">            capture(f.floor);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2036</span><span class="code">            capture(f.item);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2037</span><span class="code">            capture(f.stone);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2038</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2039</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2040</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2041</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2042</span><span class="code">void RestoreObjectStates(const std::vector&lt;int&gt; &amp;ids, const std::vector&lt;int&gt; &amp;states) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2043</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2044</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2045</span><span class="code">    const size_t n = std::min(ids.size(), states.size());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2046</span><span class="code">    for (size_t i = 0; i &lt; n; ++i) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2047</span><span class="code">        Object *obj = Object::getObject(ids[i]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2048</span><span class="code">        if (!obj)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2049</span><span class="code">            continue;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2050</span><span class="code">        const int want = states[i];</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2051</span><span class="code">        const int have = static_cast&lt;int&gt;(obj-&gt;getAttr(&quot;state&quot;));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2052</span><span class="code">        if (have != want)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2053</span><span class="code">            obj-&gt;setAttr(&quot;state&quot;, Value(want));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2054</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2055</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2056</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">1993</span><span class="ln new">2057</span><span class="code">namespace {</span></div>
-<div class="line ctx"><span class="ln old">1994</span><span class="ln new">2058</span><span class="code">void explosion(GridPos source, GridPos dest, const char *explosion_item) {</span></div>
-<div class="line ctx"><span class="ln old">1995</span><span class="ln new">2059</span><span class="code">    if (Stone *stone = GetStone(dest))</span></div>
-<div class="line hunkhdr"><span class="code">@@ -2113,6 +2177,13 @@ void KillOther(Other *o) {</span></div>
-<div class="line ctx"><span class="ln old">2113</span><span class="ln new">2177</span><span class="code">    }</span></div>
-<div class="line ctx"><span class="ln old">2114</span><span class="ln new">2178</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2115</span><span class="ln new">2179</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2180</span><span class="code">void GetRubberbands(std::vector&lt;Rubberband *&gt; &amp;out) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2181</span><span class="code">    out.clear();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2182</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2183</span><span class="code">        return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2184</span><span class="code">    out.insert(out.end(), level-&gt;rubberbands.begin(), level-&gt;rubberbands.end());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2185</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2186</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2116</span><span class="ln new">2187</span><span class="code">/* -------------------- Floor manipulation -------------------- */</span></div>
-<div class="line ctx"><span class="ln old">2117</span><span class="ln new">2188</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2118</span><span class="ln new">2189</span><span class="code">void KillFloor(GridPos p) {</span></div>
-<div class="line hunkhdr"><span class="code">@@ -2306,7 +2377,11 @@ void hash_string(uint64_t &amp;h, const std::string &amp;s) {</span></div>
-<div class="line ctx"><span class="ln old">2306</span><span class="ln new">2377</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2307</span><span class="ln new">2378</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2308</span><span class="ln new">2379</span><span class="code">int64_t quantize(double v) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2023</span><span class="code">        return out;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2024</span><span class="code">    out.reserve(level-&gt;actionList.size());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2025</span><span class="code">    for (const auto &amp;a : level-&gt;actionList)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2026</span><span class="code">        out.push_back(a);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2027</span><span class="code">    return out;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2028</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2029</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2030</span><span class="code">void RestorePendingActions(const std::vector&lt;Action&gt; &amp;actions) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2031</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2032</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2033</span><span class="code">    level-&gt;actionList.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2034</span><span class="code">    for (const auto &amp;a : actions)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2035</span><span class="code">        level-&gt;actionList.push_back(a);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2036</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2037</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2038</span><span class="code">void CaptureObjectStates(std::vector&lt;int&gt; &amp;ids, std::vector&lt;int&gt; &amp;states) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2039</span><span class="code">    ids.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2040</span><span class="code">    states.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2041</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2042</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2043</span><span class="code">    ids.reserve(static_cast&lt;size_t&gt;(level-&gt;w) * static_cast&lt;size_t&gt;(level-&gt;h) * 3u);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2044</span><span class="code">    states.reserve(ids.capacity());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2045</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2046</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2047</span><span class="code">            Field &amp;f = level-&gt;fields(x, y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2048</span><span class="code">            auto capture = [&amp;ids, &amp;states](GridObject *obj) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2049</span><span class="code">                if (!obj)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2050</span><span class="code">                    return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2051</span><span class="code">                ids.push_back(obj-&gt;getId());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2052</span><span class="code">                states.push_back(static_cast&lt;int&gt;(obj-&gt;getAttr(&quot;state&quot;)));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2053</span><span class="code">            };</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2054</span><span class="code">            capture(f.floor);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2055</span><span class="code">            capture(f.item);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2056</span><span class="code">            capture(f.stone);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2057</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2058</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2059</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2060</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2061</span><span class="code">void RestoreObjectStates(const std::vector&lt;int&gt; &amp;ids, const std::vector&lt;int&gt; &amp;states) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2062</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2063</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2064</span><span class="code">    const size_t n = std::min(ids.size(), states.size());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2065</span><span class="code">    for (size_t i = 0; i &lt; n; ++i) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2066</span><span class="code">        Object *obj = Object::getObject(ids[i]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2067</span><span class="code">        if (!obj)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2068</span><span class="code">            continue;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2069</span><span class="code">        const int want = states[i];</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2070</span><span class="code">        const int have = static_cast&lt;int&gt;(obj-&gt;getAttr(&quot;state&quot;));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2071</span><span class="code">        if (have != want)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2072</span><span class="code">            obj-&gt;setAttr(&quot;state&quot;, Value(want));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2073</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2074</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2075</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">1993</span><span class="ln new">2076</span><span class="code">namespace {</span></div>
+<div class="line ctx"><span class="ln old">1994</span><span class="ln new">2077</span><span class="code">void explosion(GridPos source, GridPos dest, const char *explosion_item) {</span></div>
+<div class="line ctx"><span class="ln old">1995</span><span class="ln new">2078</span><span class="code">    if (Stone *stone = GetStone(dest))</span></div>
+<div class="line hunkhdr"><span class="code">@@ -2113,6 +2196,13 @@ void KillOther(Other *o) {</span></div>
+<div class="line ctx"><span class="ln old">2113</span><span class="ln new">2196</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">2114</span><span class="ln new">2197</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2115</span><span class="ln new">2198</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2199</span><span class="code">void GetRubberbands(std::vector&lt;Rubberband *&gt; &amp;out) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2200</span><span class="code">    out.clear();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2201</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2202</span><span class="code">        return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2203</span><span class="code">    out.insert(out.end(), level-&gt;rubberbands.begin(), level-&gt;rubberbands.end());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2204</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2205</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2116</span><span class="ln new">2206</span><span class="code">/* -------------------- Floor manipulation -------------------- */</span></div>
+<div class="line ctx"><span class="ln old">2117</span><span class="ln new">2207</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2118</span><span class="ln new">2208</span><span class="code">void KillFloor(GridPos p) {</span></div>
+<div class="line hunkhdr"><span class="code">@@ -2306,7 +2396,11 @@ void hash_string(uint64_t &amp;h, const std::string &amp;s) {</span></div>
+<div class="line ctx"><span class="ln old">2306</span><span class="ln new">2396</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2307</span><span class="ln new">2397</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2308</span><span class="ln new">2398</span><span class="code">int64_t quantize(double v) {</span></div>
 <div class="line del"><span class="ln old">2309</span><span class="ln new"></span><span class="code">    return static_cast&lt;int64_t&gt;(std::llround(v * 1000.0));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2380</span><span class="code">    // Multiplayer uses WorldChecksum/ActorChecksum for desync detection. Keep</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2381</span><span class="code">    // quantization coarse enough to avoid false positives due to tiny platform-</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2382</span><span class="code">    // dependent floating point drift, but fine enough to catch real divergence.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2383</span><span class="code">    // 0.05 tiles ~= 1/20th of a cell.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2384</span><span class="code">    return static_cast&lt;int64_t&gt;(std::llround(v * 20.0));</span></div>
-<div class="line ctx"><span class="ln old">2310</span><span class="ln new">2385</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2311</span><span class="ln new">2386</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2312</span><span class="ln new">2387</span><span class="code">void hash_object_state(uint64_t &amp;h, Object *obj) {</span></div>
-<div class="line hunkhdr"><span class="code">@@ -2342,19 +2417,61 @@ uint64_t WorldChecksum() {</span></div>
-<div class="line ctx"><span class="ln old">2342</span><span class="ln new">2417</span><span class="code">        }</span></div>
-<div class="line ctx"><span class="ln old">2343</span><span class="ln new">2418</span><span class="code">    }</span></div>
-<div class="line ctx"><span class="ln old">2344</span><span class="ln new">2419</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2399</span><span class="code">    // Multiplayer uses WorldChecksum/ActorChecksum for desync detection. Keep</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2400</span><span class="code">    // quantization coarse enough to avoid false positives due to tiny platform-</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2401</span><span class="code">    // dependent floating point drift, but fine enough to catch real divergence.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2402</span><span class="code">    // 0.05 tiles ~= 1/20th of a cell.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2403</span><span class="code">    return static_cast&lt;int64_t&gt;(std::llround(v * 20.0));</span></div>
+<div class="line ctx"><span class="ln old">2310</span><span class="ln new">2404</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2311</span><span class="ln new">2405</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2312</span><span class="ln new">2406</span><span class="code">void hash_object_state(uint64_t &amp;h, Object *obj) {</span></div>
+<div class="line hunkhdr"><span class="code">@@ -2342,19 +2436,61 @@ uint64_t WorldChecksum() {</span></div>
+<div class="line ctx"><span class="ln old">2342</span><span class="ln new">2436</span><span class="code">        }</span></div>
+<div class="line ctx"><span class="ln old">2343</span><span class="ln new">2437</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">2344</span><span class="ln new">2438</span><span class="code"></span></div>
 <div class="line del"><span class="ln old">2345</span><span class="ln new"></span><span class="code">    std::vector&lt;Actor *&gt; actors(level-&gt;actorlist.begin(), level-&gt;actorlist.end());</span></div>
 <div class="line del"><span class="ln old">2346</span><span class="ln new"></span><span class="code">    std::sort(actors.begin(), actors.end(),</span></div>
 <div class="line del"><span class="ln old">2347</span><span class="ln new"></span><span class="code">              [](const Actor *a, const Actor *b) { return a-&gt;getId() &lt; b-&gt;getId(); });</span></div>
@@ -23793,179 +23837,179 @@ h1 { margin: 0 0 8px; }
 <div class="line del"><span class="ln old">2349</span><span class="ln new"></span><span class="code">    for (Actor *actor : actors) {</span></div>
 <div class="line del"><span class="ln old">2350</span><span class="ln new"></span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(actor-&gt;getId()));</span></div>
 <div class="line del"><span class="ln old">2351</span><span class="ln new"></span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(get_id(actor)));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2420</span><span class="code">    struct ActorDigest {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2421</span><span class="code">        uint32_t kind = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2422</span><span class="code">        uint32_t id = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2423</span><span class="code">        int owner = -1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2424</span><span class="code">        int controllers = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2425</span><span class="code">        int64_t x = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2426</span><span class="code">        int64_t y = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2427</span><span class="code">        int64_t vx = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2428</span><span class="code">        int64_t vy = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2429</span><span class="code">    };</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2430</span><span class="code">    std::vector&lt;ActorDigest&gt; actors;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2431</span><span class="code">    actors.reserve(level-&gt;actorlist.size());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2432</span><span class="code">    for (Actor *actor : level-&gt;actorlist) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2433</span><span class="code">        ActorDigest d;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2434</span><span class="code">        d.kind = static_cast&lt;uint32_t&gt;(get_id(actor));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2435</span><span class="code">        d.id = static_cast&lt;uint32_t&gt;(actor-&gt;getId());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2436</span><span class="code">        Value owner = actor-&gt;getAttr(&quot;owner&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2437</span><span class="code">        if (owner.getType() != Value::NIL)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2438</span><span class="code">            d.owner = static_cast&lt;int&gt;(owner);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2439</span><span class="code">        d.controllers = actor-&gt;get_controllers();</span></div>
-<div class="line ctx"><span class="ln old">2352</span><span class="ln new">2440</span><span class="code">        const ecl::V2 &amp;pos = actor-&gt;get_pos();</span></div>
-<div class="line ctx"><span class="ln old">2353</span><span class="ln new">2441</span><span class="code">        const ecl::V2 &amp;vel = actor-&gt;get_vel();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2439</span><span class="code">    struct ActorDigest {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2440</span><span class="code">        uint32_t kind = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2441</span><span class="code">        uint32_t id = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2442</span><span class="code">        int owner = -1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2443</span><span class="code">        int controllers = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2444</span><span class="code">        int64_t x = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2445</span><span class="code">        int64_t y = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2446</span><span class="code">        int64_t vx = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2447</span><span class="code">        int64_t vy = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2448</span><span class="code">    };</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2449</span><span class="code">    std::vector&lt;ActorDigest&gt; actors;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2450</span><span class="code">    actors.reserve(level-&gt;actorlist.size());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2451</span><span class="code">    for (Actor *actor : level-&gt;actorlist) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2452</span><span class="code">        ActorDigest d;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2453</span><span class="code">        d.kind = static_cast&lt;uint32_t&gt;(get_id(actor));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2454</span><span class="code">        d.id = static_cast&lt;uint32_t&gt;(actor-&gt;getId());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2455</span><span class="code">        Value owner = actor-&gt;getAttr(&quot;owner&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2456</span><span class="code">        if (owner.getType() != Value::NIL)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2457</span><span class="code">            d.owner = static_cast&lt;int&gt;(owner);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2458</span><span class="code">        d.controllers = actor-&gt;get_controllers();</span></div>
+<div class="line ctx"><span class="ln old">2352</span><span class="ln new">2459</span><span class="code">        const ecl::V2 &amp;pos = actor-&gt;get_pos();</span></div>
+<div class="line ctx"><span class="ln old">2353</span><span class="ln new">2460</span><span class="code">        const ecl::V2 &amp;vel = actor-&gt;get_vel();</span></div>
 <div class="line del"><span class="ln old">2354</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(pos[0]));</span></div>
 <div class="line del"><span class="ln old">2355</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(pos[1]));</span></div>
 <div class="line del"><span class="ln old">2356</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(vel[0]));</span></div>
 <div class="line del"><span class="ln old">2357</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(vel[1]));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2442</span><span class="code">        d.x = quantize(pos[0]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2443</span><span class="code">        d.y = quantize(pos[1]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2444</span><span class="code">        d.vx = quantize(vel[0]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2445</span><span class="code">        d.vy = quantize(vel[1]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2446</span><span class="code">        actors.push_back(d);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2447</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2448</span><span class="code">    std::sort(actors.begin(), actors.end(), [](const ActorDigest &amp;a, const ActorDigest &amp;b) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2449</span><span class="code">        if (a.kind != b.kind)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2450</span><span class="code">            return a.kind &lt; b.kind;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2451</span><span class="code">        if (a.id != b.id)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2452</span><span class="code">            return a.id &lt; b.id;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2453</span><span class="code">        if (a.owner != b.owner)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2454</span><span class="code">            return a.owner &lt; b.owner;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2455</span><span class="code">        if (a.controllers != b.controllers)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2456</span><span class="code">            return a.controllers &lt; b.controllers;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2457</span><span class="code">        if (a.x != b.x)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2458</span><span class="code">            return a.x &lt; b.x;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2459</span><span class="code">        if (a.y != b.y)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2460</span><span class="code">            return a.y &lt; b.y;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2461</span><span class="code">        if (a.vx != b.vx)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2462</span><span class="code">            return a.vx &lt; b.vx;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2463</span><span class="code">        return a.vy &lt; b.vy;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2464</span><span class="code">    });</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2465</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(actors.size()));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2466</span><span class="code">    for (const auto &amp;d : actors) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2467</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.kind));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2468</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.id));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2469</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.owner));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2470</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.controllers));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2471</span><span class="code">        hash_i64(h, d.x);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2472</span><span class="code">        hash_i64(h, d.y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2473</span><span class="code">        hash_i64(h, d.vx);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2474</span><span class="code">        hash_i64(h, d.vy);</span></div>
-<div class="line ctx"><span class="ln old">2358</span><span class="ln new">2475</span><span class="code">    }</span></div>
-<div class="line ctx"><span class="ln old">2359</span><span class="ln new">2476</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2360</span><span class="ln new">2477</span><span class="code">    std::vector&lt;Other *&gt; others(level-&gt;others.begin(), level-&gt;others.end());</span></div>
-<div class="line hunkhdr"><span class="code">@@ -2369,23 +2486,168 @@ uint64_t WorldChecksum() {</span></div>
-<div class="line ctx"><span class="ln old">2369</span><span class="ln new">2486</span><span class="code">    return h;</span></div>
-<div class="line ctx"><span class="ln old">2370</span><span class="ln new">2487</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2371</span><span class="ln new">2488</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2489</span><span class="code">uint64_t WorldGridKindChecksum() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2490</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2491</span><span class="code">        return 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2492</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2493</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2494</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2495</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2496</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2497</span><span class="code">            GridPos p(x, y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2498</span><span class="code">            Object *fl = level-&gt;fl_layer.get(p);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2499</span><span class="code">            Object *st = level-&gt;st_layer.get(p);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2500</span><span class="code">            Object *it = level-&gt;it_layer.get(p);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2501</span><span class="code">            if (fl)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2502</span><span class="code">                hash_string(h, fl-&gt;getKind());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2503</span><span class="code">            else</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2504</span><span class="code">                hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2505</span><span class="code">            if (st)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2506</span><span class="code">                hash_string(h, st-&gt;getKind());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2507</span><span class="code">            else</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2508</span><span class="code">                hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2509</span><span class="code">            if (it)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2510</span><span class="code">                hash_string(h, it-&gt;getKind());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2511</span><span class="code">            else</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2512</span><span class="code">                hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2513</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2514</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2515</span><span class="code">    return h;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2516</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2517</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2518</span><span class="code">uint64_t WorldGridStateChecksum() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2519</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2520</span><span class="code">        return 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2521</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2522</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2523</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2524</span><span class="code">    auto hash_external_state = [&amp;h](Object *obj) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2525</span><span class="code">        if (!obj) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2526</span><span class="code">            hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2527</span><span class="code">            return;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2528</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2529</span><span class="code">        Value state = obj-&gt;getAttr(&quot;state&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2530</span><span class="code">        if (!state.isDefault()) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2531</span><span class="code">            int state_value = static_cast&lt;int&gt;(state);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2532</span><span class="code">            hash_i64(h, static_cast&lt;int64_t&gt;(state_value));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2533</span><span class="code">        } else {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2534</span><span class="code">            hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2535</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2536</span><span class="code">    };</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2537</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2538</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2539</span><span class="code">            GridPos p(x, y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2540</span><span class="code">            hash_external_state(level-&gt;fl_layer.get(p));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2541</span><span class="code">            hash_external_state(level-&gt;st_layer.get(p));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2542</span><span class="code">            hash_external_state(level-&gt;it_layer.get(p));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2543</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2544</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2545</span><span class="code">    return h;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2546</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2547</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2548</span><span class="code">uint64_t WorldGridMovableStoneChecksum() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2549</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2550</span><span class="code">        return 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2551</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2552</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2553</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2554</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2555</span><span class="code">    // IMPORTANT: do not use runtime object IDs here.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2556</span><span class="code">    // Multiplayer resync can rebuild stones (and different instances can also allocate objects</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2557</span><span class="code">    // in different orders), so IDs are not stable across peers even if the visible grid matches.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2558</span><span class="code">    // Keep this checksum purely based on the grid layout.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2559</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2560</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2561</span><span class="code">            GridPos p(x, y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2562</span><span class="code">            Stone *st = dynamic_cast&lt;Stone *&gt;(level-&gt;st_layer.get(p));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2563</span><span class="code">            if (st &amp;&amp; st-&gt;is_movable())</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2564</span><span class="code">                hash_string(h, st-&gt;getKind());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2565</span><span class="code">            else</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2566</span><span class="code">                hash_u64(h, 0);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2567</span><span class="code">        }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2568</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2569</span><span class="code">    return h;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2570</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2571</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2572</span><span class="code">uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checksum, uint64_t movable_checksum) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2573</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2574</span><span class="code">    hash_u64(h, kind_checksum);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2575</span><span class="code">    hash_u64(h, state_checksum);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2576</span><span class="code">    // Movable stones are already covered by kind/state (per-cell), and their runtime IDs are</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2577</span><span class="code">    // not stable across peers once we allow world-state resync that rebuilds stones.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2578</span><span class="code">    // Keeping this out of the combined checksum prevents persistent false mismatches.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2579</span><span class="code">    (void)movable_checksum;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2580</span><span class="code">    return h;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2581</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2582</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2583</span><span class="code">uint64_t WorldGridChecksum() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2584</span><span class="code">    if (!level)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2585</span><span class="code">        return 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2586</span><span class="code">    const uint64_t kind = WorldGridKindChecksum();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2587</span><span class="code">    const uint64_t state = WorldGridStateChecksum();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2588</span><span class="code">    const uint64_t movable = WorldGridMovableStoneChecksum();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2589</span><span class="code">    return CombineWorldGridChecksums(kind, state, movable);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2590</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2591</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2372</span><span class="ln new">2592</span><span class="code">uint64_t ActorChecksum() {</span></div>
-<div class="line ctx"><span class="ln old">2373</span><span class="ln new">2593</span><span class="code">    if (!level)</span></div>
-<div class="line ctx"><span class="ln old">2374</span><span class="ln new">2594</span><span class="code">        return 0;</span></div>
-<div class="line ctx"><span class="ln old">2375</span><span class="ln new">2595</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2461</span><span class="code">        d.x = quantize(pos[0]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2462</span><span class="code">        d.y = quantize(pos[1]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2463</span><span class="code">        d.vx = quantize(vel[0]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2464</span><span class="code">        d.vy = quantize(vel[1]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2465</span><span class="code">        actors.push_back(d);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2466</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2467</span><span class="code">    std::sort(actors.begin(), actors.end(), [](const ActorDigest &amp;a, const ActorDigest &amp;b) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2468</span><span class="code">        if (a.kind != b.kind)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2469</span><span class="code">            return a.kind &lt; b.kind;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2470</span><span class="code">        if (a.id != b.id)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2471</span><span class="code">            return a.id &lt; b.id;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2472</span><span class="code">        if (a.owner != b.owner)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2473</span><span class="code">            return a.owner &lt; b.owner;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2474</span><span class="code">        if (a.controllers != b.controllers)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2475</span><span class="code">            return a.controllers &lt; b.controllers;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2476</span><span class="code">        if (a.x != b.x)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2477</span><span class="code">            return a.x &lt; b.x;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2478</span><span class="code">        if (a.y != b.y)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2479</span><span class="code">            return a.y &lt; b.y;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2480</span><span class="code">        if (a.vx != b.vx)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2481</span><span class="code">            return a.vx &lt; b.vx;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2482</span><span class="code">        return a.vy &lt; b.vy;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2483</span><span class="code">    });</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2484</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(actors.size()));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2485</span><span class="code">    for (const auto &amp;d : actors) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2486</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.kind));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2487</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.id));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2488</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.owner));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2489</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.controllers));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2490</span><span class="code">        hash_i64(h, d.x);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2491</span><span class="code">        hash_i64(h, d.y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2492</span><span class="code">        hash_i64(h, d.vx);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2493</span><span class="code">        hash_i64(h, d.vy);</span></div>
+<div class="line ctx"><span class="ln old">2358</span><span class="ln new">2494</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">2359</span><span class="ln new">2495</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2360</span><span class="ln new">2496</span><span class="code">    std::vector&lt;Other *&gt; others(level-&gt;others.begin(), level-&gt;others.end());</span></div>
+<div class="line hunkhdr"><span class="code">@@ -2369,23 +2505,168 @@ uint64_t WorldChecksum() {</span></div>
+<div class="line ctx"><span class="ln old">2369</span><span class="ln new">2505</span><span class="code">    return h;</span></div>
+<div class="line ctx"><span class="ln old">2370</span><span class="ln new">2506</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2371</span><span class="ln new">2507</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2508</span><span class="code">uint64_t WorldGridKindChecksum() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2509</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2510</span><span class="code">        return 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2511</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2512</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2513</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2514</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2515</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2516</span><span class="code">            GridPos p(x, y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2517</span><span class="code">            Object *fl = level-&gt;fl_layer.get(p);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2518</span><span class="code">            Object *st = level-&gt;st_layer.get(p);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2519</span><span class="code">            Object *it = level-&gt;it_layer.get(p);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2520</span><span class="code">            if (fl)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2521</span><span class="code">                hash_string(h, fl-&gt;getKind());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2522</span><span class="code">            else</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2523</span><span class="code">                hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2524</span><span class="code">            if (st)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2525</span><span class="code">                hash_string(h, st-&gt;getKind());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2526</span><span class="code">            else</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2527</span><span class="code">                hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2528</span><span class="code">            if (it)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2529</span><span class="code">                hash_string(h, it-&gt;getKind());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2530</span><span class="code">            else</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2531</span><span class="code">                hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2532</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2533</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2534</span><span class="code">    return h;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2535</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2536</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2537</span><span class="code">uint64_t WorldGridStateChecksum() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2538</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2539</span><span class="code">        return 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2540</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2541</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2542</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2543</span><span class="code">    auto hash_external_state = [&amp;h](Object *obj) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2544</span><span class="code">        if (!obj) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2545</span><span class="code">            hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2546</span><span class="code">            return;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2547</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2548</span><span class="code">        Value state = obj-&gt;getAttr(&quot;state&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2549</span><span class="code">        if (!state.isDefault()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2550</span><span class="code">            int state_value = static_cast&lt;int&gt;(state);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2551</span><span class="code">            hash_i64(h, static_cast&lt;int64_t&gt;(state_value));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2552</span><span class="code">        } else {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2553</span><span class="code">            hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2554</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2555</span><span class="code">    };</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2556</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2557</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2558</span><span class="code">            GridPos p(x, y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2559</span><span class="code">            hash_external_state(level-&gt;fl_layer.get(p));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2560</span><span class="code">            hash_external_state(level-&gt;st_layer.get(p));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2561</span><span class="code">            hash_external_state(level-&gt;it_layer.get(p));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2562</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2563</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2564</span><span class="code">    return h;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2565</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2566</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2567</span><span class="code">uint64_t WorldGridMovableStoneChecksum() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2568</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2569</span><span class="code">        return 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2570</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2571</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;w));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2572</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(level-&gt;h));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2573</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2574</span><span class="code">    // IMPORTANT: do not use runtime object IDs here.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2575</span><span class="code">    // Multiplayer resync can rebuild stones (and different instances can also allocate objects</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2576</span><span class="code">    // in different orders), so IDs are not stable across peers even if the visible grid matches.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2577</span><span class="code">    // Keep this checksum purely based on the grid layout.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2578</span><span class="code">    for (int y = 0; y &lt; level-&gt;h; ++y) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2579</span><span class="code">        for (int x = 0; x &lt; level-&gt;w; ++x) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2580</span><span class="code">            GridPos p(x, y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2581</span><span class="code">            Stone *st = dynamic_cast&lt;Stone *&gt;(level-&gt;st_layer.get(p));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2582</span><span class="code">            if (st &amp;&amp; st-&gt;is_movable())</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2583</span><span class="code">                hash_string(h, st-&gt;getKind());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2584</span><span class="code">            else</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2585</span><span class="code">                hash_u64(h, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2586</span><span class="code">        }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2587</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2588</span><span class="code">    return h;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2589</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2590</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2591</span><span class="code">uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checksum, uint64_t movable_checksum) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2592</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2593</span><span class="code">    hash_u64(h, kind_checksum);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2594</span><span class="code">    hash_u64(h, state_checksum);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2595</span><span class="code">    // Movable stones are already covered by kind/state (per-cell), and their runtime IDs are</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2596</span><span class="code">    // not stable across peers once we allow world-state resync that rebuilds stones.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2597</span><span class="code">    // Keeping this out of the combined checksum prevents persistent false mismatches.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2598</span><span class="code">    (void)movable_checksum;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2599</span><span class="code">    return h;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2600</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2601</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2602</span><span class="code">uint64_t WorldGridChecksum() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2603</span><span class="code">    if (!level)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2604</span><span class="code">        return 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2605</span><span class="code">    const uint64_t kind = WorldGridKindChecksum();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2606</span><span class="code">    const uint64_t state = WorldGridStateChecksum();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2607</span><span class="code">    const uint64_t movable = WorldGridMovableStoneChecksum();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2608</span><span class="code">    return CombineWorldGridChecksums(kind, state, movable);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2609</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2610</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2372</span><span class="ln new">2611</span><span class="code">uint64_t ActorChecksum() {</span></div>
+<div class="line ctx"><span class="ln old">2373</span><span class="ln new">2612</span><span class="code">    if (!level)</span></div>
+<div class="line ctx"><span class="ln old">2374</span><span class="ln new">2613</span><span class="code">        return 0;</span></div>
+<div class="line ctx"><span class="ln old">2375</span><span class="ln new">2614</span><span class="code">    uint64_t h = kChecksumOffset;</span></div>
 <div class="line del"><span class="ln old">2376</span><span class="ln new"></span><span class="code">    std::vector&lt;Actor *&gt; actors(level-&gt;actorlist.begin(), level-&gt;actorlist.end());</span></div>
 <div class="line del"><span class="ln old">2377</span><span class="ln new"></span><span class="code">    std::sort(actors.begin(), actors.end(),</span></div>
 <div class="line del"><span class="ln old">2378</span><span class="ln new"></span><span class="code">              [](const Actor *a, const Actor *b) { return a-&gt;getId() &lt; b-&gt;getId(); });</span></div>
@@ -23973,98 +24017,98 @@ h1 { margin: 0 0 8px; }
 <div class="line del"><span class="ln old">2380</span><span class="ln new"></span><span class="code">    for (Actor *actor : actors) {</span></div>
 <div class="line del"><span class="ln old">2381</span><span class="ln new"></span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(actor-&gt;getId()));</span></div>
 <div class="line del"><span class="ln old">2382</span><span class="ln new"></span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(get_id(actor)));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2596</span><span class="code">    struct ActorDigest {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2597</span><span class="code">        uint32_t kind = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2598</span><span class="code">        uint32_t id = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2599</span><span class="code">        int owner = -1;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2600</span><span class="code">        int controllers = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2601</span><span class="code">        int64_t x = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2602</span><span class="code">        int64_t y = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2603</span><span class="code">        int64_t vx = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2604</span><span class="code">        int64_t vy = 0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2605</span><span class="code">    };</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2606</span><span class="code">    std::vector&lt;ActorDigest&gt; actors;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2607</span><span class="code">    actors.reserve(level-&gt;actorlist.size());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2608</span><span class="code">    for (Actor *actor : level-&gt;actorlist) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2609</span><span class="code">        ActorDigest d;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2610</span><span class="code">        d.kind = static_cast&lt;uint32_t&gt;(get_id(actor));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2611</span><span class="code">        d.id = static_cast&lt;uint32_t&gt;(actor-&gt;getId());</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2612</span><span class="code">        Value owner = actor-&gt;getAttr(&quot;owner&quot;);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2613</span><span class="code">        if (owner.getType() != Value::NIL)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2614</span><span class="code">            d.owner = static_cast&lt;int&gt;(owner);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2615</span><span class="code">        d.controllers = actor-&gt;get_controllers();</span></div>
-<div class="line ctx"><span class="ln old">2383</span><span class="ln new">2616</span><span class="code">        const ecl::V2 &amp;pos = actor-&gt;get_pos();</span></div>
-<div class="line ctx"><span class="ln old">2384</span><span class="ln new">2617</span><span class="code">        const ecl::V2 &amp;vel = actor-&gt;get_vel();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2615</span><span class="code">    struct ActorDigest {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2616</span><span class="code">        uint32_t kind = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2617</span><span class="code">        uint32_t id = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2618</span><span class="code">        int owner = -1;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2619</span><span class="code">        int controllers = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2620</span><span class="code">        int64_t x = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2621</span><span class="code">        int64_t y = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2622</span><span class="code">        int64_t vx = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2623</span><span class="code">        int64_t vy = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2624</span><span class="code">    };</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2625</span><span class="code">    std::vector&lt;ActorDigest&gt; actors;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2626</span><span class="code">    actors.reserve(level-&gt;actorlist.size());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2627</span><span class="code">    for (Actor *actor : level-&gt;actorlist) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2628</span><span class="code">        ActorDigest d;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2629</span><span class="code">        d.kind = static_cast&lt;uint32_t&gt;(get_id(actor));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2630</span><span class="code">        d.id = static_cast&lt;uint32_t&gt;(actor-&gt;getId());</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2631</span><span class="code">        Value owner = actor-&gt;getAttr(&quot;owner&quot;);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2632</span><span class="code">        if (owner.getType() != Value::NIL)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2633</span><span class="code">            d.owner = static_cast&lt;int&gt;(owner);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2634</span><span class="code">        d.controllers = actor-&gt;get_controllers();</span></div>
+<div class="line ctx"><span class="ln old">2383</span><span class="ln new">2635</span><span class="code">        const ecl::V2 &amp;pos = actor-&gt;get_pos();</span></div>
+<div class="line ctx"><span class="ln old">2384</span><span class="ln new">2636</span><span class="code">        const ecl::V2 &amp;vel = actor-&gt;get_vel();</span></div>
 <div class="line del"><span class="ln old">2385</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(pos[0]));</span></div>
 <div class="line del"><span class="ln old">2386</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(pos[1]));</span></div>
 <div class="line del"><span class="ln old">2387</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(vel[0]));</span></div>
 <div class="line del"><span class="ln old">2388</span><span class="ln new"></span><span class="code">        hash_i64(h, quantize(vel[1]));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2618</span><span class="code">        d.x = quantize(pos[0]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2619</span><span class="code">        d.y = quantize(pos[1]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2620</span><span class="code">        d.vx = quantize(vel[0]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2621</span><span class="code">        d.vy = quantize(vel[1]);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2622</span><span class="code">        actors.push_back(d);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2623</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2624</span><span class="code">    std::sort(actors.begin(), actors.end(), [](const ActorDigest &amp;a, const ActorDigest &amp;b) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2625</span><span class="code">        if (a.kind != b.kind)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2626</span><span class="code">            return a.kind &lt; b.kind;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2627</span><span class="code">        if (a.id != b.id)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2628</span><span class="code">            return a.id &lt; b.id;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2629</span><span class="code">        if (a.owner != b.owner)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2630</span><span class="code">            return a.owner &lt; b.owner;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2631</span><span class="code">        if (a.controllers != b.controllers)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2632</span><span class="code">            return a.controllers &lt; b.controllers;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2633</span><span class="code">        if (a.x != b.x)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2634</span><span class="code">            return a.x &lt; b.x;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2635</span><span class="code">        if (a.y != b.y)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2636</span><span class="code">            return a.y &lt; b.y;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2637</span><span class="code">        if (a.vx != b.vx)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2638</span><span class="code">            return a.vx &lt; b.vx;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2639</span><span class="code">        return a.vy &lt; b.vy;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2640</span><span class="code">    });</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2641</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(actors.size()));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2642</span><span class="code">    for (const auto &amp;d : actors) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2643</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.kind));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2644</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.id));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2645</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.owner));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2646</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.controllers));</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2647</span><span class="code">        hash_i64(h, d.x);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2648</span><span class="code">        hash_i64(h, d.y);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2649</span><span class="code">        hash_i64(h, d.vx);</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2650</span><span class="code">        hash_i64(h, d.vy);</span></div>
-<div class="line ctx"><span class="ln old">2389</span><span class="ln new">2651</span><span class="code">    }</span></div>
-<div class="line ctx"><span class="ln old">2390</span><span class="ln new">2652</span><span class="code">    return h;</span></div>
-<div class="line ctx"><span class="ln old">2391</span><span class="ln new">2653</span><span class="code">}</span></div>
-<div class="line hunkhdr"><span class="code">@@ -2499,12 +2761,29 @@ void WorldTick(double dtime) {</span></div>
-<div class="line ctx"><span class="ln old">2499</span><span class="ln new">2761</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2500</span><span class="ln new">2762</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2501</span><span class="ln new">2763</span><span class="code">void TickFinished(double dtime) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2764</span><span class="code">    // Use wall-clock time to drive render-only smoothing even when simulation</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2765</span><span class="code">    // does not advance (e.g. lockstep stalls). Clamp to avoid extreme spikes</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2766</span><span class="code">    // after long hitches.</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2767</span><span class="code">    const Uint32 now_ms = SDL_GetTicks();</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2768</span><span class="code">    if (g_render_frame_last_ms == 0) {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2769</span><span class="code">        g_render_frame_dtime = 0.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2770</span><span class="code">    } else {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2771</span><span class="code">        Uint32 delta_ms = now_ms - g_render_frame_last_ms;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2772</span><span class="code">        if (delta_ms &gt; 250)</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2773</span><span class="code">            delta_ms = 250;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2774</span><span class="code">        g_render_frame_dtime = static_cast&lt;double&gt;(delta_ms) / 1000.0;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2775</span><span class="code">    }</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2776</span><span class="code">    g_render_frame_last_ms = now_ms;</span></div>
-<div class="line ctx"><span class="ln old">2502</span><span class="ln new">2777</span><span class="code">    for (auto &amp;actor : level-&gt;actorlist)</span></div>
-<div class="line ctx"><span class="ln old">2503</span><span class="ln new">2778</span><span class="code">        actor-&gt;move_screen();</span></div>
-<div class="line ctx"><span class="ln old">2504</span><span class="ln new">2779</span><span class="code">    for (auto &amp;other : level-&gt;others)</span></div>
-<div class="line ctx"><span class="ln old">2505</span><span class="ln new">2780</span><span class="code">        other-&gt;tick(dtime);</span></div>
-<div class="line ctx"><span class="ln old">2506</span><span class="ln new">2781</span><span class="code">}</span></div>
-<div class="line ctx"><span class="ln old">2507</span><span class="ln new">2782</span><span class="code"></span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2783</span><span class="code">double RenderFrameDtime() {</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2784</span><span class="code">    return g_render_frame_dtime;</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2785</span><span class="code">}</span></div>
-<div class="line add"><span class="ln old"></span><span class="ln new">2786</span><span class="code"></span></div>
-<div class="line ctx"><span class="ln old">2508</span><span class="ln new">2787</span><span class="code">void InitWorld() {</span></div>
-<div class="line ctx"><span class="ln old">2509</span><span class="ln new">2788</span><span class="code">    Object::bootFinished();</span></div>
-<div class="line ctx"><span class="ln old">2510</span><span class="ln new">2789</span><span class="code">    BootRegister(nullptr, nullptr, false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2637</span><span class="code">        d.x = quantize(pos[0]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2638</span><span class="code">        d.y = quantize(pos[1]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2639</span><span class="code">        d.vx = quantize(vel[0]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2640</span><span class="code">        d.vy = quantize(vel[1]);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2641</span><span class="code">        actors.push_back(d);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2642</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2643</span><span class="code">    std::sort(actors.begin(), actors.end(), [](const ActorDigest &amp;a, const ActorDigest &amp;b) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2644</span><span class="code">        if (a.kind != b.kind)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2645</span><span class="code">            return a.kind &lt; b.kind;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2646</span><span class="code">        if (a.id != b.id)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2647</span><span class="code">            return a.id &lt; b.id;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2648</span><span class="code">        if (a.owner != b.owner)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2649</span><span class="code">            return a.owner &lt; b.owner;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2650</span><span class="code">        if (a.controllers != b.controllers)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2651</span><span class="code">            return a.controllers &lt; b.controllers;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2652</span><span class="code">        if (a.x != b.x)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2653</span><span class="code">            return a.x &lt; b.x;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2654</span><span class="code">        if (a.y != b.y)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2655</span><span class="code">            return a.y &lt; b.y;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2656</span><span class="code">        if (a.vx != b.vx)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2657</span><span class="code">            return a.vx &lt; b.vx;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2658</span><span class="code">        return a.vy &lt; b.vy;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2659</span><span class="code">    });</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2660</span><span class="code">    hash_u64(h, static_cast&lt;uint64_t&gt;(actors.size()));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2661</span><span class="code">    for (const auto &amp;d : actors) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2662</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.kind));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2663</span><span class="code">        hash_u64(h, static_cast&lt;uint64_t&gt;(d.id));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2664</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.owner));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2665</span><span class="code">        hash_i64(h, static_cast&lt;int64_t&gt;(d.controllers));</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2666</span><span class="code">        hash_i64(h, d.x);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2667</span><span class="code">        hash_i64(h, d.y);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2668</span><span class="code">        hash_i64(h, d.vx);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2669</span><span class="code">        hash_i64(h, d.vy);</span></div>
+<div class="line ctx"><span class="ln old">2389</span><span class="ln new">2670</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">2390</span><span class="ln new">2671</span><span class="code">    return h;</span></div>
+<div class="line ctx"><span class="ln old">2391</span><span class="ln new">2672</span><span class="code">}</span></div>
+<div class="line hunkhdr"><span class="code">@@ -2499,12 +2780,29 @@ void WorldTick(double dtime) {</span></div>
+<div class="line ctx"><span class="ln old">2499</span><span class="ln new">2780</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2500</span><span class="ln new">2781</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2501</span><span class="ln new">2782</span><span class="code">void TickFinished(double dtime) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2783</span><span class="code">    // Use wall-clock time to drive render-only smoothing even when simulation</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2784</span><span class="code">    // does not advance (e.g. lockstep stalls). Clamp to avoid extreme spikes</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2785</span><span class="code">    // after long hitches.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2786</span><span class="code">    const Uint32 now_ms = SDL_GetTicks();</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2787</span><span class="code">    if (g_render_frame_last_ms == 0) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2788</span><span class="code">        g_render_frame_dtime = 0.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2789</span><span class="code">    } else {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2790</span><span class="code">        Uint32 delta_ms = now_ms - g_render_frame_last_ms;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2791</span><span class="code">        if (delta_ms &gt; 250)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2792</span><span class="code">            delta_ms = 250;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2793</span><span class="code">        g_render_frame_dtime = static_cast&lt;double&gt;(delta_ms) / 1000.0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2794</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2795</span><span class="code">    g_render_frame_last_ms = now_ms;</span></div>
+<div class="line ctx"><span class="ln old">2502</span><span class="ln new">2796</span><span class="code">    for (auto &amp;actor : level-&gt;actorlist)</span></div>
+<div class="line ctx"><span class="ln old">2503</span><span class="ln new">2797</span><span class="code">        actor-&gt;move_screen();</span></div>
+<div class="line ctx"><span class="ln old">2504</span><span class="ln new">2798</span><span class="code">    for (auto &amp;other : level-&gt;others)</span></div>
+<div class="line ctx"><span class="ln old">2505</span><span class="ln new">2799</span><span class="code">        other-&gt;tick(dtime);</span></div>
+<div class="line ctx"><span class="ln old">2506</span><span class="ln new">2800</span><span class="code">}</span></div>
+<div class="line ctx"><span class="ln old">2507</span><span class="ln new">2801</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2802</span><span class="code">double RenderFrameDtime() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2803</span><span class="code">    return g_render_frame_dtime;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2804</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2805</span><span class="code"></span></div>
+<div class="line ctx"><span class="ln old">2508</span><span class="ln new">2806</span><span class="code">void InitWorld() {</span></div>
+<div class="line ctx"><span class="ln old">2509</span><span class="ln new">2807</span><span class="code">    Object::bootFinished();</span></div>
+<div class="line ctx"><span class="ln old">2510</span><span class="ln new">2808</span><span class="code">    BootRegister(nullptr, nullptr, false);</span></div>
 </div>
 </div>
 <div class="section" id="src_world_hh">
