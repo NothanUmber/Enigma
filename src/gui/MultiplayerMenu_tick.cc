@@ -164,6 +164,11 @@ void MultiplayerMenu::tick_host_waiting_for_peers(double dtime) {
         return;
 
     host_waiting_for_peers = false;
+    // Ensure the host loads exactly the level that was announced in the lobby start
+    // message. The lobby UI can rebuild indices while waiting, which can change the
+    // current selection; enforce the pending start selection right before StartGame().
+    apply_start_selection(host_pending_start);
+    set_level_by_id(host_pending_start.level_id);
     enter_game_from_lobby();
 }
 

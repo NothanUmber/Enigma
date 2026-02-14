@@ -58,6 +58,10 @@ constexpr uint32_t kInputDelay = 4;
 // resyncs (or eventually a restart prompt).
 constexpr uint32_t kInputDelayTcpRelay = 10;
 constexpr uint32_t kMaxInputLead = 32;
+// UI/debug override for input delay is expressed in legacy (10ms) ticks.
+// This is intentionally larger than kMaxInputLead (which caps extra lead from
+// clock drift) so experiments can cover high-latency links.
+constexpr uint32_t kMaxInputDelayLegacyTicks = 200;
 // Each NET_INPUT_BUNDLE covers a short sequential range of ticks and includes a
 // resend back-window. A larger back-window improves robustness on high-jitter /
 // lossy links so the host can still receive late client input ticks.
@@ -175,30 +179,34 @@ struct LobbyState {
     Uint32 last_session_id = 0;
 };
 
-struct SessionState {
-    bool active = false;
-    bool host = false;
-    bool local_player_known = false;
-    unsigned local_player = 0;
-	    unsigned expected_players = 1;
-	    TransportKind active_transport = TransportKind::NONE;
-	    // Simulation tick duration in milliseconds. This must match across all peers.
-	    Uint16 tick_ms = 10;
-	    uint32_t input_delay = kInputDelay;
-	    Uint32 session_id = 0;
-	    Uint32 seed = 0;
-    Uint32 input_epoch = 0;
-    Uint32 restart_id = 0;
-    Uint32 last_restart_id = 0;
-    // Host-incrementing id for level loads (advance to next level). Used by clients to
-    // ignore duplicates/out-of-order load notifications.
-    Uint32 load_id = 0;
-    Uint32 last_load_id = 0;
-    ENetHost *host_handle = nullptr;
-    ENetPeer *server_peer = nullptr;
-    ENetHost *relay_handle = nullptr;
-    ENetPeer *relay_peer = nullptr;
-    std::unordered_map<ENetPeer *, unsigned> peer_players;
+	struct SessionState {
+	    bool active = false;
+	    bool host = false;
+	    bool local_player_known = false;
+	    unsigned local_player = 0;
+		    unsigned expected_players = 1;
+		    TransportKind active_transport = TransportKind::NONE;
+		    // Simulation tick duration in milliseconds. This must match across all peers.
+		    Uint16 tick_ms = 10;
+		    uint32_t input_delay = kInputDelay;
+		    Uint32 session_id = 0;
+		    Uint32 seed = 0;
+	    Uint32 input_epoch = 0;
+	    Uint32 restart_id = 0;
+	    Uint32 last_restart_id = 0;
+	    // Host-incrementing id for level loads (advance to next level). Used by clients to
+	    // ignore duplicates/out-of-order load notifications.
+	    Uint32 load_id = 0;
+	    Uint32 last_load_id = 0;
+	    // Current level selection for this session (from lobby start or host load broadcasts).
+	    // For hosts this is what we announce to joining peers via NET_LOAD_LEVEL.
+	    std::string level_pack_name;
+	    std::string level_id;
+	    ENetHost *host_handle = nullptr;
+	    ENetPeer *server_peer = nullptr;
+	    ENetHost *relay_handle = nullptr;
+	    ENetPeer *relay_peer = nullptr;
+	    std::unordered_map<ENetPeer *, unsigned> peer_players;
     std::unordered_map<ENetPeer *, bool> peer_ready;
     std::unordered_map<Uint32, unsigned> relay_players;
     std::unordered_map<Uint32, bool> relay_ready;
@@ -253,10 +261,13 @@ struct SessionState {
     };
     Phase phase = Phase::WAITING_FOR_START;
 
-    bool local_ready_sent = false;
-    double ready_timer = 0.0;
-    bool has_pending_sync = false;
-    protocol::SyncPacket pending_sync;
+	    bool local_ready_sent = false;
+	    double ready_timer = 0.0;
+	    // While waiting for READY, periodically re-announce the current level load
+	    // to handle packet loss / late joins robustly.
+	    double load_announce_timer = 0.0;
+	    bool has_pending_sync = false;
+	    protocol::SyncPacket pending_sync;
     struct ChecksumSample {
         uint32_t tick = 0;
         uint64_t world_checksum = 0;
@@ -273,6 +284,10 @@ struct SessionState {
     std::deque<ChecksumSample> checksum_history;
     uint32_t last_checksum_tick = UINT32_MAX;
     uint64_t last_world_checksum = 0;
+    // Track latest accepted resync snapshot tick to ignore out-of-order delivery
+    // (e.g. unreliable resync broadcasts can arrive reordered and would otherwise
+    // cause visible "backwards" jumps).
+    uint32_t last_accepted_resync_tick = 0;
     bool resync_inflight = false;
     double resync_inflight_timer = 0.0;
     double resync_cooldown = 0.0;

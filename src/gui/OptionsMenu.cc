@@ -1064,15 +1064,16 @@ public:
 	                    add_row(N_("Host resync stride"), mpHostBroadcastResyncStrideTicksTF);
 	                    add_row(N_("Host world stride"), mpHostBroadcastWorldStateStrideTicksTF);
 	                } else {
-	                    add_row(N_("MP force relay"), new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")));
-	                    add_row(N_("MP bind local"), new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")));
-	                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
-	                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
+		                    add_row(N_("MP force relay"), new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")));
+		                    add_row(N_("MP bind local"), new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")));
+		                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
+		                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
+		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
 
-		                    mpPredictMissingMouseTicksTF =
-		                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
-		                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 2);
-		                    {
+			                    mpPredictMissingMouseTicksTF =
+			                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+			                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 4);
+			                    {
 		                        int ms = options::GetInt("MultiplayerDebugTickLengthMs");
 		                        if (ms <= 0)
 		                            ms = 10;
@@ -1258,12 +1259,12 @@ public:
 		                                      0, 20);
 		            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
 		        }
-			        if (mpInputDelayTicksTF) {
-			            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
-			                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
-			                                      0, 32);
-			            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
-			        }
+				        if (mpInputDelayTicksTF) {
+				            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
+				                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
+				                                      0, 200);
+				            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
+				        }
 			        if (mpTickLengthMsTF) {
 			            int v = parse_int_clamped(mpTickLengthMsTF->getText(),
 			                                      options::GetInt("MultiplayerDebugTickLengthMs"),

@@ -31,6 +31,8 @@
 
 #include "ecl_util.hh"
 
+#include <cmath>
+
 using namespace std;
 using namespace enigma;
 using enigma::Actor;
@@ -48,6 +50,7 @@ public:
     bool out_of_lives;
     double dead_dtime;  // number of seconds the player is already dead
     bool inhibit_pickup;
+    uint32_t inhibit_pickup_until_tick;
 };
 
 struct RespawnInfo {
@@ -75,7 +78,8 @@ struct LevelLocalData {
 /* -------------------- PlayerInfo -------------------- */
 
 PlayerInfo::PlayerInfo()
-: name(), inventory(), actors(), out_of_lives(false), dead_dtime(0), inhibit_pickup(false) {
+: name(), inventory(), actors(), out_of_lives(false), dead_dtime(0), inhibit_pickup(false),
+  inhibit_pickup_until_tick(0) {
 }
 
 /* -------------------- LevelLocalData -------------------- */
@@ -204,20 +208,22 @@ void player::LevelLoaded(bool isRestart) {
     RedrawInventory();
 }
 
-void player::PrepareLevel() {
-    // Clear up the inventories of all players: keep only extra lifes.
-    for (unsigned iplayer = 0; iplayer < players.size(); ++iplayer) {
-        Inventory *inv = GetInventory(iplayer);
+    void player::PrepareLevel() {
+        // Clear up the inventories of all players: keep only extra lifes.
+        for (unsigned iplayer = 0; iplayer < players.size(); ++iplayer) {
+            Inventory *inv = GetInventory(iplayer);
         int nextralifes = 0;
         for (size_t i = 0; i < inv->size(); ++i)
             if (get_id(inv->get_item(i)) == it_extralife)
                 nextralifes += 1;
         inv->clear();
-        for (int i = 0; i < nextralifes; ++i)
-            inv->add_item(MakeItem("it_extralife"));
+            for (int i = 0; i < nextralifes; ++i)
+                inv->add_item(MakeItem("it_extralife"));
 
-        players[iplayer].actors.clear();
-    }
+            players[iplayer].actors.clear();
+            players[iplayer].inhibit_pickup = false;
+            players[iplayer].inhibit_pickup_until_tick = 0;
+        }
 
     SetCurrentPlayer(0);
     leveldat = LevelLocalData();
@@ -511,6 +517,10 @@ void player::MessagePlayerPositionsToClient() {
 }
 
 void player::InhibitPickup(bool flag) {
+    // In multiplayer, pickup must be deterministic across peers. The SDL mouse-button
+    // state is local-only, so ignore it while networked.
+    if (input::IsNetworked())
+        return;
     players[icurrent_player].inhibit_pickup = flag;
 }
 
@@ -525,7 +535,10 @@ Inventory *player::MayPickup(Actor *a, Item *it, bool allowFlying) {
     }
 
     Inventory *inv = GetInventory(iplayer);
-    bool dont_pickup = players[iplayer].inhibit_pickup || (!allowFlying && a->is_flying()) ||
+    const bool tick_inhibit =
+        (input::IsNetworked() && input::CurrentTick() < players[iplayer].inhibit_pickup_until_tick);
+    bool dont_pickup = players[iplayer].inhibit_pickup || tick_inhibit ||
+                       (!allowFlying && a->is_flying()) ||
                        !inv->willAddItem(it) || a->is_dead() ||
                        (server::GameCompatibility != GAMET_ENIGMA && a->getClass() != "ac_marble");
 
@@ -589,6 +602,20 @@ void player::ActivateFirstItem(unsigned iplayer) {
                 if (it->can_drop_at(p) && can_drop_item) {
                     it = inv.yield_first();
                     RedrawInventory(&inv);
+                    if (input::IsNetworked()) {
+                        // Prevent instantly picking up the item again. In singleplayer this is
+                        // handled by mouse-button-based inhibit_pickup; in multiplayer we need
+                        // a deterministic window.
+                        const double tick_s = input::TickTimestep();
+                        const double inhibit_s = 0.15;
+                        uint32_t ticks = 1;
+                        if (tick_s > 0.0) {
+                            ticks = static_cast<uint32_t>(std::ceil(inhibit_s / tick_s));
+                            if (ticks < 1)
+                                ticks = 1;
+                        }
+                        players[iplayer].inhibit_pickup_until_tick = input::CurrentTick() + ticks;
+                    }
                     it->drop(ac, p);
                 }
                 break;

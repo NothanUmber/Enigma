@@ -29,6 +29,7 @@
 #include "SDL.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -59,6 +60,8 @@ namespace multiplayer {
 namespace internal {
 
 namespace {
+constexpr double kLegacyTickSeconds = 0.01;  // historical tick duration (10ms)
+
 Uint16 read_tick_ms_override() {
     int ms = options::GetInt("MultiplayerDebugTickLengthMs");
     if (ms <= 0)
@@ -69,28 +72,53 @@ Uint16 read_tick_ms_override() {
         ms = 50;
     return static_cast<Uint16>(ms);
 }
+
+uint32_t legacy_ticks_to_current_delay_ticks(uint32_t legacy_ticks, double tick_seconds) {
+    if (legacy_ticks == 0)
+        return 0;
+    if (tick_seconds <= 0.0)
+        return legacy_ticks;
+    // Delay is safety-critical: round up so we don't accidentally under-delay.
+    const double desired_s = static_cast<double>(legacy_ticks) * kLegacyTickSeconds;
+    uint32_t ticks = static_cast<uint32_t>(std::ceil(desired_s / tick_seconds));
+    if (ticks < 1)
+        ticks = 1;
+    return ticks;
+}
 }  // namespace
 
 void configure_input_session(unsigned expected_players) {
-    // The input stream is stamped for a future tick (input delay). A larger
-    // delay reduces the odds that a peer reaches a tick before receiving the
-    // other players' inputs for that tick.
-    g_session.input_delay =
-        (g_session.active_transport == TransportKind::TCP_RELAY) ? kInputDelayTcpRelay : kInputDelay;
-    int delay_override = options::GetInt("MultiplayerDebugInputDelayTicks");
-    if (delay_override > 0) {
-        if (delay_override > static_cast<int>(kMaxInputLead))
-            delay_override = static_cast<int>(kMaxInputLead);
-        g_session.input_delay = static_cast<uint32_t>(delay_override);
-    }
-    if (debug_enabled())
-        debug_log("mp input delay=%u transport=%s", static_cast<unsigned>(g_session.input_delay),
-                  transport_name(g_session.active_transport));
-    input::Reset();
     // Tick duration must match across peers; it is negotiated by the host and
     // stored on g_session.tick_ms (clients receive it in WELCOME).
     Uint16 tick_ms = g_session.tick_ms ? g_session.tick_ms : read_tick_ms_override();
     g_session.tick_ms = tick_ms;
+    const double tick_seconds = static_cast<double>(tick_ms) / 1000.0;
+
+    // The input stream is stamped for a future tick (input delay). A larger
+    // delay reduces the odds that a peer reaches a tick before receiving the
+    // other players' inputs for that tick.
+    // NOTE: These debug options historically assumed 10ms ticks. Now that tick
+    // duration is configurable, keep the UX stable by interpreting the values
+    // as "legacy ticks" and converting to current ticks.
+    uint32_t legacy_delay =
+        (g_session.active_transport == TransportKind::TCP_RELAY) ? kInputDelayTcpRelay : kInputDelay;
+    int delay_override = options::GetInt("MultiplayerDebugInputDelayTicks");
+    if (delay_override > 0) {
+        if (delay_override > static_cast<int>(kMaxInputDelayLegacyTicks))
+            delay_override = static_cast<int>(kMaxInputDelayLegacyTicks);
+        legacy_delay = static_cast<uint32_t>(delay_override);
+    }
+    g_session.input_delay = legacy_ticks_to_current_delay_ticks(legacy_delay, tick_seconds);
+    // Current-tick delay still needs a hard cap to avoid pathological enqueue sizes.
+    if (g_session.input_delay > 1024)
+        g_session.input_delay = 1024;
+    if (debug_enabled())
+        debug_log("mp input delay=%u (legacy=%u) transport=%s tick_ms=%u",
+                  static_cast<unsigned>(g_session.input_delay),
+                  static_cast<unsigned>(legacy_delay),
+                  transport_name(g_session.active_transport),
+                  static_cast<unsigned>(g_session.tick_ms));
+    input::Reset();
     input::SetTickTimestep(static_cast<double>(tick_ms) / 1000.0);
     input::SetNetworked(true);
     input::SetExpectedPlayers(expected_players);
@@ -109,6 +137,7 @@ void configure_input_session(unsigned expected_players) {
     g_session.input_clock_accu = 0.0;
     g_session.last_host_resync_broadcast_tick = UINT32_MAX;
     g_session.last_host_world_state_broadcast_tick = UINT32_MAX;
+    g_session.last_accepted_resync_tick = 0;
 }
 
 namespace {
@@ -579,6 +608,8 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
     g_session.expected_players = expected_players;
     g_session.session_id = start.session_id;
     g_session.seed = start.seed;
+    g_session.level_pack_name = start.pack_name;
+    g_session.level_id = start.level_id;
     g_session.tick_ms = read_tick_ms_override();
     g_session.menu_open.assign(expected_players, false);
     g_session.player_in_use.assign(expected_players, false);
@@ -587,6 +618,12 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
 
     enigma::Randomize(start.seed, true);
     configure_input_session(expected_players);
+
+    // READY/START must be keyed to a nonzero load_id so clients can never signal
+    // readiness while still on an arbitrary previously-loaded level.
+    if (is_host && !start.level_id.empty()) {
+        g_session.load_id = 1;
+    }
 }
 
 bool host_open_direct_listener(Uint16 port, unsigned expected_players) {

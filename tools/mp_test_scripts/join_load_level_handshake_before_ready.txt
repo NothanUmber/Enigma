@@ -1,0 +1,29 @@
+# Ensures the host advertises the selected level via NET_LOAD_LEVEL early enough
+# that the client cannot send READY while still on an arbitrary previously loaded
+# level (fixes "host/client loaded different levels" regressions).
+
+# Start a session with an explicit level_id so SessionStartHost seeds mp_load=1 and
+# the host sends a NET_LOAD_LEVEL to newly connected peers.
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host level_id="enigma_peroxyd/peroxyd04_2"
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host level_id="enigma_peroxyd/peroxyd04_2"
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+# The client must have observed a load notification (mp_last_load=1) before it is
+# allowed to send READY.
+host STREAM_STATE interval_ms=100
+client STREAM_STATE interval_ms=100
+host STATE
+client STATE
+wait role=host contains="mp_load=1" timeout_ms=2000
+wait role=client contains="mp_last_load=1" timeout_ms=5000
+
+# Continue with a normal scripted level load + start.
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 1200
+both START_GAME
+
+# Sanity: simulation should advance on the host.
+host STREAM_STATE interval_ms=50
+wait_state_change role=host field=tick min_abs_delta=1 timeout_ms=5000
+
+both QUIT

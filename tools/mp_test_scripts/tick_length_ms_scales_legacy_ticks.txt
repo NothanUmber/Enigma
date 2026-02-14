@@ -1,0 +1,28 @@
+# Verifies that tick-dependent debug values are interpreted as legacy 10ms ticks
+# and scaled to the negotiated tick length.
+#
+# Example: Input delay ticks=8 historically meant ~80ms. With tick length 50ms,
+# the effective delay must become 2 ticks (ceil(80ms/50ms)=2), not 8 ticks (400ms).
+
+both SET_INT key=MultiplayerDebugTickLengthMs value=50
+both SET_INT key=MultiplayerDebugInputDelayTicks value=8
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 1500
+both START_GAME
+
+both STREAM_STATE interval_ms=50
+both STATE
+
+wait role=host contains="mp_tick_ms=50" timeout_ms=4000
+wait role=client contains="mp_tick_ms=50" timeout_ms=4000
+
+wait role=host contains="mp_input_delay=2" timeout_ms=4000
+wait role=client contains="mp_input_delay=2" timeout_ms=4000
+
+both QUIT
+

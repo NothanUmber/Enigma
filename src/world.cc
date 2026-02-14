@@ -2552,39 +2552,19 @@ uint64_t WorldGridMovableStoneChecksum() {
     hash_u64(h, static_cast<uint64_t>(level->w));
     hash_u64(h, static_cast<uint64_t>(level->h));
 
-    struct MovableDigest {
-        uint32_t id = 0;
-        uint16_t x = 0;
-        uint16_t y = 0;
-    };
-    std::vector<MovableDigest> stones;
-    stones.reserve(static_cast<size_t>(level->w) * static_cast<size_t>(level->h) / 8);
+    // IMPORTANT: do not use runtime object IDs here.
+    // Multiplayer resync can rebuild stones (and different instances can also allocate objects
+    // in different orders), so IDs are not stable across peers even if the visible grid matches.
+    // Keep this checksum purely based on the grid layout.
     for (int y = 0; y < level->h; ++y) {
         for (int x = 0; x < level->w; ++x) {
             GridPos p(x, y);
-            Object *obj = level->st_layer.get(p);
-            Stone *st = dynamic_cast<Stone *>(obj);
-            if (!st || !st->is_movable())
-                continue;
-            MovableDigest d;
-            d.id = static_cast<uint32_t>(st->getId());
-            d.x = static_cast<uint16_t>(x);
-            d.y = static_cast<uint16_t>(y);
-            stones.push_back(d);
+            Stone *st = dynamic_cast<Stone *>(level->st_layer.get(p));
+            if (st && st->is_movable())
+                hash_string(h, st->getKind());
+            else
+                hash_u64(h, 0);
         }
-    }
-    std::sort(stones.begin(), stones.end(), [](const MovableDigest &a, const MovableDigest &b) {
-        if (a.id != b.id)
-            return a.id < b.id;
-        if (a.x != b.x)
-            return a.x < b.x;
-        return a.y < b.y;
-    });
-    hash_u64(h, static_cast<uint64_t>(stones.size()));
-    for (const auto &d : stones) {
-        hash_u64(h, static_cast<uint64_t>(d.id));
-        hash_u64(h, static_cast<uint64_t>(d.x));
-        hash_u64(h, static_cast<uint64_t>(d.y));
     }
     return h;
 }
@@ -2593,7 +2573,10 @@ uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checks
     uint64_t h = kChecksumOffset;
     hash_u64(h, kind_checksum);
     hash_u64(h, state_checksum);
-    hash_u64(h, movable_checksum);
+    // Movable stones are already covered by kind/state (per-cell), and their runtime IDs are
+    // not stable across peers once we allow world-state resync that rebuilds stones.
+    // Keeping this out of the combined checksum prevents persistent false mismatches.
+    (void)movable_checksum;
     return h;
 }
 

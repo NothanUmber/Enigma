@@ -1,0 +1,39 @@
+# Repro/regression test: a client can drop an inventory item and it becomes
+# visible on both host and client (no one-sided pickup/desync).
+#
+# Uses Per.Oxyd "Open Sesame".
+
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=1
+both SET_INT key=MultiplayerDebugRollbackKeepTicks value=200
+
+# Enable remote-control mode for the client to match the "host sim is authoritative"
+# experiments; discrete actions must still work.
+client SET_BOOL key=MultiplayerDebugRemoteControlLocalBall value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 2000
+both START_GAME
+
+# Ensure inventories exist.
+both GET_INV player=0
+both GET_INV player=1
+
+# Client drops its first inventory item (extra life) at its current tile.
+client SUBMIT_LOCAL act=1
+
+# Wait for input-delay + at least one sim tick so the drop takes effect.
+sleep 80
+
+host GET_UNDER_PLAYER player=1
+client GET_UNDER_PLAYER player=1
+wait role=host contains="OK cmd=GET_UNDER_PLAYER" timeout_ms=2000
+wait role=host contains="it=it_extralife" timeout_ms=2000
+wait role=client contains="OK cmd=GET_UNDER_PLAYER" timeout_ms=2000
+wait role=client contains="it=it_extralife" timeout_ms=2000
+
+both QUIT

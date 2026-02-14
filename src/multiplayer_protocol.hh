@@ -153,6 +153,15 @@ struct WorldStatePacket {
     };
     // Optional extension: authoritative positions of movable stones (puzzle stones, doors, etc).
     std::vector<MovableStone> movable_stones;
+    // Optional extension: authoritative per-cell kinds.
+    //
+    // Some objects change their kind based on attributes (see Object::getKind()) and may
+    // diverge even when a simple "state" attribute matches. When present, the receiver
+    // can rebuild the grid kinds from this snapshot to force convergence.
+    std::vector<std::string> kind_dict;
+    std::vector<Uint16> floor_kind;
+    std::vector<Uint16> stone_kind;
+    std::vector<Uint16> item_kind;
 };
 
 struct WorldStateRequest {
@@ -236,6 +245,23 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
         const auto &e = msg.movable_stones[i];
         buf << Uint32(e.object_id) << Uint16(e.x) << Uint16(e.y);
     }
+    // Optional extension v1: authoritative kinds.
+    const bool have_kinds =
+        (msg.floor_kind.size() == count && msg.stone_kind.size() == count && msg.item_kind.size() == count &&
+         !msg.kind_dict.empty());
+    if (have_kinds) {
+        buf << Uint8(1);
+        Uint16 dict_count = static_cast<Uint16>(std::min<size_t>(msg.kind_dict.size(), 0xFFFF));
+        buf << dict_count;
+        for (Uint16 i = 0; i < dict_count; ++i)
+            buf << msg.kind_dict[i];
+        for (Uint32 i = 0; i < count; ++i)
+            buf << Uint16(msg.floor_kind[i]);
+        for (Uint32 i = 0; i < count; ++i)
+            buf << Uint16(msg.stone_kind[i]);
+        for (Uint32 i = 0; i < count; ++i)
+            buf << Uint16(msg.item_kind[i]);
+    }
 }
 
 inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
@@ -291,6 +317,52 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
             if (!(buf >> e.object_id >> e.x >> e.y))
                 return false;
             msg.movable_stones.push_back(e);
+        }
+    }
+    msg.kind_dict.clear();
+    msg.floor_kind.clear();
+    msg.stone_kind.clear();
+    msg.item_kind.clear();
+    // Optional extension v1: authoritative kinds.
+    if (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
+        const size_t rpos = static_cast<size_t>(buf.get_rpos());
+        const size_t sz = static_cast<size_t>(buf.size());
+        if (rpos < sz) {
+            const Uint8 ext = static_cast<Uint8>(buf.data()[rpos]);
+            if (ext == 1) {
+                Uint8 consumed_ext = 0;
+                Uint16 dict_count = 0;
+                if (!(buf >> consumed_ext >> dict_count))
+                    return false;
+                msg.kind_dict.reserve(dict_count);
+                for (Uint16 i = 0; i < dict_count; ++i) {
+                    std::string k;
+                    if (!(buf >> k))
+                        return false;
+                    msg.kind_dict.push_back(k);
+                }
+                msg.floor_kind.assign(count, 0);
+                msg.stone_kind.assign(count, 0);
+                msg.item_kind.assign(count, 0);
+                for (Uint32 i = 0; i < count; ++i) {
+                    Uint16 v = 0;
+                    if (!(buf >> v))
+                        return false;
+                    msg.floor_kind[i] = v;
+                }
+                for (Uint32 i = 0; i < count; ++i) {
+                    Uint16 v = 0;
+                    if (!(buf >> v))
+                        return false;
+                    msg.stone_kind[i] = v;
+                }
+                for (Uint32 i = 0; i < count; ++i) {
+                    Uint16 v = 0;
+                    if (!(buf >> v))
+                        return false;
+                    msg.item_kind[i] = v;
+                }
+            }
         }
     }
     return true;

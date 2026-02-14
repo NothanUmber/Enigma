@@ -1,0 +1,31 @@
+# Attempts to reproduce client-side zickzack/backwards micro-jumps in
+# "remote control local ball" mode by adding delay/jitter/loss/duplication.
+
+both SET_BOOL key=MultiplayerDebugRemoteControlLocalBall value=1
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=1
+both SET_BOOL key=MultiplayerDebugNetSimAll value=1
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=80
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=30
+both SET_INT key=MultiplayerDebugNetSimDropPct value=5
+both SET_INT key=MultiplayerDebugNetSimDupPct value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 2000
+both START_GAME
+
+both STREAM_STATE interval_ms=50
+sleep 500
+
+# Drive the client to the right for a while.
+client HOLD_MOUSE_FORCE player=1 ticks=250 fx=300.0 fy=0.0
+sleep 1500
+
+host STATE
+client STATE
+
+both QUIT
+

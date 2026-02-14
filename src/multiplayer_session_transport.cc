@@ -71,6 +71,12 @@ bool local_can_send_ready() {
         return false;
     if (!g_session.local_player_known)
         return false;
+    // READY must mean: we've observed at least one NET_LOAD_LEVEL and are now
+    // waiting for NET_START for that level. Without this, a client can send READY
+    // while still on an arbitrary previously loaded level (WorldInitialized=1),
+    // allowing the host to start with mismatched worlds.
+    if (g_session.last_load_id == 0)
+        return false;
     return true;
 }
 
@@ -107,6 +113,35 @@ bool can_accept_more_remote_players() {
 }
 
 namespace {
+
+void host_send_current_load_to_remote(HostSource source, ENetPeer *peer, Uint32 relay_client_id) {
+    if (!g_session.active || !g_session.host)
+        return;
+    if (g_session.load_id == 0 || g_session.level_id.empty())
+        return;
+
+    protocol::LoadLevelPacket msg;
+    msg.load_id = g_session.load_id;
+    msg.pack_name = g_session.level_pack_name;
+    msg.level_id = g_session.level_id;
+    ecl::Buffer buf;
+    protocol::encode_load_level(buf, msg);
+
+    switch (source) {
+    case HostSource::DIRECT:
+        g_transport.HostSendDirect(peer, buf);
+        break;
+    case HostSource::UDP_RELAY:
+        g_transport.HostSendUdpRelay(relay_client_id, buf);
+        break;
+    case HostSource::TCP_RELAY:
+        g_transport.HostSendTcpRelay(relay_client_id, buf);
+        break;
+    default:
+        break;
+    }
+    g_transport.Flush();
+}
 
 bool should_apply_late_mouse_sample(unsigned player_id, uint32_t current_tick, uint32_t src_tick) {
     if (player_id >= input::kMaxPlayers)
@@ -446,6 +481,8 @@ bool handle_host_world_state_request_packet(const char *data, size_t len) {
         return true;
     // For now broadcast to all peers. This keeps everyone converging even if only
     // one client noticed the mismatch.
+    if (debug_enabled())
+        debug_log("mp host: world-state request recv: tick=%u", req.tick);
     broadcast_world_state_reliable();
     return true;
 }
@@ -478,6 +515,9 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
             debug_log("mp host: drop ready (load mismatch remote=%u local=%u)",
                       static_cast<unsigned>(load_id),
                       static_cast<unsigned>(g_session.load_id));
+        // Help clients recover if they sent READY before observing NET_LOAD_LEVEL,
+        // or if a load packet was lost. Re-announce the current load to that peer.
+        host_send_current_load_to_remote(source, peer, relay_client_id);
         return true;
     }
     unsigned player_id = 0;
@@ -764,11 +804,36 @@ bool handle_client_resync_state_packet(const char *data, size_t len) {
     protocol::ResyncState state;
     if (!protocol::decode_resync_state(buf, state))
         return false;
+    if (g_session.active && state.epoch == g_session.input_epoch) {
+        // NET_RESYNC_STATE can be sent via unreliable broadcast (debug/remote-control mode).
+        // That path can reorder packets. Applying an older snapshot after a newer one
+        // causes visible "backwards" zickzack motion.
+        if (!g_session.host && state.tick <= g_session.last_accepted_resync_tick) {
+            if (debug_enabled())
+                debug_log("mp drop resync state: stale tick=%u last=%u", state.tick,
+                          g_session.last_accepted_resync_tick);
+            return true;
+        }
+    }
+    // If we treat the local ball as remote-controlled, apply authoritative snapshots
+    // immediately; rollback/replay adds latency and is not useful when we suppress
+    // local simulation inputs.
+    if (!g_session.host && options::GetBool("MultiplayerDebugRemoteControlLocalBall")) {
+        apply_resync_state(state);
+        if (g_session.active && state.epoch == g_session.input_epoch)
+            g_session.last_accepted_resync_tick = state.tick;
+        return true;
+    }
     // If rollback is enabled, prefer reconciling via rollback/replay instead of
     // teleporting immediately. This reduces visible zig-zagging under packet loss.
-    if (rollback::TryQueueReconcileResyncState(state))
+    if (rollback::TryQueueReconcileResyncState(state)) {
+        if (g_session.active && state.epoch == g_session.input_epoch)
+            g_session.last_accepted_resync_tick = state.tick;
         return true;
+    }
     apply_resync_state(state);
+    if (g_session.active && state.epoch == g_session.input_epoch)
+        g_session.last_accepted_resync_tick = state.tick;
     return true;
 }
 
@@ -792,9 +857,70 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
     if (pkt.floor_state.size() != count || pkt.stone_state.size() != count || pkt.item_state.size() != count)
         return true;
 
-    // First, reconcile positions of movable stones (puzzle stones, doors, etc).
+    const bool have_kinds =
+        (pkt.floor_kind.size() == count && pkt.stone_kind.size() == count && pkt.item_kind.size() == count &&
+         !pkt.kind_dict.empty());
+    if (debug_enabled()) {
+        debug_log("mp world-state recv: tick=%u kinds=%d movable=%u", pkt.tick, have_kinds ? 1 : 0,
+                  static_cast<unsigned>(pkt.movable_stones.size()));
+    }
+
+    auto kind_lookup = [&pkt](Uint16 id) -> const std::string * {
+        if (id == 0)
+            return nullptr;
+        const size_t idx = static_cast<size_t>(id - 1);
+        if (idx >= pkt.kind_dict.size())
+            return nullptr;
+        return &pkt.kind_dict[idx];
+    };
+
+    // If we have authoritative kinds, rebuild the grid from them first. This forces
+    // convergence for objects whose kind depends on non-"state" attributes.
+    if (have_kinds) {
+        int changed = 0;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
+                GridPos p(x, y);
+
+                const std::string floor_kind = GetFloor(p) ? GetFloor(p)->getKind() : std::string();
+                const std::string stone_kind = GetStone(p) ? GetStone(p)->getKind() : std::string();
+                const std::string item_kind = GetItem(p) ? GetItem(p)->getKind() : std::string();
+
+                const std::string *want_floor = kind_lookup(pkt.floor_kind[idx]);
+                const std::string *want_stone = kind_lookup(pkt.stone_kind[idx]);
+                const std::string *want_item = kind_lookup(pkt.item_kind[idx]);
+
+                if ((want_floor ? *want_floor : std::string()) != floor_kind) {
+                    if (!want_floor)
+                        KillFloor(p);
+                    else
+                        SetFloor(p, MakeFloor(want_floor->c_str()));
+                    changed += 1;
+                }
+                if ((want_stone ? *want_stone : std::string()) != stone_kind) {
+                    if (!want_stone)
+                        KillStone(p);
+                    else
+                        SetStone(p, MakeStone(want_stone->c_str()));
+                    changed += 1;
+                }
+                if ((want_item ? *want_item : std::string()) != item_kind) {
+                    if (!want_item)
+                        KillItem(p);
+                    else
+                        SetItem(p, MakeItem(want_item->c_str()));
+                    changed += 1;
+                }
+            }
+        }
+        if (debug_enabled())
+            debug_log("mp world-state apply kinds: changed=%d", changed);
+    }
+
+    // Otherwise (older snapshot), reconcile positions of movable stones (puzzle stones, doors, etc).
     // Apply this before per-tile state so "stone_state" lands on the correct object.
-    if (!pkt.movable_stones.empty()) {
+    if (!have_kinds && !pkt.movable_stones.empty()) {
         auto key = [](int x, int y) -> uint32_t {
             return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
         };
@@ -838,25 +964,10 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             dst_keys.insert(dst);
         }
 
-        uint32_t buffer_key = 0;
-        bool have_buffer = false;
-        for (int y = 0; y < h && !have_buffer; ++y) {
-            for (int x = 0; x < w && !have_buffer; ++x) {
-                uint32_t k = key(x, y);
-                if (src_keys.count(k) || dst_keys.count(k))
-                    continue;
-                GridPos p(x, y);
-                if (GetStone(p) != nullptr)
-                    continue;
-                buffer_key = k;
-                have_buffer = true;
-            }
-        }
-
-        // Resolve simple chains first: whenever a destination is empty, move into it.
-        bool progressed = true;
-        while (progressed) {
-            progressed = false;
+	        // Resolve simple chains first: whenever a destination is empty, move into it.
+	        bool progressed = true;
+	        while (progressed) {
+	            progressed = false;
             for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
                 const uint32_t src = it->first;
                 const uint32_t dst = it->second;
@@ -869,33 +980,47 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
                 progressed = true;
                 break;
             }
-        }
+	        }
 
-        // Remaining moves are cycles. Break each cycle using the empty buffer cell.
-        while (!src_to_dst.empty() && have_buffer) {
-            const uint32_t start_src = src_to_dst.begin()->first;
-            const uint32_t start_dst = src_to_dst.begin()->second;
-            MoveStone(key_to_pos(start_src), key_to_pos(buffer_key));
+	        // Remaining moves are cycles. We cannot assume an unused empty buffer cell exists
+	        // (levels can be fully packed, or all empty cells can be part of the permutation),
+	        // so break cycles by temporarily yielding one stone into memory.
+        while (!src_to_dst.empty()) {
+	            const uint32_t start_src = src_to_dst.begin()->first;
+	            const uint32_t start_dst = src_to_dst.begin()->second;
+	            GridPos start_src_pos = key_to_pos(start_src);
+	            Stone *held = YieldStone(start_src_pos);
+	            if (!held) {
+	                // Nothing to move; drop this mapping entry.
+	                src_by_dst.erase(start_dst);
+	                src_to_dst.erase(start_src);
+	                continue;
+	            }
 
-            uint32_t empty = start_src;
-            while (empty != start_dst) {
-                auto it_prev = src_by_dst.find(empty);
-                if (it_prev == src_by_dst.end()) {
-                    // Unexpected shape; stop trying to reorder this snapshot.
-                    break;
-                }
-                const uint32_t prev_src = it_prev->second;
-                MoveStone(key_to_pos(prev_src), key_to_pos(empty));
-                auto it_dst = src_to_dst.find(prev_src);
-                if (it_dst != src_to_dst.end()) {
-                    src_to_dst.erase(it_dst);
-                }
-                src_by_dst.erase(it_prev);
-                empty = prev_src;
-            }
-            MoveStone(key_to_pos(buffer_key), key_to_pos(start_dst));
-            src_by_dst.erase(start_dst);
-            src_to_dst.erase(start_src);
+	            uint32_t empty = start_src;
+	            while (empty != start_dst) {
+	                auto it_prev = src_by_dst.find(empty);
+	                if (it_prev == src_by_dst.end()) {
+	                    // Unexpected shape; restore and stop trying to reorder this snapshot.
+	                    SetStone(start_src_pos, held);
+	                    held = nullptr;
+	                    src_to_dst.clear();
+	                    src_by_dst.clear();
+	                    break;
+	                }
+	                const uint32_t prev_src = it_prev->second;
+	                MoveStone(key_to_pos(prev_src), key_to_pos(empty));
+	                auto it_dst = src_to_dst.find(prev_src);
+	                if (it_dst != src_to_dst.end())
+	                    src_to_dst.erase(it_dst);
+	                src_by_dst.erase(it_prev);
+	                empty = prev_src;
+	            }
+	            if (held) {
+	                SetStone(key_to_pos(start_dst), held);
+	                src_by_dst.erase(start_dst);
+	                src_to_dst.erase(start_src);
+	            }
         }
     }
 
@@ -913,6 +1038,13 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             apply_state(GetStone(p), pkt.stone_state[idx]);
             apply_state(GetItem(p), pkt.item_state[idx]);
         }
+    }
+    if (debug_enabled()) {
+        debug_log("mp world-state applied: world=%llu kind=%llu state=%llu movable=%llu",
+                  static_cast<unsigned long long>(WorldGridChecksum()),
+                  static_cast<unsigned long long>(WorldGridKindChecksum()),
+                  static_cast<unsigned long long>(WorldGridStateChecksum()),
+                  static_cast<unsigned long long>(WorldGridMovableStoneChecksum()));
     }
     return true;
 }
@@ -1088,6 +1220,7 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
         debug_log("mp host: relay client -> player %u", player_id);
         g_transport.HostSendUdpRelay(client_id, welcome);
         send_existing_placements_to_relay(client_id);
+        host_send_current_load_to_remote(HostSource::UDP_RELAY, nullptr, client_id);
         return true;
     }
 
@@ -1097,6 +1230,7 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
         debug_log("mp host: tcp relay client -> player %u", player_id);
         g_transport.HostSendTcpRelay(client_id, welcome);
         send_existing_placements_to_tcp_relay(client_id);
+        host_send_current_load_to_remote(HostSource::TCP_RELAY, nullptr, client_id);
         return true;
     }
 
@@ -1198,6 +1332,8 @@ bool handle_direct_connect_event(ENetPeer *peer) {
                              static_cast<Uint16>(g_session.tick_ms));
     g_transport.HostSendDirect(peer, buf);
     send_existing_placements_to_peer(peer);
+    host_send_current_load_to_remote(HostSource::DIRECT, peer, 0);
+    g_transport.Flush();
     return true;
 }
 
@@ -1336,23 +1472,32 @@ void process_network_events() {
 void send_local_inputs() {
     if (!g_session.active || !g_session.local_player_known)
         return;
+    const bool remote_control_local_ball =
+        (!g_session.host && options::GetBool("MultiplayerDebugRemoteControlLocalBall"));
     uint32_t current_tick = input::CurrentTick();
     uint32_t delay = g_session.input_delay ? g_session.input_delay : kInputDelay;
     uint32_t target_tick = current_tick + delay;
-    if (g_session.input_clock_tick > current_tick) {
-        uint32_t extra = g_session.input_clock_tick - current_tick;
-        if (extra > kMaxInputLead)
-            extra = kMaxInputLead;
-        target_tick += extra;
-    }
-    input::PlayerInput pending = input::DrainLocalPending(g_session.local_player);
-    const uint32_t ticks_to_fill =
-        (g_session.next_local_tick <= target_tick) ? (target_tick - g_session.next_local_tick + 1) : 0;
-    // Local pending inputs are accumulated across frames. If we need to fill
-    // multiple ticks at once (e.g. after a stall), distribute the accumulated
-    // mouse-force impulse across those ticks so physics stays consistent.
-    const float inv_ticks = ticks_to_fill ? (1.0f / static_cast<float>(ticks_to_fill)) : 0.0f;
-    const ecl::V2 per_tick_force = pending.mouse_force * inv_ticks;
+	    if (g_session.input_clock_tick > current_tick) {
+	        uint32_t extra = g_session.input_clock_tick - current_tick;
+	        if (extra > kMaxInputLead)
+	            extra = kMaxInputLead;
+	        target_tick += extra;
+	    }
+	    const uint32_t ticks_to_fill =
+	        (g_session.next_local_tick <= target_tick) ? (target_tick - g_session.next_local_tick + 1) : 0;
+	    // IMPORTANT: `send_local_inputs()` runs every frame, but ticks advance at
+	    // the simulation tick rate. When we already filled inputs up to `target_tick`,
+	    // we must not drain (and thus drop) local pending input. Otherwise large
+	    // tick lengths (e.g. 50ms) feel unresponsive because most mouse deltas get
+	    // discarded between ticks.
+	    input::PlayerInput pending;
+	    if (ticks_to_fill)
+	        pending = input::DrainLocalPending(g_session.local_player);
+	    // Local pending inputs are accumulated across frames. If we need to fill
+	    // multiple ticks at once (e.g. after a stall), distribute the accumulated
+	    // mouse-force impulse across those ticks so physics stays consistent.
+	    const float inv_ticks = ticks_to_fill ? (1.0f / static_cast<float>(ticks_to_fill)) : 0.0f;
+	    const ecl::V2 per_tick_force = pending.mouse_force * inv_ticks;
     bool applied_actions = false;
     bool sent_packets = false;
 
@@ -1380,8 +1525,14 @@ void send_local_inputs() {
         pkt.rotate_steps = static_cast<int16_t>(send.rotate_steps);
         pkt.activate_count = static_cast<Uint8>(send.activate_count);
 
-        input::EnqueueInput(pkt.tick, g_session.local_player, send);
-        rollback::RecordInput(pkt.tick, g_session.local_player, send);
+        // Experiment: let the host be authoritative for the locally controlled ball.
+        // Suppress continuous mouse force locally, but keep discrete actions (rotate/activate)
+        // so inventory/world interactions remain responsive and deterministic.
+        input::PlayerInput local_sim = send;
+        if (remote_control_local_ball)
+            local_sim.mouse_force = ecl::V2(0.0f, 0.0f);
+        input::EnqueueInput(pkt.tick, g_session.local_player, local_sim);
+        rollback::RecordInput(pkt.tick, g_session.local_player, local_sim);
         g_session.local_history[pkt.tick] = send;
         applied_actions = true;
         ++g_session.next_local_tick;

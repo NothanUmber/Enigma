@@ -1,0 +1,28 @@
+# Sanity: in remote-control-local-ball mode, the client suppresses local simulation
+# of its own input, relying on host resync broadcasts for actor motion.
+
+both SET_BOOL key=MultiplayerDebugRemoteControlLocalBall value=1
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=20
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 2000
+both START_GAME
+
+both STREAM_STATE interval_ms=50
+sleep 300
+
+# Move the client player for a while (goes through the normal transport path).
+client HOLD_MOUSE_FORCE player=1 ticks=100 fx=300.0 fy=0.0
+sleep 600
+
+# Host should see p1 moving.
+wait_state_change role=host field=p1_x min_abs_delta=0.05 timeout_ms=5000
+
+# Client should also see p1 moving (via host resyncs).
+wait_state_change role=client field=p1_x min_abs_delta=0.05 timeout_ms=5000
+
+both QUIT

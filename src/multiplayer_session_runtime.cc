@@ -28,6 +28,7 @@
 #include "world.hh"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 /* -------------------- Multiplayer session runtime -------------------- */
@@ -127,6 +128,8 @@ void SessionNotifyLoadLevel(const std::string &pack_name, const std::string &lev
     if (!g_session.active || !g_session.host)
         return;
     g_session.load_id += 1;
+    g_session.level_pack_name = pack_name;
+    g_session.level_id = level_id;
     if (debug_enabled())
         debug_log("mp host: load level id=%u pack=%s level_id=%s",
                   static_cast<unsigned>(g_session.load_id),
@@ -457,6 +460,16 @@ void tick_debug_report_missing_input() {
 void tick_update_start_phase() {
     if (g_session.phase == SessionState::Phase::WAITING_FOR_READY && g_session.host) {
         if (!host_ready_to_start()) {
+            // Robustness: keep re-announcing the current level load while waiting for READY.
+            // This covers packet loss and ensures clients can satisfy the "must have seen
+            // NET_LOAD_LEVEL before READY" invariant.
+            if (has_remote_peers() && g_session.load_id != 0 && !g_session.level_id.empty()) {
+                g_session.load_announce_timer += input::TickTimestep();
+                if (g_session.load_announce_timer >= 1.0) {
+                    send_load_level_to_peers(g_session.level_pack_name, g_session.level_id);
+                    g_session.load_announce_timer = 0.0;
+                }
+            }
             if (debug_enabled()) {
                 static Uint32 last_sid = 0;
                 static Uint32 last_epoch = 0;
@@ -518,6 +531,7 @@ void tick_update_start_phase() {
             }
             return;
         }
+        g_session.load_announce_timer = 0.0;
         if (debug_enabled())
             debug_log("mp host: start allowed");
         g_session.input_epoch += 1;
@@ -552,7 +566,24 @@ void tick_host_broadcast_resync() {
         return;
     if (g_session.phase != SessionState::Phase::RUNNING)
         return;
-    int stride = options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks");
+    int legacy_stride = options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks");
+    int stride = legacy_stride;
+    if (options::GetBool("MultiplayerDebugRemoteControlLocalBall")) {
+        // Remote-control mode relies on frequent authoritative actor snapshots.
+        // Force a per-tick resync broadcast so the local ball stays responsive.
+        stride = 1;
+    }
+    if (legacy_stride > 0) {
+        // Keep debug UX stable across tick sizes: interpret stride as 10ms ticks.
+        const double tick_s = input::TickTimestep();
+        const double legacy_s = 0.01;
+        if (tick_s > 0.0) {
+            const double desired_s = static_cast<double>(legacy_stride) * legacy_s;
+            stride = static_cast<int>(std::lround(desired_s / tick_s));
+            if (stride < 1)
+                stride = 1;
+        }
+    }
     if (stride <= 0)
         return;
     uint32_t tick = input::CurrentTick();
@@ -571,7 +602,19 @@ void tick_host_broadcast_world_state() {
         return;
     if (g_session.phase != SessionState::Phase::RUNNING)
         return;
-    int stride = options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks");
+    int legacy_stride = options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks");
+    int stride = legacy_stride;
+    if (legacy_stride > 0) {
+        // Keep debug UX stable across tick sizes: interpret stride as 10ms ticks.
+        const double tick_s = input::TickTimestep();
+        const double legacy_s = 0.01;
+        if (tick_s > 0.0) {
+            const double desired_s = static_cast<double>(legacy_stride) * legacy_s;
+            stride = static_cast<int>(std::lround(desired_s / tick_s));
+            if (stride < 1)
+                stride = 1;
+        }
+    }
     if (stride <= 0)
         return;
     uint32_t tick = input::CurrentTick();

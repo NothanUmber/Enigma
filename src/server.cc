@@ -151,15 +151,30 @@ int previousLevel;
 ENetAddress network_address;
 ENetHost *network_host = 0;
 
-void apply_inputs_for_tick() {
+void collect_inputs_for_tick(uint32_t tick, std::array<input::PlayerInput, input::kMaxPlayers> &out,
+                             unsigned players) {
+    for (auto &pi : out)
+        pi = input::PlayerInput();
+    for (unsigned player = 0; player < players; ++player) {
+        out[player] = input::ConsumeInput(tick, player);
+    }
+}
+
+}  // namespace
+
+void SimulateOneTick(double timestep) {
+    LevelTime += timestep;
+    const uint32_t tick = input::CurrentTick();
     unsigned players = input::IsNetworked() ? input::ExpectedPlayers() : player::PlayerCount();
     if (players == 0)
         players = 1;
-    uint32_t tick = input::CurrentTick();
+    std::array<input::PlayerInput, input::kMaxPlayers> inputs;
+    collect_inputs_for_tick(tick, inputs, players);
+
+    // Apply discrete actions once per tick; distribute continuous mouse force
+    // across smaller physics steps for stable, controllable motion at large tick sizes.
     for (unsigned player = 0; player < players; ++player) {
-        input::PlayerInput pi = input::ConsumeInput(tick, player);
-        if (pi.mouse_force[0] != 0.0 || pi.mouse_force[1] != 0.0)
-            Msg_MouseForce(player, pi.mouse_force);
+        const input::PlayerInput &pi = inputs[player];
         if (pi.rotate_steps != 0) {
             int dir = (pi.rotate_steps > 0) ? 1 : -1;
             int steps = (pi.rotate_steps > 0) ? pi.rotate_steps : -pi.rotate_steps;
@@ -171,15 +186,25 @@ void apply_inputs_for_tick() {
                 Msg_ActivateItem(player);
         }
     }
+
+    constexpr double kMaxPhysicsStep = 0.01;  // original engine tick (10ms)
+    int substeps = 1;
+    if (timestep > kMaxPhysicsStep)
+        substeps = static_cast<int>(std::ceil(timestep / kMaxPhysicsStep));
+    if (substeps < 1)
+        substeps = 1;
+    const double sub_dt = timestep / static_cast<double>(substeps);
+    const double inv_substeps = 1.0 / static_cast<double>(substeps);
+    for (int step = 0; step < substeps; ++step) {
+        for (unsigned player = 0; player < players; ++player) {
+            const input::PlayerInput &pi = inputs[player];
+            if (pi.mouse_force[0] != 0.0 || pi.mouse_force[1] != 0.0) {
+                Msg_MouseForce(player, pi.mouse_force * inv_substeps);
+            }
+        }
+        WorldTick(sub_dt);
+    }
     input::AdvanceTick();
-}
-
-}  // namespace
-
-void SimulateOneTick(double timestep) {
-    apply_inputs_for_tick();
-    LevelTime += timestep;
-    WorldTick(timestep);
 }
 
 void load_level(lev::Proxy *levelProxy, bool isRestart) {

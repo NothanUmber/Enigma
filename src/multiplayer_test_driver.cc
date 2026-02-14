@@ -12,6 +12,7 @@
 #include "main.hh"
 #include "options.hh"
 #include "player.hh"
+#include "Inventory.hh"
 #include "server.hh"
 #include "world.hh"
 
@@ -399,10 +400,11 @@ static void emit_state_snapshot() {
         }
     }
 
-    os << " mp_clock_tick=" << static_cast<unsigned>(s.input_clock_tick)
+       os << " mp_clock_tick=" << static_cast<unsigned>(s.input_clock_tick)
        << " mp_input_delay=" << static_cast<unsigned>(s.input_delay)
        << " mp_tick_ms=" << static_cast<unsigned>(s.tick_ms)
        << " mp_world_cs=" << static_cast<unsigned long long>(s.last_world_checksum)
+       << " mp_last_resync=" << static_cast<unsigned>(s.last_accepted_resync_tick)
        << " mp_next_local_tick=" << static_cast<unsigned>(s.next_local_tick)
        << " mp_next_send_tick=" << static_cast<unsigned>(s.next_send_tick);
     // Always report the first two players for convenience.
@@ -428,6 +430,139 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "LIST_STEERABLE") {
         emit_steerable_actors();
+        return true;
+    }
+
+    if (cmd == "GET_ACTOR_GRID") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("GET_ACTOR_GRID", "missing_player");
+            return true;
+        }
+        Actor *a = player::GetMainActor(static_cast<unsigned>(player_u32));
+        if (!a) {
+            send_err("GET_ACTOR_GRID", "no_actor");
+            return true;
+        }
+        GridPos p(a->get_pos());
+        std::ostringstream os;
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " gx=" << static_cast<int>(p.x)
+           << " gy=" << static_cast<int>(p.y);
+        send_ok("GET_ACTOR_GRID", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_CELL") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_CELL", "missing_xy");
+            return true;
+        }
+        GridPos p(x, y);
+        Object *fl = GetFloor(p);
+        Object *st = GetStone(p);
+        Object *it = GetItem(p);
+        auto kind_or_dash = [](Object *obj) -> std::string {
+            return obj ? obj->getKind() : std::string("-");
+        };
+        auto state_or_dash = [](Object *obj) -> std::string {
+            if (!obj)
+                return std::string("-");
+            Value v = obj->getAttr("state");
+            if (!v)
+                return std::string("-");
+            return std::to_string(static_cast<int>(v));
+        };
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " fl=" << kind_or_dash(fl)
+           << " st=" << kind_or_dash(st)
+           << " it=" << kind_or_dash(it)
+           << " fl_state=" << state_or_dash(fl)
+           << " st_state=" << state_or_dash(st)
+           << " it_state=" << state_or_dash(it);
+        send_ok("GET_CELL", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_UNDER_PLAYER") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("GET_UNDER_PLAYER", "missing_player");
+            return true;
+        }
+        Actor *a = player::GetMainActor(static_cast<unsigned>(player_u32));
+        if (!a) {
+            send_err("GET_UNDER_PLAYER", "no_actor");
+            return true;
+        }
+        GridPos gp(a->get_pos());
+        Object *fl = GetFloor(gp);
+        Object *st = GetStone(gp);
+        Object *it = GetItem(gp);
+        auto kind_or_dash = [](Object *obj) -> std::string {
+            return obj ? obj->getKind() : std::string("-");
+        };
+        std::ostringstream os;
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " gx=" << static_cast<int>(gp.x)
+           << " gy=" << static_cast<int>(gp.y)
+           << " fl=" << kind_or_dash(fl)
+           << " st=" << kind_or_dash(st)
+           << " it=" << kind_or_dash(it);
+        send_ok("GET_UNDER_PLAYER", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_INV") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("GET_INV", "missing_player");
+            return true;
+        }
+        Inventory *inv = player::GetInventory(static_cast<unsigned>(player_u32));
+        if (!inv) {
+            send_err("GET_INV", "no_inventory");
+            return true;
+        }
+        std::ostringstream os;
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " size=" << static_cast<unsigned>(inv->size());
+        if (inv->size() > 0 && inv->get_item(0)) {
+            os << " first=" << inv->get_item(0)->getKind();
+        } else {
+            os << " first=-";
+        }
+        send_ok("GET_INV", os.str());
+        return true;
+    }
+
+    if (cmd == "SUBMIT_LOCAL") {
+        const unsigned local_player = multiplayer::LocalPlayer();
+        float fx = 0.0f, fy = 0.0f;
+        int rot = 0;
+        int act = 0;
+        parse_f32(kv, "fx", fx);
+        parse_f32(kv, "fy", fy);
+        parse_i32(kv, "rot", rot);
+        parse_i32(kv, "act", act);
+        if (fx != 0.0f || fy != 0.0f)
+            input::SubmitMouseForce(local_player, ecl::V2(fx, fy));
+        if (rot != 0)
+            input::SubmitRotateInventory(local_player, rot);
+        for (int i = 0; i < act; ++i)
+            input::SubmitActivateItem(local_player);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "player=" << static_cast<unsigned>(local_player)
+           << " fx=" << static_cast<double>(fx)
+           << " fy=" << static_cast<double>(fy)
+           << " rot=" << rot
+           << " act=" << act;
+        send_ok("SUBMIT_LOCAL", os.str());
         return true;
     }
 

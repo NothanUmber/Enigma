@@ -415,6 +415,10 @@ void broadcast_world_state_snapshot(bool reliable) {
     pkt.floor_state.assign(count, 0xFFFF);
     pkt.stone_state.assign(count, 0xFFFF);
     pkt.item_state.assign(count, 0xFFFF);
+    pkt.kind_dict.clear();
+    pkt.floor_kind.assign(count, 0);
+    pkt.stone_kind.assign(count, 0);
+    pkt.item_kind.assign(count, 0);
 
     auto encode_state = [](Object *obj) -> Uint16 {
         if (!obj)
@@ -430,13 +434,39 @@ void broadcast_world_state_snapshot(bool reliable) {
         return static_cast<Uint16>(s);
     };
 
+    std::unordered_map<std::string, Uint16> kind_index;
+    kind_index.reserve(128);
+    auto kind_id = [&](Object *obj) -> Uint16 {
+        if (!obj)
+            return 0;
+        const std::string kind = obj->getKind();
+        if (kind.empty())
+            return 0;
+        auto it = kind_index.find(kind);
+        if (it != kind_index.end())
+            return it->second;
+        const size_t next = pkt.kind_dict.size() + 1;
+        if (next > 0xFFFF)
+            return 0;
+        const Uint16 id = static_cast<Uint16>(next);
+        kind_index.emplace(kind, id);
+        pkt.kind_dict.push_back(kind);
+        return id;
+    };
+
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
             GridPos p(x, y);
-            pkt.floor_state[idx] = encode_state(GetFloor(p));
-            pkt.stone_state[idx] = encode_state(GetStone(p));
-            pkt.item_state[idx] = encode_state(GetItem(p));
+            Object *fl = GetFloor(p);
+            Object *st = GetStone(p);
+            Object *it = GetItem(p);
+            pkt.floor_state[idx] = encode_state(fl);
+            pkt.stone_state[idx] = encode_state(st);
+            pkt.item_state[idx] = encode_state(it);
+            pkt.floor_kind[idx] = kind_id(fl);
+            pkt.stone_kind[idx] = kind_id(st);
+            pkt.item_kind[idx] = kind_id(it);
         }
     }
 
@@ -627,6 +657,9 @@ void apply_resync_state(const protocol::ResyncState &state) {
 
     auto should_skip_actor = [](Actor *actor) -> bool {
         if (!actor)
+            return false;
+        // In remote-control mode we *want* the local actor to be overwritten by the host.
+        if (options::GetBool("MultiplayerDebugRemoteControlLocalBall"))
             return false;
         if (!options::GetBool("MultiplayerDebugSkipLocalResync"))
             return false;
