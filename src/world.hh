@@ -167,11 +167,11 @@ uint64_t CombineWorldGridChecksums(uint64_t kind_checksum, uint64_t state_checks
 uint64_t ActorChecksum();
 void GetActors(std::vector<Actor *> &out);
 
-	void WorldTick(double dtime);
-	void TickFinished(double dtime);
-	// Approximate wall-clock delta time between TickFinished calls (used for
-	// render-only smoothing; does not affect simulation determinism).
-	double RenderFrameDtime();
+void WorldTick(double dtime);
+void TickFinished(double dtime);
+// Approximate wall-clock delta time between TickFinished calls (used for
+// render-only smoothing; does not affect simulation determinism).
+double RenderFrameDtime();
 
 // Destroy all objects and the complete object repository
 void ShutdownWorld();

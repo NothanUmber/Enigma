@@ -35,6 +35,10 @@ Open **Options -> Multiplayer** and set:
   - Direct connect
   - UDP relay
   - TCP relay
+- Connectivity:
+  - Presets: **Good / Normal / Bad** apply a tuned set of multiplayer runtime settings.
+  - **Auto detect connectivity** (recommended): when hosting, the preset is selected automatically
+    based on the worst link to any client (see Architecture).
 
 Notes:
 
@@ -90,6 +94,8 @@ when set).
 
 - `ENIGMA_MP_DEBUG=1` enables verbose multiplayer logs.
 - `ENIGMA_MP_FORCE_RELAY=1` forces relay use (skips direct connect), useful for testing.
+- `ENIGMA_MP_BIND_LOCAL=1` forces ENet direct-connect to bind to the probed local interface
+  (sometimes helps on multi-homed hosts/VPNs; can hurt in some VM/NAT setups).
 - `ENIGMA_MP_DUMP_STATE=1` dumps a one-time deterministic actor digest when a sync mismatch is detected.
 - `ENIGMA_MP_TRACE_WORLDINIT=1` traces how `WorldInitLevel()` initializes actors (useful for tracking controller/ownership changes from Lua/compat).
 - `ENIGMA_MP_NETSIM=1` enables artificial packet delay/loss/jitter for multiplayer payloads (debug only):
@@ -109,8 +115,8 @@ Multiplayer is deterministic lockstep:
 
 - Each instance runs the full simulation locally.
 - Inputs are exchanged per fixed tick.
-- The host distributes inputs but does not stream full authoritative state.
-- Periodic sync snapshots detect drift and can correct some divergence.
+- The host distributes inputs and sends periodic sync snapshots.
+- On divergence, clients request authoritative correction snapshots from the host (actors and world grid).
 
 This keeps latency low while maintaining a consistent world state.
 
@@ -246,8 +252,8 @@ Clients compare these snapshots to local state:
 - If actor checksums diverge without any position/RNG/world mismatch, a soft resync can still be
   attempted, but only after a longer mismatch streak (actor checksums can be sensitive).
 - If the world checksum diverges *without* any position/RNG/actor mismatch ("world-only mismatch"),
-  we currently treat this as not auto-recoverable and show a "World desync detected. Please restart."
-  toast after repeated detections. (This is where a future hard-resync could go.)
+  the client requests an authoritative world-grid snapshot from the host and applies it. A toast is
+  still shown after repeated detections, but the intent is to recover without requiring a restart.
 
 In debug logs this is visible in the `mp desync... flags(pos=... rand=... actor=... world=...) action=...`
 line, where `action` is one of:
@@ -316,6 +322,42 @@ Applying a resync is intentionally conservative:
   multi-ball levels.
 
 If resync fails repeatedly, the session reports a desync.
+
+#### World-state resync ("grid resync")
+
+World mismatches are common in physics-heavy or scripting-heavy levels even when actors stay close.
+To keep gameplay viable, the host can provide an authoritative world-grid snapshot:
+
+- Client sends `NET_WORLD_STATE_REQUEST(epoch, tick)` to the host.
+- Host replies with `NET_WORLD_STATE` containing:
+  - full grid kind + state for floors/stones/items (compressed via a kind dictionary)
+  - positions of movable stones (puzzle stones/doors) by `(x,y)` so swaps can be corrected
+- Client applies the snapshot by updating object `state` attributes and rebuilding movable-stone
+  placement where needed.
+
+This is intentionally conservative and may visually "snap" world objects back to the host state.
+
+### Session settings synchronization (host -> clients)
+
+To avoid sessions where players run with incompatible multiplayer debug/runtime settings, the host
+broadcasts a `NET_DEBUG_OPTIONS` packet before `NET_START`:
+
+- Tick length (`tick_ms`) and input delay override.
+- Flags like zero-fill, rollback/replay, smoothing, and host broadcast strides.
+- Network simulation settings (debug-only) so host/client behavior matches during tests.
+
+Clients only apply these settings while the session is not running; during gameplay the Options UI
+keeps multiplayer settings non-editable.
+
+### Connectivity auto-detect (host)
+
+When **Auto detect connectivity** is enabled, the host runs a short RTT probe once all peers have
+loaded the level and reported READY, but before `NET_START`:
+
+- Host sends `NET_PING(id)` bursts to each connected client and records `NET_PONG(id)` timing.
+- The host chooses **Good / Normal / Bad** based on the worst observed link (p90 RTT).
+- The selected preset is applied to the host settings and broadcast via `NET_DEBUG_OPTIONS` so all
+  clients run with the same parameters for that session.
 
 ### Global pause (multiplayer)
 
@@ -442,6 +484,8 @@ not unblock the next level's start barrier.
 - `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
   - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
 - The generator intentionally excludes this architecture document so the review stays focused on source changes.
+- The integration test harness lives under `tools/mp_test_env.py` and uses `--mp-test-*` flags
+  (implemented in `src/multiplayer_test_driver.*`) to drive host/client instances.
 
 ## Key code locations
 

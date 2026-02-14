@@ -187,7 +187,33 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ".gitignore",
         ["Top-level ignore rules for build artifacts and developer-local files."],
         ["Used by git; affects what can accidentally appear in PR diffs."],
-        ["Ignore the developer-local `local/` folder used for DMGs and helper scripts during multiplayer development."],
+        [
+            "Ignores developer-local build/output artifacts (`local/`, `__pycache__/`, `*.pyc`, `*.log`, etc.) to keep review diffs clean.",
+        ],
+    )
+    add(
+        "build_enigma.sh",
+        ["Developer convenience build script for macOS/Homebrew builds."],
+        ["Optional; run manually from the repo root."],
+        ["No multiplayer intent: keep this script available for contributors building Enigma on macOS."],
+    )
+    add(
+        "multiplayer_architecture.md",
+        ["Legacy multiplayer architecture document (repo root)."],
+        ["Was previously used as a design note during development."],
+        ["Removed in favor of `doc/multiplayer_architecture.md` (single canonical location)."],
+    )
+    add(
+        "out1.txt",
+        ["Developer-local debug output artifact."],
+        ["Not used by the build or runtime."],
+        ["Removed stray debug output that should not be tracked."],
+    )
+    add(
+        "out2.txt",
+        ["Developer-local debug output artifact."],
+        ["Not used by the build or runtime."],
+        ["Removed stray debug output that should not be tracked."],
     )
 
     # Containerized backend deployment
@@ -295,6 +321,12 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Wires multiplayer into the UI and startup (menus, options, and runtime hooks).",
             "On shutdown, triggers a best-effort Internet room leave so room ownership is released immediately in normal exits.",
         ],
+    )
+    add(
+        "src/main.hh",
+        ["Global main-menu/runtime flags and declarations."],
+        ["Included across UI and main loop code."],
+        ["Adds `ShowDebugOptions` so the debug tabs can be enabled via `--show-debugoptions`."],
     )
 
     # Menus/UI integration
@@ -556,6 +588,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Called from session tick while a level is running."],
         [
             "Adds deterministic lockstep input exchange and divergence detection with soft resync.",
+            "Extends drift recovery by requesting and applying host-authoritative world-grid snapshots when world checksums diverge.",
             "Sends READY/START with an additional `load_id` so readiness and start signals are scoped to the currently loading level.",
         ],
     )
@@ -577,8 +610,46 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "New protocol header for multiplayer gameplay networking.",
             "Extends LAN `LobbyStart` with optional `host_ips` candidates to improve direct-connect success on multi-homed hosts (VMs/VPNs).",
             "Adds host-authoritative level transitions via `NET_LOAD_LEVEL` (pack + normalized level id).",
+            "Adds host-authoritative world-state snapshots (`NET_WORLD_STATE`) and client requests (`NET_WORLD_STATE_REQUEST`) for repairing world divergence.",
+            "Adds host-to-client settings synchronization (`NET_DEBUG_OPTIONS`) plus `NET_PING`/`NET_PONG` for host-side connectivity probing.",
             "Scopes READY/START to the current session+level by carrying `session_id`, `epoch`, and `load_id` (prevents stale packets unblocking the wrong level).",
         ],
+    )
+    add(
+        "src/multiplayer_rollback.hh",
+        ["Rollback/replay helper used to make multiplayer recovery/prediction experiments reproducible and testable."],
+        ["Used by session sync/runtime when rollback is enabled via debug options."],
+        ["New optional module: stores recent snapshots and supports replay to reduce visible correction artifacts under packet loss/latency."],
+    )
+    add(
+        "src/multiplayer_rollback.cc",
+        ["Rollback/replay implementation."],
+        ["Used by `src/multiplayer_session_sync.cc` and the multiplayer test driver when rollback is enabled."],
+        ["New optional rollback/replay implementation built on the snapshot API in `src/multiplayer_sim_snapshot.*`."],
+    )
+    add(
+        "src/multiplayer_sim_snapshot.hh",
+        ["Snapshot/restore API for a deterministic subset of simulation state (actors/world/timers/etc.)."],
+        ["Used by rollback/replay code paths and by integration tests."],
+        ["New module that defines the snapshot surface needed for rollback/replay experiments."],
+    )
+    add(
+        "src/multiplayer_sim_snapshot.cc",
+        ["Snapshot/restore implementation."],
+        ["Used by rollback/replay when capturing and restoring recent simulation ticks."],
+        ["Implements snapshot capture/restore for actors, world grid state, timers, and pending secure actions."],
+    )
+    add(
+        "src/multiplayer_test_driver.hh",
+        ["Small TCP control interface used by integration tests to drive a running Enigma instance."],
+        ["Enabled only when started with `--mp-test-role` and `--mp-test-connect`."],
+        ["New developer-only test harness API to make multiplayer bugs reproducible and regression-testable."],
+    )
+    add(
+        "src/multiplayer_test_driver.cc",
+        ["Multiplayer test driver implementation (command parser + event emitter)."],
+        ["Used by `tools/mp_test_env.py` to script host/client runs and collect state/logs."],
+        ["Adds a deterministic automation surface (join/start/load/move/observe) without affecting normal gameplay."],
     )
     add(
         "src/multiplayer_state.hh",
@@ -806,6 +877,30 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Included by gameplay code."],
         ["Declares multiplayer-related world accessors used for checksums/resync."],
     )
+    add(
+        "src/StateObject.hh",
+        ["Base class for objects that expose an integer `state` attribute."],
+        ["Used by many stones/items/floors and by the world grid state machinery."],
+        ["Adds minimal snapshot/restore hooks so rollback/replay can restore internal state deterministically."],
+    )
+    add(
+        "src/timer.hh",
+        ["Global timer/alarms used by gameplay objects."],
+        ["Used by stones/items/floors that schedule time-based callbacks."],
+        ["Adds a snapshot/restore surface so rollback/replay can restore pending alarms deterministically."],
+    )
+    add(
+        "src/timer.cc",
+        ["Timer implementation."],
+        ["Ticked from the core simulation loop."],
+        ["Implements alarm snapshot/restore keyed by object id (avoids raw-pointer restoration hazards)."],
+    )
+    add(
+        "src/video.cc",
+        ["SDL window and rendering backend glue."],
+        ["Creates the SDL window and screen surface used by the renderer."],
+        ["Honors `SDL_VIDEO_WINDOW_POS` for window positioning (used by integration tests that place host/client windows side-by-side)."],
+    )
 
     # Simulation helpers touched by multiplayer resync
     add(
@@ -832,6 +927,24 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Actor base declarations (moving entities, including rotors)."],
         ["Included by actor implementations."],
         ["Adds small hooks to support deterministic multiplayer checksums/sync."],
+    )
+    add(
+        "src/actors.cc",
+        ["Actor base implementation."],
+        ["Used by all moving entities; ticked every simulation step."],
+        ["Adds optional render-only smoothing for multiplayer resync corrections (does not affect simulation determinism)."],
+    )
+    add(
+        "src/actors/Balls.hh",
+        ["Ball/marble actor declarations."],
+        ["Used by most levels; core player-controlled actors."],
+        ["Adds a small helper used after rollback snapshot restore to keep APPEARING balls playable."],
+    )
+    add(
+        "src/actors/Balls.cc",
+        ["Ball/marble actor implementation."],
+        ["Core player actor behavior (movement, animations, interactions)."],
+        ["Adds a restore helper to finalize APPEARING->NORMAL when rollback restored without animation progress."],
     )
     add(
         "src/actors/Rotors.cc",
@@ -894,6 +1007,104 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Unit tests for deterministic ball-to-player assignment (extra players + meditation redistribution)."],
         ["Run as part of the unit test suite."],
         ["New tests for the ball assignment rules used by non-optimized multiplayer play."],
+    )
+
+    # Integration tests (ad-hoc, framework-free)
+    add(
+        "tools/mp_test_env.py",
+        ["Integration test runner that spawns two Enigma instances (host/client) and drives them via a script."],
+        ["Developer tool used to reproduce multiplayer bugs deterministically and to validate fixes."],
+        ["New test harness for multiplayer behavior regression checks (window positioning, scripted input, structured logs)."],
+    )
+    add(
+        "tools/mp_test_scripts/README.md",
+        ["Documentation for the multiplayer integration test scripts."],
+        ["Read alongside `tools/mp_test_env.py` when adding new regression scripts."],
+        ["New README describing the mp test script format and common patterns."],
+    )
+    add(
+        "tools/mp_test_scripts/basic_join_and_move.txt",
+        ["Basic integration test script (join session, start a level, apply motion)."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New scripted baseline test for verifying host/client wiring."],
+    )
+    add(
+        "tools/mp_test_scripts/host_ball_moves_in_host_sim.txt",
+        ["Integration test script that asserts host-controlled ball motion is reflected in host simulation."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression test for a previously observed 'host ball does not move' failure mode."],
+    )
+    add(
+        "tools/mp_test_scripts/join_load_level_handshake_before_ready.txt",
+        ["Integration test script that exercises join + load handshake ordering (READY/START scoping)."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression test to ensure stale packets cannot unblock the wrong level start."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_client_ball_moves_in_host_sim_netsim.txt",
+        ["Per.Oxyd 'Open Sesame' integration test (netsim) focusing on client ball motion reaching the host simulation."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script for latency/loss scenarios affecting client-controlled movement."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_client_drop_item_visible.txt",
+        ["Per.Oxyd 'Open Sesame' integration test for inventory drop actions being replicated to clients."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script for host-authoritative world actions (inventory drop visibility)."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_fast_moves_with_netsim.txt",
+        ["Per.Oxyd 'Open Sesame' integration test that applies fast movement under netsim."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New stress script for correction jitter/rollback behavior under simulated bad links."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_fast_moves_with_netsim_resync_broadcast.txt",
+        ["Per.Oxyd 'Open Sesame' integration test that enables periodic host resync broadcasts under netsim."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New stress script for the host broadcast correction path."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_fast_moves_with_netsim_resync_broadcast_delay12.txt",
+        ["Variant of the Per.Oxyd netsim stress script with a larger input delay."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New script to explore delay/stride tuning under poor connectivity."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_fast_moves_with_netsim_resync_broadcast_predict_missing.txt",
+        ["Variant of the Per.Oxyd netsim stress script with missing-mouse prediction enabled."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New script to evaluate predictive input fill vs correction artifacts."],
+    )
+    add(
+        "tools/mp_test_scripts/peroxyd_open_sesame_host_ball_moves_with_rollback.txt",
+        ["Per.Oxyd 'Open Sesame' integration test for host ball motion with rollback enabled."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script to validate rollback mode doesn't freeze host movement."],
+    )
+    add(
+        "tools/mp_test_scripts/remote_control_local_ball_basic.txt",
+        ["Integration test for remote-control mode of the locally-controlled ball."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script used while exploring host-authoritative control variants."],
+    )
+    add(
+        "tools/mp_test_scripts/remote_control_local_ball_netsim_zickzack.txt",
+        ["Remote-control mode integration test under netsim (zickzack/jitter reproduction)."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New stress script for remote-control + smoothing behavior under simulated latency."],
+    )
+    add(
+        "tools/mp_test_scripts/tick_length_ms_negotiated.txt",
+        ["Integration test for host-selected tick length negotiation."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script ensuring both peers agree on tick length before start."],
+    )
+    add(
+        "tools/mp_test_scripts/tick_length_ms_scales_legacy_ticks.txt",
+        ["Integration test ensuring legacy tick-based debug parameters scale correctly with non-10ms tick lengths."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["New regression script for tick-length scaling of debug UX (broadcast strides, delays)."],
     )
 
     return n

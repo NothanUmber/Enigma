@@ -16,3 +16,6 @@ lib-src/tinygettext/libtinygettext.a
 .DS_Store
 /local/
 __pycache__/
+*.pyc
+*.log
+out.txt
