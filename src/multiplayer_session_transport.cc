@@ -314,6 +314,19 @@ void teleport_actor_physics_only(Actor *actor, float x, float y, float vx, float
     ai->last_contacts_count = 0;
 }
 
+void nudge_actor_pos_physics(Actor *actor, float x, float y) {
+    if (!actor)
+        return;
+    // Softer than teleport_actor_physics_only(): keep velocity/forces/contacts intact.
+    // This avoids injecting large discontinuities into collision resolution (e.g. when
+    // the actor is pushing movable stones).
+    ActorInfo *ai = actor->get_actorinfo();
+    ai->pos = ecl::V2(x, y);
+    DidMoveActor(actor);
+    ai->last_gridpos = ai->gridpos;
+    ai->pos_force = ai->pos;
+}
+
 Actor *find_controlled_steerable_actor_by_owner_state(unsigned player_id,
                                                       const protocol::OwnerActorStatePacket &pkt) {
     std::vector<Actor *> actors;
@@ -1005,7 +1018,50 @@ bool handle_host_owner_actor_state_packet(const char *data, size_t len, ENetPeer
 
     pkt.player = static_cast<Uint8>(player_id);
     if (Actor *a = find_controlled_steerable_actor_by_owner_state(player_id, pkt)) {
-        teleport_actor_physics_only(a, pkt.x, pkt.y, pkt.vx, pkt.vy);
+        // Owner-state packets are unreliable and can arrive late. Teleporting to a past
+        // tick would "rewind" the actor and can cause stone push jitter. Instead, project
+        // the received state forward towards the current tick (best-effort).
+        const uint32_t current_tick = input::CurrentTick();
+        // NOTE: Linear velocity projection is only safe for small deltas. With longer
+        // delays/jitter and high-acceleration physics (collisions, rubberbands), dead
+        // reckoning can put the host copy into positions the client was never in.
+        // Keep the projection window small and bias towards lagging behind rather than
+        // overshooting.
+        uint32_t max_project_ticks = g_session.input_delay ? g_session.input_delay : 4u;
+        if (max_project_ticks < 2u)
+            max_project_ticks = 2u;
+        if (max_project_ticks > 8u)
+            max_project_ticks = 8u;
+        uint32_t dt_ticks = 0;
+        if (current_tick > pkt.tick)
+            dt_ticks = current_tick - pkt.tick;
+        if (dt_ticks > max_project_ticks) {
+            if (debug_enabled())
+                debug_log("mp host: owner-state lag clamp tick=%u cur=%u dt=%u max=%u",
+                          pkt.tick, current_tick, dt_ticks, max_project_ticks);
+            dt_ticks = max_project_ticks;
+        }
+        const float dt = static_cast<float>(input::TickTimestep() * static_cast<double>(dt_ticks));
+        const float x = pkt.x + pkt.vx * dt;
+        const float y = pkt.y + pkt.vy * dt;
+        // Apply a bounded correction instead of an unconditional teleport. Even with
+        // a small projection window, late packets can be far from the current host
+        // state, and hard teleports can cause movable stones to "snap" backwards.
+        const ecl::V2 cur = a->get_pos();
+        const float dx = x - static_cast<float>(cur[0]);
+        const float dy = y - static_cast<float>(cur[1]);
+        float d2 = dx * dx + dy * dy;
+        // Allow a limited correction per packet; bias towards stability.
+        const float max_step = 0.15f;
+        if (d2 > max_step * max_step) {
+            const float d = std::sqrt(d2);
+            const float s = (d > 0.0f) ? (max_step / d) : 0.0f;
+            nudge_actor_pos_physics(a,
+                                    static_cast<float>(cur[0]) + dx * s,
+                                    static_cast<float>(cur[1]) + dy * s);
+        } else {
+            nudge_actor_pos_physics(a, x, y);
+        }
     }
     if (debug_enabled() && pkt.tick < 20) {
         debug_log("mp host: recv owner-state tick=%u player=%u obj=%u pos=(%.2f,%.2f) vel=(%.2f,%.2f)",
@@ -1687,7 +1743,25 @@ bool handle_client_owner_actor_state_packet(const char *data, size_t len) {
         g_session.last_accepted_owner_state_tick[player_id] = pkt.tick;
     }
     if (Actor *a = find_controlled_steerable_actor_by_owner_state(player_id, pkt)) {
-        teleport_actor_physics_only(a, pkt.x, pkt.y, pkt.vx, pkt.vy);
+        const uint32_t current_tick = input::CurrentTick();
+        uint32_t max_project_ticks = g_session.input_delay ? g_session.input_delay : 4u;
+        if (max_project_ticks < 2u)
+            max_project_ticks = 2u;
+        if (max_project_ticks > 8u)
+            max_project_ticks = 8u;
+        uint32_t dt_ticks = 0;
+        if (current_tick > pkt.tick)
+            dt_ticks = current_tick - pkt.tick;
+        if (dt_ticks > max_project_ticks) {
+            if (debug_enabled())
+                debug_log("mp client: owner-state lag clamp tick=%u cur=%u dt=%u max=%u",
+                          pkt.tick, current_tick, dt_ticks, max_project_ticks);
+            dt_ticks = max_project_ticks;
+        }
+        const float dt = static_cast<float>(input::TickTimestep() * static_cast<double>(dt_ticks));
+        const float x = pkt.x + pkt.vx * dt;
+        const float y = pkt.y + pkt.vy * dt;
+        teleport_actor_physics_only(a, x, y, pkt.vx, pkt.vy);
     }
     if (debug_enabled() && pkt.tick < 20) {
         debug_log("mp client: recv owner-state tick=%u player=%u obj=%u pos=(%.2f,%.2f) vel=(%.2f,%.2f)",

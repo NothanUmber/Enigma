@@ -1151,10 +1151,21 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
 
     auto diff = [](float a, float b) { return fabs(a - b); };
     bool rand_mismatch = sync.random_state != server::RandomState;
-    bool pos_mismatch = diff(sync.p0_x, p0_x) > kSyncPosEpsilon ||
-                        diff(sync.p0_y, p0_y) > kSyncPosEpsilon ||
-                        diff(sync.p1_x, p1_x) > kSyncPosEpsilon ||
-                        diff(sync.p1_y, p1_y) > kSyncPosEpsilon;
+    bool p0_mismatch =
+        diff(sync.p0_x, p0_x) > kSyncPosEpsilon || diff(sync.p0_y, p0_y) > kSyncPosEpsilon;
+    bool p1_mismatch =
+        diff(sync.p1_x, p1_x) > kSyncPosEpsilon || diff(sync.p1_y, p1_y) > kSyncPosEpsilon;
+    // Experimental: in client-authoritative ball position mode, the local player's
+    // ball is expected to differ from the host's copy (it is the source of truth).
+    // Do not treat this as a sync/desync driver; keep using world/RNG mismatches.
+    if (!g_session.host && options::GetBool("MultiplayerDebugClientAuthBallPos") &&
+        g_session.local_player_known) {
+        if (g_session.local_player == 0)
+            p0_mismatch = false;
+        else if (g_session.local_player == 1)
+            p1_mismatch = false;
+    }
+    bool pos_mismatch = p0_mismatch || p1_mismatch;
     if (pos_mismatch)
         g_session.telemetry.mismatch_pos += 1;
     if (rand_mismatch)

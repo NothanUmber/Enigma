@@ -165,6 +165,48 @@ void log_enet_socket_address(const char *tag, ENetHost *host) {
     debug_log("mp %s local=%s:%u", tag, ipbuf, static_cast<unsigned>(a.port));
 }
 
+bool env_bool(const char *name) {
+    const char *v = std::getenv(name);
+    return v && *v && std::atoi(v) != 0;
+}
+
+int env_int(const char *name, int def, int minv, int maxv) {
+    const char *v = std::getenv(name);
+    if (!v || !*v)
+        return def;
+    int x = std::atoi(v);
+    if (x < minv)
+        x = minv;
+    if (x > maxv)
+        x = maxv;
+    return x;
+}
+
+Uint32 join_welcome_timeout_ms() {
+    Uint32 timeout_ms = kJoinTimeoutMs;
+
+    const bool netsim_enabled =
+        env_bool("ENIGMA_MP_NETSIM") || options::GetBool("MultiplayerDebugNetSimEnabled");
+    const bool netsim_all =
+        env_bool("ENIGMA_MP_NETSIM_ALL") || options::GetBool("MultiplayerDebugNetSimAll");
+    if (!netsim_enabled || !netsim_all)
+        return timeout_ms;
+
+    const int delay_ms =
+        env_int("ENIGMA_MP_NETSIM_DELAY_MS", options::GetInt("MultiplayerDebugNetSimDelayMs"), 0, 60000);
+    const int jitter_ms =
+        env_int("ENIGMA_MP_NETSIM_JITTER_MS", options::GetInt("MultiplayerDebugNetSimJitterMs"), 0, 60000);
+
+    // With NetSim applied to all packets, WELCOME can be delayed by (delay+jitter).
+    // Scale the deadline so extreme simulated latency doesn't make joins flaky.
+    const Uint32 worst_one_way_ms = static_cast<Uint32>(delay_ms) + static_cast<Uint32>(jitter_ms);
+    const Uint32 suggested_ms = 5000u + 3u * worst_one_way_ms;
+    if (suggested_ms > timeout_ms)
+        timeout_ms = suggested_ms;
+
+    return timeout_ms;
+}
+
 struct ConnectStrategy {
     bool enabled;
     const char *disabled_log;
@@ -414,7 +456,7 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
     Uint32 now = SDL_GetTicks();
     g_join.phase = JoinPhase::TCP_CONNECTING;
     g_join.connect_deadline = now + 3000;
-    g_join.welcome_deadline = now + kJoinTimeoutMs;
+    g_join.welcome_deadline = now + join_welcome_timeout_ms();
 
     // Start the first address attempt.
     while (g_join.tcp_next) {
@@ -473,6 +515,7 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
 }
 
 bool join_begin_next_attempt() {
+    const Uint32 welcome_timeout_ms = join_welcome_timeout_ms();
     auto direct_connect_timeout_ms_for_host = [](const std::string &host) -> Uint32 {
         auto ends_with = [](const std::string &s, const char *suffix) -> bool {
             size_t n = std::strlen(suffix);
@@ -524,7 +567,7 @@ bool join_begin_next_attempt() {
                 }
                 if (join_begin_enet_attempt(host, g_join.start.host_port, false,
                                             connect_timeout_ms,
-                                            kJoinTimeoutMs)) {
+                                            welcome_timeout_ms)) {
                     return true;
                 }
             }
@@ -541,7 +584,7 @@ bool join_begin_next_attempt() {
             Uint16 relay_port = 0;
             if (!parse_host_port(g_relay_server, relay_host, relay_port))
                 continue;
-            if (join_begin_enet_attempt(relay_host, relay_port, true, 2000, kJoinTimeoutMs)) {
+            if (join_begin_enet_attempt(relay_host, relay_port, true, 2000, welcome_timeout_ms)) {
                 return true;
             }
             continue;
