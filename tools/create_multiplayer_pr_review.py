@@ -1169,6 +1169,14 @@ def main() -> int:
 
     # Detect stale narrative keys (present in mapping but no longer diffed).
     stale = sorted(p for p in (set(narratives.keys()) - set(paths)) if not should_exclude_review_path(p))
+    if stale:
+        # This is a developer hint; do not embed it in the generated HTML since it
+        # confuses reviewers when the base ref changes over time.
+        print(
+            "Note: %d narrative entries are not used for this diff (base=%s)."
+            % (len(stale), base),
+            file=sys.stderr,
+        )
 
     toc_lines: List[str] = []
     sections_html: List[str] = []
@@ -1189,15 +1197,6 @@ def main() -> int:
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     diff_hash = sha256_text(sh("git", "diff", "--no-color", base))
-
-    stale_html = ""
-    if stale:
-        items = "".join("<li>%s</li>" % html.escape(p) for p in stale)
-        stale_html = (
-            '<div class="warn" style="margin-top:12px"><b>Generator warning:</b> Narrative entries exist for files '
-            "that are no longer in the diff. Consider removing them from build_narratives()."
-            f"<ul>{items}</ul></div>"
-        )
 
     html_out = f"""<!doctype html>
 <html><head><meta charset="utf-8">
@@ -1233,7 +1232,6 @@ h1 {{ margin: 0 0 8px; }}
 <h1>Enigma Multiplayer PR Review Diff</h1>
 <div class="small">Generated {html.escape(generated)}. Base: <code>{html.escape(base)}</code> ({html.escape(base_short)}) &rarr; Working tree (HEAD {html.escape(head_short)}). Diff hash: <code>{html.escape(diff_hash[:12])}</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
-{stale_html}
 
 <div class="section"><h2>Extension proposals (not applied)</h2>
 <div class="rationale">
