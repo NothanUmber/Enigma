@@ -6,7 +6,7 @@ Audience: upstream maintainers reviewing the multiplayer patch. The output is
 organized per-path:
 - Description: what the file/module is.
 - Where it is used: concrete call sites / dependencies.
-- What changed vs upstream/master: the intent of the delta.
+- What changed vs base: the intent of the delta.
 - Full red/green diff for the exact code changes.
 
 We intentionally do NOT embed per-hunk notes in the HTML. If a code region needs
@@ -691,6 +691,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Validates READY/START against the current `session_id`, `epoch`, and per-level `load_id` so late packets cannot unblock the wrong level start.",
             "Implements host-driven level transitions by handling `NET_LOAD_LEVEL` (switch pack + load level by normalized path).",
             "Improves world-state snapshot application: reorder movable stones before applying per-tile kinds/states to preserve object identity and reduce visible morphing.",
+            "Makes world-state snapshot application more idempotent by skipping redundant per-tile state writes (prevents door/floor flicker under frequent snapshots).",
             "Uses ENet-version-compatible address formatting in debug logs (works with vendored ENet 1.0 and ENet 1.3).",
             "When ENet >= 1.3 is available, configures peer timeout on accept so temporary network stalls can recover without immediate disconnect.",
         ],
@@ -1160,6 +1161,12 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["New scripted baseline test for verifying host/client wiring."],
     )
     add(
+        "tools/mp_test_scripts/basic_join_and_move_high_latency.txt",
+        ["Variant of the baseline join/move script tuned for high-latency links."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["Adds a reproducible script for join/start under higher delay/jitter where timing-sensitive bugs show up."],
+    )
+    add(
         "tools/mp_test_scripts/host_ball_moves_in_host_sim.txt",
         ["Integration test script that asserts host-controlled ball motion is reflected in host simulation."],
         ["Executed by `tools/mp_test_env.py`."],
@@ -1237,6 +1244,12 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Executed by `tools/mp_test_env.py`."],
         ["New regression script for tick-length scaling of debug UX (broadcast strides, delays)."],
     )
+    add(
+        "tools/mp_test_scripts/world_state_reorder_smoke.txt",
+        ["Smoke test script for world-state snapshots with movable stones (reorder/permutation)."],
+        ["Executed by `tools/mp_test_env.py`."],
+        ["Adds coverage for the movable-stone reorder logic to prevent regressions where stones 'snap back' or swap identities."],
+    )
 
     return n
 
@@ -1252,7 +1265,7 @@ def render_file_section(path: str, tag: str, narrative: FileNarrative, diff_html
     out.append(html_list(narrative.description))
     out.append('<div class="subhead">Where it is used</div>')
     out.append(html_list(narrative.where_used))
-    out.append('<div class="subhead">What changed vs upstream/master</div>')
+    out.append('<div class="subhead">What changed vs base</div>')
     out.append(html_list(narrative.what_changed))
     out.append("</div>")
 
@@ -1362,7 +1375,7 @@ h1 {{ margin: 0 0 8px; }}
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
 <div class="small">Generated {html.escape(generated)}. Base: <code>{html.escape(base)}</code> ({html.escape(base_short)}) &rarr; Working tree (HEAD {html.escape(head_short)}). Diff hash: <code>{html.escape(diff_hash[:12])}</code>.</div>
-<div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs upstream) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
+<div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs base) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 
 <div class="section"><h2>Extension proposals (not applied)</h2>
 <div class="rationale">

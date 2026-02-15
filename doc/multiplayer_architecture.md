@@ -332,6 +332,9 @@ To keep gameplay viable, the host can provide an authoritative world-grid snapsh
 - Host replies with `NET_WORLD_STATE` containing:
   - full grid kind + state for floors/stones/items (compressed via a kind dictionary)
   - positions of movable stones (puzzle stones/doors) by `(x,y)` so swaps can be corrected
+- Host may also broadcast `NET_WORLD_STATE` periodically (debug stride) to force convergence without
+  waiting for an explicit request. These broadcasts can be unreliable and arrive reordered under
+  jitter/duplication, so clients drop stale world-state ticks.
 - Client first applies the movable-stone permutation (moves existing movable stones into the
   authoritative `(x,y)` positions) to preserve object identity and attributes.
 - Client then applies authoritative per-tile kinds and states. Kind strings are expected to be
@@ -340,6 +343,9 @@ To keep gameplay viable, the host can provide an authoritative world-grid snapsh
   the main example (their visual shape depends on `connections` and their kind depends on color).
   World snapshots therefore encode a stable kind derived from the object attributes so receivers do
   not thrash between `st_puzzle` and `st_puzzle_yellow` variants.
+- Applying per-tile `state` is done as a diff, not a blind set: many objects treat `state` as an
+  operation (start/stop animations, schedule callbacks). Reapplying identical state values can cause
+  visible flicker (e.g. doors "open, close, reopen") when snapshots are frequent.
 
 This is intentionally conservative and may visually "snap" world objects back to the host state.
 
@@ -488,7 +494,8 @@ not unblock the next level's start barrier.
 ## Maintainer notes
 
 - `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
-  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
+  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py --base origin/master`
+  - (default base is `upstream/master`, but for PRs against your fork you typically want `origin/master`)
 - The generator intentionally excludes this architecture document so the review stays focused on source changes.
 - The integration test harness lives under `tools/mp_test_env.py` and uses `--mp-test-*` flags
   (implemented in `src/multiplayer_test_driver.*`) to drive host/client instances.
