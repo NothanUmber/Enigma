@@ -109,6 +109,9 @@ private:
     bool internet_join_in_progress;
     multiplayer::protocol::LobbyStart internet_join_start;
     std::string internet_join_host_ip;
+    Uint32 internet_join_candidate_session_id;
+    unsigned internet_join_candidate_session_streak;
+    double internet_join_retry_backoff;
     bool host_waiting_for_peers;
     multiplayer::protocol::LobbyStart host_pending_start;
     unsigned host_pending_expected;

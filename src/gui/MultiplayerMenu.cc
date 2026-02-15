@@ -60,10 +60,15 @@ void MultiplayerMenu::store_session_state() const {
     g_menu_session.internet_mode = internet_mode;
     g_menu_session.internet_in_room = internet_in_room;
     g_menu_session.internet_is_host = internet_is_host;
-    if (room_field)
-        g_menu_session.room_code = room_field->getText();
-    else
+    // Prefer the tracked room code when we're in-room; it is the authoritative value
+    // used for network calls and should survive UI transitions.
+    if (internet_in_room && !internet_room_code.empty()) {
         g_menu_session.room_code = internet_room_code;
+    } else if (room_field) {
+        g_menu_session.room_code = room_field->getText();
+    } else {
+        g_menu_session.room_code = internet_room_code;
+    }
     g_menu_session.player_count = std::max<unsigned>(1, internet_player_count);
     g_menu_session.peers = internet_room_peers;
 }
@@ -102,6 +107,9 @@ MultiplayerMenu::MultiplayerMenu()
       internet_last_join_failed(false),
       lan_join_in_progress(false),
       internet_join_in_progress(false),
+      internet_join_candidate_session_id(0),
+      internet_join_candidate_session_streak(0),
+      internet_join_retry_backoff(0.0),
       host_waiting_for_peers(false),
       host_pending_expected(0),
       internet_form_x(0),
@@ -239,7 +247,7 @@ MultiplayerMenu::MultiplayerMenu()
 }
 
 MultiplayerMenu::~MultiplayerMenu() {
-    multiplayer::CancelClientJoin();
+    multiplayer::CancelClientJoin("menu closed");
     store_session_state();
     // If the host started a session but never entered the game (for example
     // while waiting for peers to connect), ensure we don't keep listening in

@@ -62,7 +62,8 @@ void MultiplayerMenu::handle_level_activated() {
             selected_level_id, desired_players(), selected_pack_name, filter_min_players);
         std::string error;
         std::string server = mp_menu::multiplayer_server_host_from_options();
-        std::string room = current_room_code();
+        // Use the tracked room code for network calls; the text field may be stale.
+        std::string room = !internet_room_code.empty() ? internet_room_code : current_room_code();
         mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
         if (!multiplayer::InternetStartRoom(mp_menu::resolved_lobby_server(server, servers),
                                             room, start, error)) {
@@ -164,6 +165,8 @@ void MultiplayerMenu::handle_create_room() {
         return;
     }
     internet_room_code = room_code;
+    if (room_field)
+        room_field->set_text(internet_room_code);
     internet_room_peers.clear();
     multiplayer::LobbyPeer self;
     self.id = start.host_id;
@@ -207,6 +210,8 @@ void MultiplayerMenu::handle_join_room() {
         return;
     }
     internet_room_code = room;
+    if (room_field)
+        room_field->set_text(internet_room_code);
     internet_room_peers = peers;
     internet_in_room = true;
     internet_is_host = false;

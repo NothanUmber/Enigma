@@ -361,6 +361,11 @@ void apply_resync_metadata(Actor *actor, Uint16 owner, Uint32 controllers, Uint1
 void send_sync_to_peers() {
     if (!g_session.host || !has_remote_peers())
         return;
+    // During lobby/start handshake the world may not be initialized yet. Sending
+    // sync packets in that phase would serialize null reference actors as (0,0)
+    // and trigger immediate client desync handling (tick 0 thrash).
+    if (g_session.phase != SessionState::Phase::RUNNING || !server::WorldInitialized)
+        return;
     protocol::SyncPacket sync;
     sync.epoch = g_session.input_epoch;
     sync.tick = input::CurrentTick();
@@ -1222,7 +1227,14 @@ void handle_sync_current(const protocol::SyncPacket &sync) {
     // and keep checksums for diagnostics only.
     if (checksum_mismatch || kind_mismatch || state_mismatch) {
         g_session.world_only_desync_streak += 1;
-        if (!g_session.host && g_session.world_state_cooldown <= 0.0) {
+        int streak_threshold = static_cast<int>(kWorldDesyncStreakForWorldStateRequest);
+        int threshold_override =
+            options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest");
+        if (threshold_override > 0)
+            streak_threshold = threshold_override;
+        if (!g_session.host &&
+            g_session.world_only_desync_streak >= static_cast<unsigned>(streak_threshold) &&
+            g_session.world_state_cooldown <= 0.0) {
             send_world_state_request();
             g_session.world_state_cooldown = kResyncCooldown;
         }
@@ -1384,7 +1396,14 @@ void handle_sync_sample(const protocol::SyncPacket &sync,
     // on their own, especially in physics-heavy scenes.
     if (checksum_mismatch || kind_mismatch || state_mismatch) {
         g_session.world_only_desync_streak += 1;
-        if (!g_session.host && g_session.world_state_cooldown <= 0.0) {
+        int streak_threshold = static_cast<int>(kWorldDesyncStreakForWorldStateRequest);
+        int threshold_override =
+            options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest");
+        if (threshold_override > 0)
+            streak_threshold = threshold_override;
+        if (!g_session.host &&
+            g_session.world_only_desync_streak >= static_cast<unsigned>(streak_threshold) &&
+            g_session.world_state_cooldown <= 0.0) {
             send_world_state_request();
             g_session.world_state_cooldown = kResyncCooldown;
         }

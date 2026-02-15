@@ -384,8 +384,14 @@ void host_broadcast_debug_options() {
 void host_send_current_load_to_remote(HostSource source, ENetPeer *peer, Uint32 relay_client_id) {
     if (!g_session.active || !g_session.host)
         return;
-    if (g_session.load_id == 0 || g_session.level_id.empty())
+    if (g_session.load_id == 0 || g_session.level_id.empty()) {
+        if (debug_enabled())
+            debug_log("mp host: skip load send (no load) via=%s load=%u level_id=%s",
+                      host_source_name(source),
+                      static_cast<unsigned>(g_session.load_id),
+                      g_session.level_id.empty() ? "(empty)" : g_session.level_id.c_str());
         return;
+    }
 
     protocol::LoadLevelPacket msg;
     msg.load_id = g_session.load_id;
@@ -396,12 +402,30 @@ void host_send_current_load_to_remote(HostSource source, ENetPeer *peer, Uint32 
 
     switch (source) {
     case HostSource::DIRECT:
+        if (debug_enabled())
+            debug_log("mp host: send load to peer via=%s load=%u level_id=%s peer=%p",
+                      host_source_name(source),
+                      static_cast<unsigned>(msg.load_id),
+                      msg.level_id.c_str(),
+                      static_cast<void *>(peer));
         g_transport.HostSendDirect(peer, buf);
         break;
     case HostSource::UDP_RELAY:
+        if (debug_enabled())
+            debug_log("mp host: send load to client via=%s load=%u level_id=%s client=%u",
+                      host_source_name(source),
+                      static_cast<unsigned>(msg.load_id),
+                      msg.level_id.c_str(),
+                      static_cast<unsigned>(relay_client_id));
         g_transport.HostSendUdpRelay(relay_client_id, buf);
         break;
     case HostSource::TCP_RELAY:
+        if (debug_enabled())
+            debug_log("mp host: send load to client via=%s load=%u level_id=%s client=%u",
+                      host_source_name(source),
+                      static_cast<unsigned>(msg.load_id),
+                      msg.level_id.c_str(),
+                      static_cast<unsigned>(relay_client_id));
         g_transport.HostSendTcpRelay(relay_client_id, buf);
         break;
     default:
@@ -1327,6 +1351,17 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         return true;
     if (pkt.epoch != g_session.input_epoch)
         return true;
+    // NET_WORLD_STATE may be broadcast via unreliable packets (debug stride) and can
+    // arrive reordered under jitter/duplication. Applying an older snapshot after a
+    // newer one causes visible "forward/backward" jumps for movable stones.
+    if (!g_session.host &&
+        g_session.last_accepted_world_state_tick != UINT32_MAX &&
+        pkt.tick <= g_session.last_accepted_world_state_tick) {
+        if (debug_enabled())
+            debug_log("mp drop world-state: stale tick=%u last=%u",
+                      pkt.tick, g_session.last_accepted_world_state_tick);
+        return true;
+    }
     const int w = Width();
     const int h = Height();
     if (w <= 0 || h <= 0)
@@ -1571,6 +1606,8 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
                   static_cast<unsigned long long>(WorldGridStateChecksum()),
                   static_cast<unsigned long long>(WorldGridMovableStoneChecksum()));
     }
+    if (!g_session.host)
+        g_session.last_accepted_world_state_tick = pkt.tick;
     return true;
 }
 

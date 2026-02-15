@@ -91,6 +91,7 @@ namespace enigma { namespace gui {
 	        gui::TextField *mpHostBroadcastResyncStrideTicksTF;
 	        gui::TextField *mpHostBroadcastWorldStateStrideTicksTF;
 	        gui::TextField *mpRollbackKeepTicksTF;
+	        gui::TextField *mpWorldDesyncStreakForWorldStateRequestTF;
 	        gui::StaticTextButton *mpPresetGoodConnButton;
 	        gui::StaticTextButton *mpPresetMediocreConnButton;
 	        gui::StaticTextButton *mpPresetBadConnButton;

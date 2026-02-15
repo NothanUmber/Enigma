@@ -54,6 +54,20 @@ struct PendingPoll {
 
 PendingPoll g_pending_poll;
 
+struct LoggedPollSnapshot {
+    bool has = false;
+    std::string server;
+    std::string room_code;
+    bool started = false;
+    Uint32 session_id = 0;
+    std::string level_id;
+    std::string host_ip;
+    Uint8 expected_players = 0;
+    unsigned player_count = 0;
+};
+
+LoggedPollSnapshot g_last_logged_poll;
+
 struct TrackedInternetRoom {
     bool active = false;
     std::string server;
@@ -364,6 +378,11 @@ bool InternetJoinRoom(const std::string &server, const std::string &room_code,
 bool InternetStartRoom(const std::string &server, const std::string &room_code,
                        const protocol::LobbyStart &start, std::string &error) {
     ensure_lobby_identity();
+    debug_log("mp internet: start room=%s session=%u level=%s expected=%u",
+              room_code.c_str(),
+              static_cast<unsigned>(start.session_id),
+              start.level_id.c_str(),
+              static_cast<unsigned>(start.expected_players));
     ecl::Buffer request;
     request << Uint32(kInternetMagic) << Uint8(kInternetVersion) << Uint8(INET_START)
             << room_code << Uint32(start.session_id) << Uint32(start.seed)
@@ -444,6 +463,48 @@ bool InternetPollRoom(const std::string &server, const std::string &room_code,
                 return false;
         }
     }
+
+    // Log only on changes to avoid spamming (poll runs frequently).
+    bool log_changed = false;
+    if (!g_last_logged_poll.has ||
+        g_last_logged_poll.server != server ||
+        g_last_logged_poll.room_code != room_code ||
+        g_last_logged_poll.started != started ||
+        g_last_logged_poll.player_count != player_count) {
+        log_changed = true;
+    } else if (started) {
+        if (g_last_logged_poll.session_id != start.session_id ||
+            g_last_logged_poll.level_id != start.level_id ||
+            g_last_logged_poll.host_ip != host_ip ||
+            g_last_logged_poll.expected_players != start.expected_players) {
+            log_changed = true;
+        }
+    }
+    if (log_changed) {
+        if (!started) {
+            debug_log("mp internet: poll room=%s started=0 count=%u",
+                      room_code.c_str(),
+                      static_cast<unsigned>(player_count));
+        } else {
+            debug_log("mp internet: poll room=%s started=1 session=%u level=%s expected=%u host_ip=%s count=%u",
+                      room_code.c_str(),
+                      static_cast<unsigned>(start.session_id),
+                      start.level_id.c_str(),
+                      static_cast<unsigned>(start.expected_players),
+                      host_ip.c_str(),
+                      static_cast<unsigned>(player_count));
+        }
+        g_last_logged_poll.has = true;
+        g_last_logged_poll.server = server;
+        g_last_logged_poll.room_code = room_code;
+        g_last_logged_poll.started = started;
+        g_last_logged_poll.player_count = player_count;
+        g_last_logged_poll.session_id = started ? start.session_id : 0;
+        g_last_logged_poll.level_id = started ? start.level_id : std::string();
+        g_last_logged_poll.host_ip = started ? host_ip : std::string();
+        g_last_logged_poll.expected_players = started ? start.expected_players : 0;
+    }
+
     if (!parse_member_peers(response, peers, g_lobby.local_id))
         return false;
     if (!peers.empty())

@@ -1,0 +1,22 @@
+# Smoke test to exercise out-of-order NET_WORLD_STATE delivery under NetSim.
+#
+# Run with something like:
+#   ENIGMA_MP_NETSIM=1 ENIGMA_MP_NETSIM_ALL=1 ENIGMA_MP_NETSIM_DELAY_MS=0 \
+#   ENIGMA_MP_NETSIM_JITTER_MS=80 ENIGMA_MP_NETSIM_DROP_PCT=0 ENIGMA_MP_NETSIM_DUP_PCT=50 \
+#   ./tools/mp_test_env.py --script tools/mp_test_scripts/world_state_reorder_smoke.txt
+#
+# Expectation: client log shows "mp drop world-state: stale ..." occasionally.
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=30000
+
+# Broadcast world-state snapshots every tick (unreliable), to make reordering likely.
+host SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=1
+
+host LOAD_LEVEL level_id="enigma_vii/ais05_1"
+sleep 500
+both START_GAME
+
+sleep 3000
+both QUIT

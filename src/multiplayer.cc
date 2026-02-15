@@ -102,7 +102,11 @@ ClientJoinStatus PollClientJoin() {
 }
 
 void CancelClientJoin() {
-    internal::SessionCancelClientJoin();
+    internal::SessionCancelClientJoin(nullptr);
+}
+
+void CancelClientJoin(const char *reason) {
+    internal::SessionCancelClientJoin(reason);
 }
 
 void Tick(double dtime) {

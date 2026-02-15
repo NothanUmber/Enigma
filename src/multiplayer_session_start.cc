@@ -143,6 +143,7 @@ void configure_input_session(unsigned expected_players) {
     g_session.last_host_resync_broadcast_tick = UINT32_MAX;
     g_session.last_host_world_state_broadcast_tick = UINT32_MAX;
     g_session.last_accepted_resync_tick = 0;
+    g_session.last_accepted_world_state_tick = UINT32_MAX;
     g_session.last_accepted_owner_state_tick.fill(0);
     g_session.last_sent_owner_state_tick = 0;
 }
@@ -1400,9 +1401,17 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
     return multiplayer::ClientJoinStatus::CONNECTING;
 }
 
-void SessionCancelClientJoin() {
+void SessionCancelClientJoin(const char *reason) {
     if (!g_join.active)
         return;
+    if (debug_enabled()) {
+        debug_log("mp client: join canceled reason=%s phase=%d target=%s:%u relay=%d",
+                  reason ? reason : "<none>",
+                  static_cast<int>(g_join.phase),
+                  g_join.target_host.c_str(),
+                  static_cast<unsigned>(g_join.target_port),
+                  g_join.relay_connect ? 1 : 0);
+    }
     join_fail_current_attempt();
     SessionShutdown();
     g_join = ClientJoinState();

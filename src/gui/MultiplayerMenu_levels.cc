@@ -172,7 +172,7 @@ void MultiplayerMenu::update_mode_button() {
 void MultiplayerMenu::set_internet_mode(bool enabled) {
     // Switching modes should never leave a join attempt running in the background,
     // otherwise the lobby tick can keep polling a stale connect attempt.
-    multiplayer::CancelClientJoin();
+    multiplayer::CancelClientJoin("mode switch");
     lan_join_in_progress = false;
     internet_join_in_progress = false;
     if (!enabled && internet_in_room)

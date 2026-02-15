@@ -84,6 +84,7 @@ bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_
 bool BeginClientJoin(const protocol::LobbyStart &start, const std::vector<std::string> &host_ips);
 ClientJoinStatus PollClientJoin();
 void CancelClientJoin();
+void CancelClientJoin(const char *reason);
 
 void Tick(double dtime);
 void Shutdown();

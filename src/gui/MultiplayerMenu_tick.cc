@@ -38,7 +38,7 @@ std::string MultiplayerMenu::current_room_code() const {
 }
 
 void MultiplayerMenu::clear_internet_room_state() {
-    multiplayer::CancelClientJoin();
+    multiplayer::CancelClientJoin("clear room state");
     internet_in_room = false;
     internet_start_valid = false;
     internet_room_code.clear();
@@ -49,6 +49,9 @@ void MultiplayerMenu::clear_internet_room_state() {
     internet_last_join_session_id = 0;
     internet_last_join_failed = false;
     internet_join_in_progress = false;
+    internet_join_candidate_session_id = 0;
+    internet_join_candidate_session_streak = 0;
+    internet_join_retry_backoff = 0.0;
     internet_join_start = multiplayer::protocol::LobbyStart();
     internet_join_host_ip.clear();
 }
@@ -56,7 +59,7 @@ void MultiplayerMenu::clear_internet_room_state() {
 void MultiplayerMenu::leave_current_internet_room() {
     // Leaving should cancel any in-progress join attempt (it can keep retrying for a
     // while via timeouts even though the UI is already back in the lobby).
-    multiplayer::CancelClientJoin();
+    multiplayer::CancelClientJoin("leave room");
     internet_join_in_progress = false;
     lan_join_in_progress = false;
 
@@ -134,6 +137,11 @@ bool MultiplayerMenu::start_host_and_enter_game(const multiplayer::protocol::Lob
         show_info(_("Failed to start multiplayer session."));
         return false;
     }
+    // Important: publish the intended level as a NET_LOAD_LEVEL so clients can set
+    // `last_load_id` and send READY. Without this, hosts waiting in the lobby can
+    // deadlock forever ("other players connecting...") because clients refuse to
+    // READY until they have observed a load-id.
+    multiplayer::NotifyLoadLevel(start.pack_name, start.level_id);
     if (broadcast_start) {
         // Start listening before broadcasting the start message to avoid a race
         // where clients attempt to connect before the host socket is bound.
@@ -229,6 +237,8 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
             lan_join_in_progress = false;
         } else if (st == multiplayer::ClientJoinStatus::JOINED) {
             lan_join_in_progress = false;
+            // We just switched to in-game; don't keep processing lobby events in this tick.
+            return;
         }
     }
 
@@ -238,10 +248,16 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
         return;
 
     if (start.session_id != lan_last_join_session_id) {
-        lan_last_join_session_id = start.session_id;
-        lan_last_join_failed = false;
-        multiplayer::CancelClientJoin();
-        lan_join_in_progress = false;
+        // If a join attempt is already in progress, don't cancel it immediately.
+        // Under jittery conditions (or if the host restarted quickly), session_id
+        // can change while the client is still waiting for WELCOME, and canceling
+        // would cause "Connecting..." thrash. Let the current attempt time out or
+        // succeed; the next tick will join the new session if needed.
+        if (!lan_join_in_progress) {
+            lan_last_join_session_id = start.session_id;
+            lan_last_join_failed = false;
+            multiplayer::CancelClientJoin("lan: session changed");
+        }
     }
     if (lan_last_join_failed)
         return;
@@ -260,6 +276,11 @@ void MultiplayerMenu::tick_lan_mode(double dtime) {
 }
 
 void MultiplayerMenu::tick_internet_mode(double dtime) {
+    if (internet_join_retry_backoff > 0.0) {
+        internet_join_retry_backoff -= dtime;
+        if (internet_join_retry_backoff < 0.0)
+            internet_join_retry_backoff = 0.0;
+    }
     if (internet_join_in_progress) {
         multiplayer::ClientJoinStatus st = poll_client_join_and_maybe_enter_game();
         if (st == multiplayer::ClientJoinStatus::FAILED) {
@@ -267,14 +288,18 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
             internet_last_join_failed = true;
             internet_join_in_progress = false;
             set_internet_connecting(false);
+            // Backoff to avoid spamming join attempts under packet loss.
+            internet_join_retry_backoff = 1.0;
         } else if (st == multiplayer::ClientJoinStatus::JOINED) {
             internet_join_in_progress = false;
             set_internet_connecting(false);
+            // We just switched to in-game; don't keep processing lobby events in this tick.
+            return;
         }
     }
 
     if (!internet_in_room) {
-        multiplayer::CancelClientJoin();
+        multiplayer::CancelClientJoin("internet: not in room");
         internet_join_in_progress = false;
         return;
     }
@@ -285,7 +310,11 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
     internet_poll_timer = 0.0;
 
     std::string server = mp_menu::multiplayer_server_host_from_options();
-    std::string room = room_field ? room_field->getText() : "";
+    // Use the tracked room code for networking. The text field is a UI artifact and
+    // can temporarily be empty/out-of-sync across menu transitions.
+    std::string room = !internet_room_code.empty()
+                           ? internet_room_code
+                           : (room_field ? room_field->getText() : "");
     mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
     multiplayer::protocol::LobbyStart start;
     std::string host_ip;
@@ -337,23 +366,62 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
     if (!started) {
         internet_last_join_session_id = 0;
         internet_last_join_failed = false;
-        multiplayer::CancelClientJoin();
+        multiplayer::CancelClientJoin("internet: not started");
         internet_join_in_progress = false;
         set_internet_connecting(false);
+        internet_join_candidate_session_id = 0;
+        internet_join_candidate_session_streak = 0;
+        internet_join_retry_backoff = 0.0;
         return;
     }
     if (internet_is_host)
         return;
 
-    if (start.session_id != internet_last_join_session_id) {
-        internet_last_join_session_id = start.session_id;
-        internet_last_join_failed = false;
-        multiplayer::CancelClientJoin();
-        internet_join_in_progress = false;
-        set_internet_connecting(false);
+    // If we're already trying to join but the lobby reports a different session id,
+    // it's likely that the host restarted the session (abort/restart) or that we
+    // observed an out-of-order poll response. Avoid waiting for a full welcome
+    // timeout on a stale session; only switch after observing the new session id
+    // consistently a couple times to prevent "Connecting..." thrash under jitter.
+    if (internet_join_in_progress && start.session_id != internet_join_start.session_id) {
+        if (start.session_id == internet_join_candidate_session_id) {
+            internet_join_candidate_session_streak += 1;
+        } else {
+            internet_join_candidate_session_id = start.session_id;
+            internet_join_candidate_session_streak = 1;
+        }
+        if (internet_join_candidate_session_streak >= 2) {
+            multiplayer::CancelClientJoin("internet: start changed");
+            internet_join_in_progress = false;
+            set_internet_connecting(false);
+            internet_last_join_failed = false;
+            internet_join_retry_backoff = 0.0;
+            internet_last_join_session_id = start.session_id;
+            // Fall through: we'll start a fresh join attempt for the new session below.
+        } else {
+            // Keep the in-flight attempt for now.
+            return;
+        }
+    } else {
+        internet_join_candidate_session_id = 0;
+        internet_join_candidate_session_streak = 0;
     }
-    if (internet_last_join_failed)
-        return;
+
+    if (start.session_id != internet_last_join_session_id) {
+        // Same rationale as LAN: avoid canceling a join attempt that already has
+        // a live transport connection, otherwise we can loop "Connecting..." when
+        // the lobby's session id flaps (host restarts, packet loss, etc.).
+        if (!internet_join_in_progress) {
+            internet_last_join_session_id = start.session_id;
+            internet_last_join_failed = false;
+            multiplayer::CancelClientJoin("internet: session changed");
+            set_internet_connecting(false);
+        }
+    }
+    if (internet_last_join_failed) {
+        if (internet_join_retry_backoff > 0.0)
+            return;
+        internet_last_join_failed = false;
+    }
 
     apply_start_selection(start);
     if (!internet_join_in_progress) {
@@ -368,6 +436,7 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
             internet_last_join_failed = true;
             internet_join_in_progress = false;
             set_internet_connecting(false);
+            internet_join_retry_backoff = 1.0;
         } else {
             internet_join_in_progress = true;
         }

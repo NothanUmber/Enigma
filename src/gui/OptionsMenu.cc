@@ -1096,10 +1096,12 @@ public:
 		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
 		                    add_row(N_("MP client auth pos"), new ToggleOptionButton("MultiplayerDebugClientAuthBallPos", N_("On"), N_("Off")));
 
-			                    mpPredictMissingMouseTicksTF =
-			                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
-			                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 4);
-			                    {
+		                    mpPredictMissingMouseTicksTF =
+		                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
+		                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 4);
+		                    mpWorldDesyncStreakForWorldStateRequestTF =
+		                        make_int_field(options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"), 3);
+		                    {
 		                        int ms = options::GetInt("MultiplayerDebugTickLengthMs");
 		                        if (ms <= 0)
 		                            ms = 10;
@@ -1113,6 +1115,7 @@ public:
 		                    }
 		                    add_row(N_("Predict mouse ticks"), mpPredictMissingMouseTicksTF);
 		                    add_row(N_("Input delay ticks"), mpInputDelayTicksTF);
+		                    add_row(N_("World desync streak"), mpWorldDesyncStreakForWorldStateRequestTF);
 		                    add_row(N_("Tick length ms"), mpTickLengthMsTF);
 		                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
 
@@ -1279,18 +1282,26 @@ public:
 	                                      0, 100);
 	            app.prefs->setProperty("MultiplayerDebugNetSimDupPct", static_cast<double>(v));
 	        }
-		        if (mpPredictMissingMouseTicksTF) {
-		            int v = parse_int_clamped(mpPredictMissingMouseTicksTF->getText(),
-		                                      options::GetInt("MultiplayerDebugPredictMissingMouseTicks"),
-		                                      0, 20);
-		            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
-		        }
-				        if (mpInputDelayTicksTF) {
-				            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
-				                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
-				                                      0, 200);
-				            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
-				        }
+			        if (mpPredictMissingMouseTicksTF) {
+			            int v = parse_int_clamped(mpPredictMissingMouseTicksTF->getText(),
+			                                      options::GetInt("MultiplayerDebugPredictMissingMouseTicks"),
+			                                      0, 20);
+			            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
+			        }
+			        if (mpWorldDesyncStreakForWorldStateRequestTF) {
+			            int v = parse_int_clamped(
+			                mpWorldDesyncStreakForWorldStateRequestTF->getText(),
+			                options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"),
+			                1, 50);
+			            app.prefs->setProperty("MultiplayerDebugWorldDesyncStreakForWorldStateRequest",
+			                                   static_cast<double>(v));
+			        }
+					        if (mpInputDelayTicksTF) {
+					            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
+					                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
+					                                      0, 200);
+					            app.prefs->setProperty("MultiplayerDebugInputDelayTicks", static_cast<double>(v));
+					        }
 			        if (mpTickLengthMsTF) {
 			            int v = parse_int_clamped(mpTickLengthMsTF->getText(),
 			                                      options::GetInt("MultiplayerDebugTickLengthMs"),
@@ -1369,12 +1380,13 @@ public:
 		        mpNetSimDupTF = NULL;
 	        mpPredictMissingMouseTicksTF = NULL;
 	        mpInputDelayTicksTF = NULL;
-	        mpHostBroadcastResyncStrideTicksTF = NULL;
-	        mpHostBroadcastWorldStateStrideTicksTF = NULL;
-	        mpRollbackKeepTicksTF = NULL;
-	        mpPresetGoodConnButton = NULL;
-	        mpPresetMediocreConnButton = NULL;
-	        mpPresetBadConnButton = NULL;
+			        mpHostBroadcastResyncStrideTicksTF = NULL;
+			        mpHostBroadcastWorldStateStrideTicksTF = NULL;
+			        mpRollbackKeepTicksTF = NULL;
+			        mpWorldDesyncStreakForWorldStateRequestTF = NULL;
+			        mpPresetGoodConnButton = NULL;
+			        mpPresetMediocreConnButton = NULL;
+			        mpPresetBadConnButton = NULL;
 	        pageAfterVideoCheck = OPTIONS_MAIN;
 	        currentPage = OPTIONS_MAIN;
 	        showVideoCheck = false;

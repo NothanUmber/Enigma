@@ -75,7 +75,7 @@ bool SessionBeginClientJoin(const protocol::LobbyStart &start, const std::string
 bool SessionBeginClientJoin(const protocol::LobbyStart &start,
                             const std::vector<std::string> &host_ips);
 multiplayer::ClientJoinStatus SessionPollClientJoin();
-void SessionCancelClientJoin();
+void SessionCancelClientJoin(const char *reason);
 
 void SessionTick(double dtime);
 void SessionShutdown();

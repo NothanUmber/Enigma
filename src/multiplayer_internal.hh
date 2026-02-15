@@ -105,6 +105,10 @@ constexpr unsigned kDesyncStreakForResync = 2;
 // resync from actor checksums when the mismatch persists for multiple sync
 // intervals.
 constexpr unsigned kActorDesyncStreakForResync = 6;
+// Avoid reacting to transient world mismatches (e.g. client-side prediction of
+// movable stones). Require multiple consecutive observations before requesting
+// an authoritative world-state snapshot from the host.
+constexpr unsigned kWorldDesyncStreakForWorldStateRequest = 2;
 constexpr unsigned kResyncMaxAttempts = 3;
 constexpr size_t kChecksumHistory = 512;
 // Position drift tolerance (in tile units) for sync packets. The simulation is
@@ -303,6 +307,10 @@ struct LobbyState {
     // (e.g. unreliable resync broadcasts can arrive reordered and would otherwise
     // cause visible "backwards" jumps).
     uint32_t last_accepted_resync_tick = 0;
+    // Track latest accepted world-state snapshot tick to ignore out-of-order delivery
+    // (e.g. unreliable world-state broadcasts can arrive reordered and would otherwise
+    // cause visible "backwards" jumps for movable stones like puzzle stones).
+    uint32_t last_accepted_world_state_tick = UINT32_MAX;
     // Track latest accepted client-authoritative actor-state per player.
     std::array<uint32_t, input::kMaxPlayers> last_accepted_owner_state_tick = {};
     // Client-side send gate: avoid spamming owner-state packets every frame for the same tick.

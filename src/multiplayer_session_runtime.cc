@@ -638,19 +638,37 @@ void tick_debug_report_missing_input() {
         last_missing_tick = tick;
 }
 
+void tick_host_reannounce_load(double dtime) {
+    if (!g_session.host || !g_session.active)
+        return;
+    if (g_session.expected_players <= 1)
+        return;
+    if (!has_remote_peers())
+        return;
+    if (g_session.load_id == 0 || g_session.level_id.empty())
+        return;
+
+    // Robustness: re-announce the current level load while the host is waiting
+    // for peers to become READY. This must work both while still in the lobby UI
+    // (before Msg_StartGame / WAITING_FOR_READY) and during the deferred-start
+    // phase inside the loaded level. UDP relay forwarding can reorder/delay
+    // packets; periodic announcements prevent a single missed NET_LOAD_LEVEL from
+    // deadlocking the session forever.
+    if (host_ready_to_start()) {
+        g_session.load_announce_timer = 0.0;
+        return;
+    }
+
+    g_session.load_announce_timer += dtime;
+    if (g_session.load_announce_timer < 0.5)
+        return;
+    send_load_level_to_peers(g_session.level_pack_name, g_session.level_id);
+    g_session.load_announce_timer = 0.0;
+}
+
 void tick_update_start_phase() {
     if (g_session.phase == SessionState::Phase::WAITING_FOR_READY && g_session.host) {
         if (!host_ready_to_start()) {
-            // Robustness: keep re-announcing the current level load while waiting for READY.
-            // This covers packet loss and ensures clients can satisfy the "must have seen
-            // NET_LOAD_LEVEL before READY" invariant.
-            if (has_remote_peers() && g_session.load_id != 0 && !g_session.level_id.empty()) {
-                g_session.load_announce_timer += input::TickTimestep();
-                if (g_session.load_announce_timer >= 1.0) {
-                    send_load_level_to_peers(g_session.level_pack_name, g_session.level_id);
-                    g_session.load_announce_timer = 0.0;
-                }
-            }
             if (debug_enabled()) {
                 static Uint32 last_sid = 0;
                 static Uint32 last_epoch = 0;
@@ -747,6 +765,8 @@ void tick_update_start_phase() {
 
 void tick_host_periodic_sync(double dtime) {
     if (!g_session.host)
+        return;
+    if (g_session.phase != SessionState::Phase::RUNNING || !server::WorldInitialized)
         return;
     g_session.sync_timer += dtime;
     if (g_session.sync_timer < kSyncInterval)
@@ -878,6 +898,7 @@ void SessionTick(double dtime) {
     tick_update_resync_inflight_timeout(dtime);
     tick_send_periodic_ready(dtime);
     tick_debug_report_missing_input();
+    tick_host_reannounce_load(dtime);
     tick_update_start_phase();
     send_local_inputs();
     tick_host_periodic_sync(dtime);
