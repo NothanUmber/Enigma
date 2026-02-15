@@ -1606,31 +1606,51 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             debug_log("mp world-state apply oxydcolor: changed=%d", changed);
     }
 
-    auto apply_state = [](Object *obj, Uint16 s) {
+    auto apply_state = [](Object *obj, Uint16 s) -> bool {
         if (!obj || s == 0xFFFF)
-            return;
+            return false;
+        // Avoid re-applying identical "state" values: many objects treat setting "state"
+        // as an operation (animation start, timers, callbacks). Re-sending snapshots can
+        // otherwise cause visible flicker even when the authoritative state is unchanged.
+        const int want = static_cast<int>(s);
+        Value cur = obj->getAttr("state");
+        if (cur) {
+            // Best-effort comparison; if "state" is non-numeric we still force it.
+            if (cur.getType() != Value::NIL) {
+                int cur_i = static_cast<int>(cur);
+                if (cur_i == want)
+                    return false;
+            }
+        } else {
+            // No "state" attr: treat missing as 0 (encode_state() does the same).
+            if (want == 0)
+                return false;
+        }
         // Some StateObject subclasses (notably OxydStone) implement "state" as gameplay
         // operations (tryOpen/close) that are not idempotent and can refuse to close
         // (OPEN_PAIR). World-state reconciliation must be able to override them.
         if (Stone *st = dynamic_cast<Stone *>(obj)) {
             if (OxydStone *ox = dynamic_cast<OxydStone *>(st)) {
                 ox->MpForceExternalState(static_cast<int>(s));
-                return;
+                return true;
             }
         }
         obj->setAttr("state", Value(static_cast<int>(s)));
+        return true;
     };
 
+    int applied_state_changes = 0;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
             GridPos p(x, y);
-            apply_state(GetFloor(p), pkt.floor_state[idx]);
-            apply_state(GetStone(p), pkt.stone_state[idx]);
-            apply_state(GetItem(p), pkt.item_state[idx]);
+            applied_state_changes += apply_state(GetFloor(p), pkt.floor_state[idx]) ? 1 : 0;
+            applied_state_changes += apply_state(GetStone(p), pkt.stone_state[idx]) ? 1 : 0;
+            applied_state_changes += apply_state(GetItem(p), pkt.item_state[idx]) ? 1 : 0;
         }
     }
     if (debug_enabled()) {
+        debug_log("mp world-state apply state: changed=%d", applied_state_changes);
         debug_log("mp world-state applied: world=%llu kind=%llu state=%llu movable=%llu",
                   static_cast<unsigned long long>(WorldGridChecksum()),
                   static_cast<unsigned long long>(WorldGridKindChecksum()),
