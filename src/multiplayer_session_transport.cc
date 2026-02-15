@@ -121,6 +121,17 @@ bool local_can_send_ready() {
     return true;
 }
 
+unsigned world_state_streak_threshold() {
+    int streak_threshold = static_cast<int>(kWorldDesyncStreakForWorldStateRequest);
+    int threshold_override =
+        options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest");
+    if (threshold_override > 0)
+        streak_threshold = threshold_override;
+    if (streak_threshold < 1)
+        streak_threshold = 1;
+    return static_cast<unsigned>(streak_threshold);
+}
+
 bool has_remote_peers() {
     return !g_session.peer_players.empty() || !g_session.relay_players.empty() ||
            !g_session.tcp_relay_players.empty();
@@ -1351,6 +1362,20 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         return true;
     if (pkt.epoch != g_session.input_epoch)
         return true;
+    if (!g_session.host) {
+        // Mitigation for "movable stones snap back" under latency/tick divergence:
+        // ignore short-lived world mismatches so we don't apply a host snapshot taken
+        // before the host processes the client's push, followed by another snapshot
+        // that moves the stone forward again.
+        const unsigned threshold = world_state_streak_threshold();
+        if (g_session.world_only_desync_streak > 0 &&
+            g_session.world_only_desync_streak < threshold) {
+            if (debug_enabled())
+                debug_log("mp drop world-state: pre-threshold tick=%u streak=%u threshold=%u",
+                          pkt.tick, g_session.world_only_desync_streak, threshold);
+            return true;
+        }
+    }
     // NET_WORLD_STATE may be broadcast via unreliable packets (debug stride) and can
     // arrive reordered under jitter/duplication. Applying an older snapshot after a
     // newer one causes visible "forward/backward" jumps for movable stones.
