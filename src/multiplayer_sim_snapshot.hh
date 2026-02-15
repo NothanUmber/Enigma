@@ -68,6 +68,14 @@ struct Snapshot {
     // GridObject "state" attribute snapshot for all floors/items/stones.
     std::vector<int> object_state_ids;
     std::vector<int> object_state_values;
+    struct MovableStone {
+        int object_id = -1;
+        uint16_t x = 0;
+        uint16_t y = 0;
+    };
+    // Positions of movable stones (puzzle stones, doors, etc). Needed so rollback/replay
+    // does not "double apply" pushes/rotations that move stones during world ticks.
+    std::vector<MovableStone> movable_stones;
     std::vector<ActorSnapshot> actors;
 };
 

@@ -8,6 +8,7 @@
  * - active GameTimer alarms
  * - pending secure delayed actions
  * - actor physics state
+ * - positions of movable stones (puzzle stones, doors, etc.)
  *
  * It does not attempt to serialize/restore the full world object graph (grid
  * composition, arbitrary Lua state, etc.). That is a separate, larger engine
@@ -96,6 +97,110 @@ void restore_actorinfo(Actor &actor, const ActorInfoSnapshot &s) {
     ai->last_contacts = (s.last_contacts_sel == 0) ? ai->contacts_a : ai->contacts_b;
 }
 
+void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &wanted) {
+    if (wanted.empty())
+        return;
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return;
+
+    auto key = [](int x, int y) -> uint32_t {
+        return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
+    };
+    auto key_to_pos = [](uint32_t k) -> GridPos {
+        int x = static_cast<int>((k >> 16) & 0xFFFFu);
+        int y = static_cast<int>(k & 0xFFFFu);
+        return GridPos(x, y);
+    };
+
+    std::unordered_map<uint32_t, uint32_t> current_pos_by_id;
+    current_pos_by_id.reserve(wanted.size() * 2);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            GridPos p(x, y);
+            Stone *st = GetStone(p);
+            if (!st || !st->is_movable())
+                continue;
+            current_pos_by_id[static_cast<uint32_t>(st->getId())] = key(x, y);
+        }
+    }
+
+    std::unordered_map<uint32_t, uint32_t> src_to_dst;
+    std::unordered_map<uint32_t, uint32_t> src_by_dst;
+    src_to_dst.reserve(wanted.size());
+    src_by_dst.reserve(wanted.size());
+    for (const auto &e : wanted) {
+        if (e.object_id < 0)
+            continue;
+        auto it = current_pos_by_id.find(static_cast<uint32_t>(e.object_id));
+        if (it == current_pos_by_id.end())
+            continue;
+        const uint32_t src = it->second;
+        const uint32_t dst = key(static_cast<int>(e.x), static_cast<int>(e.y));
+        if (src == dst)
+            continue;
+        src_to_dst[src] = dst;
+        src_by_dst[dst] = src;
+    }
+
+    // Resolve moves into empty destination cells first.
+    bool progressed = true;
+    while (progressed) {
+        progressed = false;
+        for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
+            const uint32_t src = it->first;
+            const uint32_t dst = it->second;
+            GridPos dst_pos = key_to_pos(dst);
+            if (GetStone(dst_pos) != nullptr)
+                continue;
+            MoveStone(key_to_pos(src), dst_pos);
+            src_by_dst.erase(dst);
+            src_to_dst.erase(it);
+            progressed = true;
+            break;
+        }
+    }
+
+    // Remaining moves are cycles. Break them by holding one stone in memory.
+    while (!src_to_dst.empty()) {
+        const uint32_t start_src = src_to_dst.begin()->first;
+        const uint32_t start_dst = src_to_dst.begin()->second;
+        GridPos start_src_pos = key_to_pos(start_src);
+        Stone *held = YieldStone(start_src_pos);
+        if (!held) {
+            src_by_dst.erase(start_dst);
+            src_to_dst.erase(start_src);
+            continue;
+        }
+
+        uint32_t empty = start_src;
+        while (empty != start_dst) {
+            auto it_prev = src_by_dst.find(empty);
+            if (it_prev == src_by_dst.end()) {
+                // Unexpected permutation shape; restore what we can and abort.
+                SetStone(start_src_pos, held);
+                held = nullptr;
+                src_to_dst.clear();
+                src_by_dst.clear();
+                break;
+            }
+            const uint32_t prev_src = it_prev->second;
+            MoveStone(key_to_pos(prev_src), key_to_pos(empty));
+            auto it_dst = src_to_dst.find(prev_src);
+            if (it_dst != src_to_dst.end())
+                src_to_dst.erase(it_dst);
+            src_by_dst.erase(it_prev);
+            empty = prev_src;
+        }
+        if (held) {
+            SetStone(key_to_pos(start_dst), held);
+            src_by_dst.erase(start_dst);
+            src_to_dst.erase(start_src);
+        }
+    }
+}
+
 }  // namespace
 
 Snapshot Capture() {
@@ -106,6 +211,29 @@ Snapshot Capture() {
     snap.game_timer = GameTimer.snapshot();
     snap.pending_actions = CapturePendingActions();
     CaptureObjectStates(snap.object_state_ids, snap.object_state_values);
+
+    // Capture movable-stone layout for rollback correctness.
+    {
+        const int w = Width();
+        const int h = Height();
+        if (w > 0 && h > 0) {
+            snap.movable_stones.clear();
+            snap.movable_stones.reserve(64);
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    GridPos p(x, y);
+                    Stone *st = GetStone(p);
+                    if (!st || !st->is_movable())
+                        continue;
+                    Snapshot::MovableStone ms;
+                    ms.object_id = st->getId();
+                    ms.x = static_cast<uint16_t>(x);
+                    ms.y = static_cast<uint16_t>(y);
+                    snap.movable_stones.push_back(ms);
+                }
+            }
+        }
+    }
 
     std::vector<Actor *> actors;
     GetActors(actors);
@@ -129,6 +257,7 @@ void Restore(const Snapshot &snap) {
     GameTimer.restore(snap.game_timer);
     RestorePendingActions(snap.pending_actions);
     RestoreObjectStates(snap.object_state_ids, snap.object_state_values);
+    restore_movable_stone_positions(snap.movable_stones);
 
     std::unordered_map<int, ActorSnapshot> by_id;
     by_id.reserve(snap.actors.size());
