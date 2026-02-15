@@ -1099,25 +1099,9 @@ public:
 		                        row->add_back(control, List::EXPAND);
 		                    optionsVList->add_back(row);
 		                };
-		                auto add_row_with_reset = [&](const char *label, gui::Widget *control, gui::StaticTextButton *reset_button) {
-		                    HList *row = new HList;
-		                    row->set_spacing(param[vtt].hoption_option);
-		                    row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
-		                    row->set_size(label_button_total_width, rowh);
-		                    row->set_default_size(param[vtt].optionl_width, rowh);
-		                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER));
-		                    if (control)
-		                        row->add_back(control, List::EXPAND);
-		                    if (reset_button)
-		                        row->add_back(reset_button);
-		                    optionsVList->add_back(row);
-		                };
 
 		                if (new_page == OPTIONS_DEBUG) {
-		                    mpResetDebugButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row_with_reset(N_("MP logs"),
-		                                       new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")),
-		                                       mpResetDebugButton);
+		                    add_row(N_("MP logs"), new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")));
 		                    add_row(N_("MP dump"), new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")));
 		                    add_row(N_("MP trace init"), new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")));
 		                    add_row(N_("MP smooth render"), new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")));
@@ -1138,11 +1122,11 @@ public:
 		                    add_row(N_("Host resync stride"), mpHostBroadcastResyncStrideTicksTF);
 		                    add_row(N_("Host world stride"), mpHostBroadcastWorldStateStrideTicksTF);
 		                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
+
+		                    mpResetDebugButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row(N_("Defaults:"), mpResetDebugButton);
 		                } else if (new_page == OPTIONS_DEBUG2) {
-		                    mpResetSyncButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row_with_reset(N_("MP zerofill"),
-		                                       new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")),
-		                                       mpResetSyncButton);
+		                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
 		                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
 		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
 		                    add_row(N_("MP client auth pos"), new ToggleOptionButton("MultiplayerDebugClientAuthBallPos", N_("On"), N_("Off")));
@@ -1163,11 +1147,11 @@ public:
 		                    add_row(N_("Input delay ticks"), mpInputDelayTicksTF);
 		                    add_row(N_("World desync streak"), mpWorldDesyncStreakForWorldStateRequestTF);
 		                    add_row(N_("Tick length ms"), mpTickLengthMsTF);
+
+		                    mpResetSyncButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row(N_("Defaults:"), mpResetSyncButton);
 		                } else {
-		                    mpResetNetSimButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row_with_reset(N_("MP netsim"),
-		                                       new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")),
-		                                       mpResetNetSimButton);
+		                    add_row(N_("MP netsim"), new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")));
 		                    add_row(N_("MP netsim all"), new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")));
 
 		                    mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
@@ -1178,6 +1162,9 @@ public:
 		                    add_row(N_("Netsim jitter ms"), mpNetSimJitterTF);
 		                    add_row(N_("Netsim drop %"), mpNetSimDropTF);
 		                    add_row(N_("Netsim dup %"), mpNetSimDupTF);
+
+		                    mpResetNetSimButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row(N_("Defaults:"), mpResetNetSimButton);
 		                }
 		                break;
 		            }
