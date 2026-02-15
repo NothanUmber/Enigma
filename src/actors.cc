@@ -264,6 +264,17 @@ void Actor::warp(const ecl::V2 &newpos) {
 
 void Actor::move() {
     if (m_actorinfo.field) {
+        const bool suppress_world_interactions =
+            multiplayer::IsActive() && !multiplayer::IsHost() &&
+            options::GetBool("MultiplayerDebugHostOnlyWorldInteractions");
+
+        if (suppress_world_interactions) {
+            // Host-only world interactions: keep local simulation running but do not
+            // mutate world state (triggers, items, stones) based on actor movement.
+            m_actorinfo.last_gridpos = m_actorinfo.gridpos;
+            return;
+        }
+
         if (m_actorinfo.gridpos != m_actorinfo.last_gridpos) {
             // Actor entered a new field -> notify floor and item objects
             // first leave old - avoid the possibility that an actor presses

@@ -189,7 +189,10 @@ enum DebugOptBits : Uint32 {
     DBG_NETSIM = 1u << 10,
     DBG_NETSIM_ALL = 1u << 11,
     // Experimental: client-controlled ball sends authoritative position updates.
-    DBG_CLIENT_AUTH_BALL_POS = 1u << 12
+    DBG_CLIENT_AUTH_BALL_POS = 1u << 12,
+    // Experimental: host is authoritative for all actor/world interactions; clients
+    // suppress local world mutations from ball movement and rely on host state.
+    DBG_HOST_WORLD_ONLY = 1u << 13
 };
 
 protocol::DebugOptionsPacket build_debug_options_from_prefs() {
@@ -224,6 +227,8 @@ protocol::DebugOptionsPacket build_debug_options_from_prefs() {
         mask |= DBG_NETSIM_ALL;
     if (options::GetBool("MultiplayerDebugClientAuthBallPos"))
         mask |= DBG_CLIENT_AUTH_BALL_POS;
+    if (options::GetBool("MultiplayerDebugHostOnlyWorldInteractions"))
+        mask |= DBG_HOST_WORLD_ONLY;
 
     msg.bool_mask = mask;
     msg.predict_missing_mouse_ticks =
@@ -269,6 +274,7 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
     options::SetOption("MultiplayerDebugRemoteControlLocalBall", (m & DBG_REMOTE_LOCAL_BALL) != 0);
     options::SetOption("MultiplayerDebugNetSimEnabled", (m & DBG_NETSIM) != 0);
     options::SetOption("MultiplayerDebugNetSimAll", (m & DBG_NETSIM_ALL) != 0);
+    options::SetOption("MultiplayerDebugHostOnlyWorldInteractions", (m & DBG_HOST_WORLD_ONLY) != 0);
 
     options::SetOption("MultiplayerDebugPredictMissingMouseTicks",
                        static_cast<double>(msg.predict_missing_mouse_ticks));

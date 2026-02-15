@@ -1095,6 +1095,7 @@ public:
 		                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
 		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
 		                    add_row(N_("MP client auth pos"), new ToggleOptionButton("MultiplayerDebugClientAuthBallPos", N_("On"), N_("Off")));
+		                    add_row(N_("MP host world only"), new ToggleOptionButton("MultiplayerDebugHostOnlyWorldInteractions", N_("On"), N_("Off")));
 
 		                    mpPredictMissingMouseTicksTF =
 		                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
@@ -1546,6 +1547,7 @@ public:
 	            bool rollback = false;
 	            bool remote_local_ball = false;
 	            bool client_auth_ball_pos = false;
+	            bool host_world_only = false;
 	            int tick_ms = 10;
 	            int input_delay_legacy_ticks = 4;
 	            int predict_mouse_ticks = 0;
@@ -1568,6 +1570,7 @@ public:
 	            p.zerofill = true;
 	            p.rollback = true;
 	            p.remote_local_ball = true;
+	            p.host_world_only = true;
 	            p.tick_ms = 50;
 	            p.input_delay_legacy_ticks = 16;
 	            p.predict_mouse_ticks = 5;
@@ -1591,6 +1594,7 @@ public:
 	        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", p.rollback);
 	        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", p.remote_local_ball);
 	        app.prefs->setProperty("MultiplayerDebugClientAuthBallPos", p.client_auth_ball_pos);
+	        app.prefs->setProperty("MultiplayerDebugHostOnlyWorldInteractions", p.host_world_only);
 
 	        app.prefs->setProperty("MultiplayerDebugTickLengthMs", p.tick_ms);
 	        app.prefs->setProperty("MultiplayerDebugInputDelayTicks", p.input_delay_legacy_ticks);
