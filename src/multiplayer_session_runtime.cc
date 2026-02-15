@@ -433,6 +433,8 @@ void apply_connectivity_preset_to_options(int preset_id) {
     options::SetOption("MultiplayerDebugZeroFillInputs", zerofill);
     options::SetOption("MultiplayerDebugRollbackEnabled", rollback);
     options::SetOption("MultiplayerDebugRemoteControlLocalBall", remote_local_ball);
+    // Keep experimental features off in presets unless explicitly enabled.
+    options::SetOption("MultiplayerDebugClientAuthBallPos", false);
 
     options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(tick_ms));
     options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(input_delay_legacy_ticks));

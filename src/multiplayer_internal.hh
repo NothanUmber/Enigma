@@ -303,6 +303,10 @@ struct LobbyState {
     // (e.g. unreliable resync broadcasts can arrive reordered and would otherwise
     // cause visible "backwards" jumps).
     uint32_t last_accepted_resync_tick = 0;
+    // Track latest accepted client-authoritative actor-state per player.
+    std::array<uint32_t, input::kMaxPlayers> last_accepted_owner_state_tick = {};
+    // Client-side send gate: avoid spamming owner-state packets every frame for the same tick.
+    uint32_t last_sent_owner_state_tick = 0;
     bool resync_inflight = false;
     double resync_inflight_timer = 0.0;
     double resync_cooldown = 0.0;

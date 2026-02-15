@@ -113,11 +113,16 @@ void configure_input_session(unsigned expected_players) {
     if (g_session.input_delay > 1024)
         g_session.input_delay = 1024;
     if (debug_enabled())
-        debug_log("mp input delay=%u (legacy=%u) transport=%s tick_ms=%u",
+        debug_log("mp input delay=%u (legacy=%u) transport=%s tick_ms=%u opts(zerofill=%d rollback=%d remote_local_ball=%d client_auth_pos=%d skip_local_resync=%d)",
                   static_cast<unsigned>(g_session.input_delay),
                   static_cast<unsigned>(legacy_delay),
                   transport_name(g_session.active_transport),
-                  static_cast<unsigned>(g_session.tick_ms));
+                  static_cast<unsigned>(g_session.tick_ms),
+                  options::GetBool("MultiplayerDebugZeroFillInputs") ? 1 : 0,
+                  options::GetBool("MultiplayerDebugRollbackEnabled") ? 1 : 0,
+                  options::GetBool("MultiplayerDebugRemoteControlLocalBall") ? 1 : 0,
+                  options::GetBool("MultiplayerDebugClientAuthBallPos") ? 1 : 0,
+                  options::GetBool("MultiplayerDebugSkipLocalResync") ? 1 : 0);
     input::Reset();
     input::SetTickTimestep(static_cast<double>(tick_ms) / 1000.0);
     input::SetNetworked(true);
@@ -138,6 +143,8 @@ void configure_input_session(unsigned expected_players) {
     g_session.last_host_resync_broadcast_tick = UINT32_MAX;
     g_session.last_host_world_state_broadcast_tick = UINT32_MAX;
     g_session.last_accepted_resync_tick = 0;
+    g_session.last_accepted_owner_state_tick.fill(0);
+    g_session.last_sent_owner_state_tick = 0;
 }
 
 namespace {

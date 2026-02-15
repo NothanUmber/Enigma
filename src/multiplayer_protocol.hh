@@ -49,7 +49,9 @@ enum NetMessageType : Uint8 {
 	    NET_DEBUG_OPTIONS = 17,
 	    // Host <-> clients: lightweight RTT probe for auto-detecting connectivity.
 	    NET_PING = 18,
-	    NET_PONG = 19
+	    NET_PONG = 19,
+	    // Client -> host -> clients: experimental client-authoritative actor state.
+	    NET_OWNER_ACTOR_STATE = 20
 	};
 
 struct LobbyAnnounce {
@@ -196,6 +198,19 @@ struct DebugOptionsPacket {
     Uint16 netsim_jitter_ms = 0;
     Uint8 netsim_drop_pct = 0;
     Uint8 netsim_dup_pct = 0;
+};
+
+struct OwnerActorStatePacket {
+    Uint32 epoch = 0;
+    Uint32 tick = 0;
+    Uint8 player = 0;
+    Uint32 object_id = 0;
+    Uint16 actor_id = 0;
+    Uint32 name_hash = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
 };
 
 struct PingPacket {
@@ -472,6 +487,41 @@ inline bool decode_debug_options(ecl::Buffer &buf, DebugOptionsPacket &msg) {
           msg.host_world_stride_legacy_ticks >> msg.rollback_keep_ticks >> msg.netsim_delay_ms >>
           msg.netsim_jitter_ms >> msg.netsim_drop_pct >> msg.netsim_dup_pct))
         return false;
+    return true;
+}
+
+inline void encode_owner_actor_state(ecl::Buffer &buf, const OwnerActorStatePacket &msg) {
+    buf << Uint8(NET_OWNER_ACTOR_STATE) << Uint32(msg.epoch) << Uint32(msg.tick) << Uint8(msg.player)
+        << Uint32(msg.object_id) << Uint16(msg.actor_id) << Uint32(msg.name_hash) << msg.x << msg.y << msg.vx
+        << msg.vy;
+}
+
+inline bool decode_owner_actor_state(ecl::Buffer &buf, OwnerActorStatePacket &msg) {
+    Uint8 type = 0;
+    Uint32 epoch = 0;
+    Uint32 tick = 0;
+    Uint8 player = 0;
+    Uint32 object_id = 0;
+    Uint16 actor_id = 0;
+    Uint32 name_hash = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    if (!(buf >> type >> epoch >> tick >> player >> object_id >> actor_id >> name_hash >> x >> y >> vx >> vy))
+        return false;
+    if (type != NET_OWNER_ACTOR_STATE)
+        return false;
+    msg.epoch = epoch;
+    msg.tick = tick;
+    msg.player = player;
+    msg.object_id = object_id;
+    msg.actor_id = actor_id;
+    msg.name_hash = name_hash;
+    msg.x = x;
+    msg.y = y;
+    msg.vx = vx;
+    msg.vy = vy;
     return true;
 }
 

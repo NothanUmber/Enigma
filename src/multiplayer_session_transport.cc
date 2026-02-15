@@ -176,7 +176,9 @@ enum DebugOptBits : Uint32 {
     DBG_ROLLBACK = 1u << 8,
     DBG_REMOTE_LOCAL_BALL = 1u << 9,
     DBG_NETSIM = 1u << 10,
-    DBG_NETSIM_ALL = 1u << 11
+    DBG_NETSIM_ALL = 1u << 11,
+    // Experimental: client-controlled ball sends authoritative position updates.
+    DBG_CLIENT_AUTH_BALL_POS = 1u << 12
 };
 
 protocol::DebugOptionsPacket build_debug_options_from_prefs() {
@@ -209,6 +211,8 @@ protocol::DebugOptionsPacket build_debug_options_from_prefs() {
         mask |= DBG_NETSIM;
     if (options::GetBool("MultiplayerDebugNetSimAll"))
         mask |= DBG_NETSIM_ALL;
+    if (options::GetBool("MultiplayerDebugClientAuthBallPos"))
+        mask |= DBG_CLIENT_AUTH_BALL_POS;
 
     msg.bool_mask = mask;
     msg.predict_missing_mouse_ticks =
@@ -239,6 +243,9 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
     options::SetOption("MultiplayerDebugDumpState", (m & DBG_DUMP_STATE) != 0);
     options::SetOption("MultiplayerDebugTraceWorldInit", (m & DBG_TRACE_INIT) != 0);
     options::SetOption("MultiplayerDebugSmoothRender", (m & DBG_SMOOTH_RENDER) != 0);
+    // Transport-only experiments: allow toggling while RUNNING so host changes can
+    // propagate without needing a full session restart.
+    options::SetOption("MultiplayerDebugClientAuthBallPos", (m & DBG_CLIENT_AUTH_BALL_POS) != 0);
 
     if (!allow_simulation_mutation)
         return;
@@ -267,6 +274,89 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
     // Keep the Debug UI consistent with the negotiated tick length.
     options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(msg.tick_ms));
 }
+
+namespace {
+uint32_t stable_name_hash(Actor *actor) {
+    if (!actor)
+        return 0;
+    Value name = actor->getAttr("name");
+    if (name.getType() != Value::STRING)
+        return 0;
+    const std::string &s = name.get_string();
+    if (s.empty())
+        return 0;
+    // FNV-1a 32-bit (must match multiplayer_session_sync.cc).
+    uint32_t h = 2166136261u;
+    for (unsigned char c : s) {
+        h ^= static_cast<uint32_t>(c);
+        h *= 16777619u;
+    }
+    return h ? h : 1u;
+}
+
+void teleport_actor_physics_only(Actor *actor, float x, float y, float vx, float vy) {
+    if (!actor)
+        return;
+    // Same semantics as apply_resync_state(): update physics + spatial index only.
+    ActorInfo *ai = actor->get_actorinfo();
+    ai->pos = ecl::V2(x, y);
+    DidMoveActor(actor);
+    ai->last_gridpos = ai->gridpos;
+    ai->vel = ecl::V2(vx, vy);
+    ai->pos_force = ai->pos;
+    ai->forceacc = ecl::V2();
+    ai->force = ecl::V2();
+    ai->collforce = ecl::V2();
+    ai->friction = 0.0;
+    ai->contacts = ai->contacts_a;
+    ai->last_contacts = ai->contacts_b;
+    ai->contacts_count = 0;
+    ai->last_contacts_count = 0;
+}
+
+Actor *find_controlled_steerable_actor_by_owner_state(unsigned player_id,
+                                                      const protocol::OwnerActorStatePacket &pkt) {
+    std::vector<Actor *> actors;
+    GetActors(actors);
+
+    // First: exact object id match.
+    for (Actor *a : actors) {
+        if (!a)
+            continue;
+        if (static_cast<uint32_t>(a->getId()) == pkt.object_id)
+            return a;
+    }
+
+    // Fallback: match by (controlled_by, steerable, kind, name_hash) and nearest position.
+    Actor *best = nullptr;
+    float best_dist2 = 0.0f;
+    for (Actor *a : actors) {
+        if (!a)
+            continue;
+        if (!a->isSteerable())
+            continue;
+        if (!a->controlled_by(static_cast<int>(player_id)))
+            continue;
+        const uint16_t kind = static_cast<uint16_t>(get_id(a));
+        if (pkt.actor_id != 0 && kind != pkt.actor_id)
+            continue;
+        if (pkt.name_hash != 0) {
+            const uint32_t nh = stable_name_hash(a);
+            if (nh != pkt.name_hash)
+                continue;
+        }
+        const ecl::V2 &pos = a->get_pos();
+        const float dx = static_cast<float>(pos[0]) - pkt.x;
+        const float dy = static_cast<float>(pos[1]) - pkt.y;
+        const float d2 = dx * dx + dy * dy;
+        if (!best || d2 < best_dist2) {
+            best = a;
+            best_dist2 = d2;
+        }
+    }
+    return best;
+}
+}  // namespace
 
 void host_broadcast_debug_options() {
     if (!g_session.active || !g_session.host || !has_remote_peers())
@@ -816,6 +906,9 @@ bool handle_host_pong_packet(const char *data, size_t len, ENetPeer *peer, HostS
     return true;
 }
 
+bool handle_host_owner_actor_state_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
+                                         Uint32 relay_client_id);
+
 bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                         Uint32 relay_client_id) {
     if (handle_host_pong_packet(data, len, peer, source, relay_client_id))
@@ -828,6 +921,8 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource
         return true;
     if (handle_host_world_state_request_packet(data, len))
         return true;
+    if (handle_host_owner_actor_state_packet(data, len, peer, source, relay_client_id))
+        return true;
     if (handle_host_ready_packet(data, len, peer, source, relay_client_id))
         return true;
     if (handle_host_menu_packet(data, len, peer, source, relay_client_id))
@@ -839,6 +934,97 @@ bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource
     if (handle_host_placement_packet(data, len))
         return true;
     return false;
+}
+
+void broadcast_owner_actor_state(const protocol::OwnerActorStatePacket &pkt,
+                                 ENetPeer *exclude,
+                                 Uint32 exclude_udp_relay,
+                                 Uint32 exclude_tcp_relay) {
+    for (const auto &entry : g_session.peer_players) {
+        if (entry.first == exclude)
+            continue;
+        ecl::Buffer buf;
+        protocol::encode_owner_actor_state(buf, pkt);
+        g_transport.HostSendDirectUnreliable(entry.first, buf);
+    }
+    ecl::Buffer out;
+    protocol::encode_owner_actor_state(out, pkt);
+    if (!g_session.relay_players.empty())
+        g_transport.HostBroadcastUdpRelay(out, exclude_udp_relay);
+    if (!g_session.tcp_relay_players.empty())
+        g_transport.HostBroadcastTcpRelay(out, exclude_tcp_relay);
+}
+
+bool handle_host_owner_actor_state_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
+                                         Uint32 relay_client_id) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::OwnerActorStatePacket pkt;
+    if (!protocol::decode_owner_actor_state(buf, pkt))
+        return false;
+    if (!g_session.host)
+        return true;
+    if (!g_session.active)
+        return true;
+    if (!options::GetBool("MultiplayerDebugClientAuthBallPos")) {
+        if (debug_enabled() && pkt.tick < 20) {
+            debug_log("mp host: drop owner-state (disabled) tick=%u claimed_player=%u", pkt.tick,
+                      static_cast<unsigned>(pkt.player));
+        }
+        return true;
+    }
+    if (pkt.epoch != g_session.input_epoch)
+        return true;
+
+    unsigned player_id = 0;
+    if (!lookup_remote_player(source, peer, relay_client_id, player_id)) {
+        const unsigned claimed = static_cast<unsigned>(pkt.player);
+        if (claimed < g_session.expected_players && claimed != g_session.local_player) {
+            player_id = claimed;
+            if (debug_enabled()) {
+                debug_log("mp host: owner-state fallback claim=%u (source=%d relay_id=%u peer=%p)",
+                          claimed, static_cast<int>(source),
+                          static_cast<unsigned>(relay_client_id),
+                          static_cast<void *>(peer));
+            }
+        } else {
+            return true;
+        }
+    }
+    if (player_id >= g_session.expected_players)
+        return true;
+    if (player_id == g_session.local_player)
+        return true;
+
+    if (player_id < g_session.last_accepted_owner_state_tick.size()) {
+        const uint32_t last = g_session.last_accepted_owner_state_tick[player_id];
+        if (last != 0 && pkt.tick <= last)
+            return true;
+        g_session.last_accepted_owner_state_tick[player_id] = pkt.tick;
+    }
+
+    pkt.player = static_cast<Uint8>(player_id);
+    if (Actor *a = find_controlled_steerable_actor_by_owner_state(player_id, pkt)) {
+        teleport_actor_physics_only(a, pkt.x, pkt.y, pkt.vx, pkt.vy);
+    }
+    if (debug_enabled() && pkt.tick < 20) {
+        debug_log("mp host: recv owner-state tick=%u player=%u obj=%u pos=(%.2f,%.2f) vel=(%.2f,%.2f)",
+                  pkt.tick, static_cast<unsigned>(pkt.player), static_cast<unsigned>(pkt.object_id),
+                  static_cast<double>(pkt.x), static_cast<double>(pkt.y),
+                  static_cast<double>(pkt.vx), static_cast<double>(pkt.vy));
+    }
+
+    Uint32 ex_udp = 0;
+    Uint32 ex_tcp = 0;
+    ENetPeer *ex_peer = nullptr;
+    if (source == HostSource::DIRECT)
+        ex_peer = peer;
+    else if (source == HostSource::UDP_RELAY)
+        ex_udp = relay_client_id;
+    else if (source == HostSource::TCP_RELAY)
+        ex_tcp = relay_client_id;
+    broadcast_owner_actor_state(pkt, ex_peer, ex_udp, ex_tcp);
+    return true;
 }
 
 bool handle_client_input_packet(const char *data, size_t len) {
@@ -1440,6 +1626,8 @@ bool handle_client_placement_packet(const char *data, size_t len) {
     return true;
 }
 
+bool handle_client_owner_actor_state_packet(const char *data, size_t len);
+
 void handle_client_payload(const char *data, size_t len) {
     if (handle_client_input_bundle_packet(data, len))
         return;
@@ -1457,6 +1645,8 @@ void handle_client_payload(const char *data, size_t len) {
         return;
     if (handle_client_resync_state_packet(data, len))
         return;
+    if (handle_client_owner_actor_state_packet(data, len))
+        return;
     if (handle_client_world_state_packet(data, len))
         return;
     if (handle_client_start_packet(data, len))
@@ -1468,6 +1658,44 @@ void handle_client_payload(const char *data, size_t len) {
     if (handle_client_restart_packet(data, len))
         return;
     handle_client_placement_packet(data, len);
+}
+
+bool handle_client_owner_actor_state_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::OwnerActorStatePacket pkt;
+    if (!protocol::decode_owner_actor_state(buf, pkt))
+        return false;
+    if (g_session.host)
+        return true;
+    if (!g_session.active)
+        return true;
+    if (!options::GetBool("MultiplayerDebugClientAuthBallPos"))
+        return true;
+    if (pkt.epoch != g_session.input_epoch)
+        return true;
+    const unsigned player_id = static_cast<unsigned>(pkt.player);
+    if (player_id >= g_session.expected_players)
+        return true;
+    if (g_session.local_player_known && player_id == g_session.local_player)
+        return true;  // local is authoritative in this mode
+
+    if (player_id < g_session.last_accepted_owner_state_tick.size()) {
+        const uint32_t last = g_session.last_accepted_owner_state_tick[player_id];
+        if (last != 0 && pkt.tick <= last)
+            return true;
+        g_session.last_accepted_owner_state_tick[player_id] = pkt.tick;
+    }
+    if (Actor *a = find_controlled_steerable_actor_by_owner_state(player_id, pkt)) {
+        teleport_actor_physics_only(a, pkt.x, pkt.y, pkt.vx, pkt.vy);
+    }
+    if (debug_enabled() && pkt.tick < 20) {
+        debug_log("mp client: recv owner-state tick=%u player=%u obj=%u pos=(%.2f,%.2f) vel=(%.2f,%.2f)",
+                  pkt.tick, static_cast<unsigned>(pkt.player), static_cast<unsigned>(pkt.object_id),
+                  static_cast<double>(pkt.x), static_cast<double>(pkt.y),
+                  static_cast<double>(pkt.vx), static_cast<double>(pkt.vy));
+    }
+    return true;
 }
 
 bool host_register_relay_client(Uint32 client_id, HostSource source);
@@ -1926,6 +2154,52 @@ void send_local_inputs() {
         }
         sent_packets = true;
         g_session.next_send_tick = bundle_end;
+    }
+
+    const bool client_auth_ball_pos =
+        (!g_session.host && options::GetBool("MultiplayerDebugClientAuthBallPos"));
+    if (client_auth_ball_pos && !remote_control_local_ball) {
+        const uint32_t tick = input::CurrentTick();
+        if (g_session.last_sent_owner_state_tick != tick) {
+            g_session.last_sent_owner_state_tick = tick;
+            std::vector<Actor *> actors;
+            GetActors(actors);
+            for (Actor *a : actors) {
+                if (!a)
+                    continue;
+                if (!a->isSteerable())
+                    continue;
+                if (!a->controlled_by(static_cast<int>(g_session.local_player)))
+                    continue;
+                protocol::OwnerActorStatePacket st;
+                st.epoch = g_session.input_epoch;
+                st.tick = tick;
+                st.player = static_cast<Uint8>(g_session.local_player);
+                st.object_id = static_cast<Uint32>(a->getId());
+                st.actor_id = static_cast<Uint16>(get_id(a));
+                st.name_hash = static_cast<Uint32>(stable_name_hash(a));
+                const ecl::V2 &pos = a->get_pos();
+                const ecl::V2 &vel = a->get_vel();
+                st.x = static_cast<float>(pos[0]);
+                st.y = static_cast<float>(pos[1]);
+                st.vx = static_cast<float>(vel[0]);
+                st.vy = static_cast<float>(vel[1]);
+                ecl::Buffer payload;
+                protocol::encode_owner_actor_state(payload, st);
+                g_transport.ClientSendUnreliable(payload);
+                sent_packets = true;
+                if (debug_enabled() && tick < 20) {
+                    debug_log("mp client: send owner-state tick=%u player=%u obj=%u pos=(%.2f,%.2f) vel=(%.2f,%.2f)",
+                              tick,
+                              static_cast<unsigned>(st.player),
+                              static_cast<unsigned>(st.object_id),
+                              static_cast<double>(st.x),
+                              static_cast<double>(st.y),
+                              static_cast<double>(st.vx),
+                              static_cast<double>(st.vy));
+                }
+            }
+        }
     }
 
     if (sent_packets)
