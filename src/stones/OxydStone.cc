@@ -962,6 +962,41 @@ namespace enigma {
     void OxydStone::actor_hit(const StoneContact &/*sc*/) {
         tryOpen();
     }
+
+    void OxydStone::MpForceExternalState(int extState) {
+        if (!isDisplayable())
+            return;
+        // Normalize.
+        if (extState < 0)
+            extState = 0;
+        if (extState > maxState())
+            extState = maxState();
+
+        const std::string flavor(getDefaultedAttr("flavor", "a"));
+        const std::string color_str = ecl::strf("%d", (int)getDefaultedAttr("oxydcolor", 0));
+        const std::string basemodelname = std::string("st_oxyd") + flavor;
+        const std::string modelname = basemodelname + color_str;
+
+        // Hard force without sounds/actions/shuffles.
+        if (extState == 0) {
+            state = CLOSED;
+            setClosedModel(false);
+            return;
+        }
+        if (extState == 1) {
+            state = OPEN_SINGLE;
+            // Mirror the standard visual for "single open" without side effects.
+            if ((int)getAttr("oxydcolor") <= QUAKE) {
+                set_model(basemodelname + "_pseudo" + color_str);
+            } else {
+                set_model(modelname + "_blink");
+            }
+            return;
+        }
+        // extState == 2
+        state = OPEN_PAIR;
+        set_model(modelname + "_open");
+    }
     
     bool OxydStone::is_removable() const {
         return !getAttr("static").to_bool();

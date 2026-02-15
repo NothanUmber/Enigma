@@ -32,6 +32,7 @@
 #include "server.hh"
 #include "lev/Index.hh"
 #include "lev/Proxy.hh"
+#include "stones/OxydStone.hh"
 #include "world.hh"
 
 #include "SDL.h"
@@ -1226,6 +1227,15 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
     auto apply_state = [](Object *obj, Uint16 s) {
         if (!obj || s == 0xFFFF)
             return;
+        // Some StateObject subclasses (notably OxydStone) implement "state" as gameplay
+        // operations (tryOpen/close) that are not idempotent and can refuse to close
+        // (OPEN_PAIR). World-state reconciliation must be able to override them.
+        if (Stone *st = dynamic_cast<Stone *>(obj)) {
+            if (OxydStone *ox = dynamic_cast<OxydStone *>(st)) {
+                ox->MpForceExternalState(static_cast<int>(s));
+                return;
+            }
+        }
         obj->setAttr("state", Value(static_cast<int>(s)));
     };
 

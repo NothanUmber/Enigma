@@ -108,6 +108,11 @@ namespace enigma {
         
         // ModelCallback interface  - Animation callback
         virtual void animcb() override;
+
+        // Multiplayer: force the externally visible state without running the normal
+        // open/close gameplay logic (which can be non-idempotent and can refuse to
+        // close OPEN_PAIR stones). Used by authoritative world-state reconciliation.
+        void MpForceExternalState(int extState);
     
     private:
         enum iState { CLOSED, OPEN_PAIR, OPENING, CLOSING, OPEN_SINGLE };
