@@ -97,14 +97,20 @@ namespace enigma { namespace gui {
 	        gui::StaticTextButton *mpPresetGoodConnButton;
 	        gui::StaticTextButton *mpPresetMediocreConnButton;
 	        gui::StaticTextButton *mpPresetBadConnButton;
+	        gui::StaticTextButton *mpResetDebugButton;
+	        gui::StaticTextButton *mpResetSyncButton;
+	        gui::StaticTextButton *mpResetNetSimButton;
 	        gui::TextField *menuMusicTF;
-        ecl::Surface *background;
-        bool gameIsOngoing;
-        bool videoSettingsTouched;
-        bool showVideoCheck;
-        OptionsPage pageAfterVideoCheck;
-        OptionsPage currentPage;
+	        ecl::Surface *background;
+	        bool gameIsOngoing;
+	        bool videoSettingsTouched;
+	        bool showVideoCheck;
+	        OptionsPage pageAfterVideoCheck;
+	        OptionsPage currentPage;
 	        void apply_mp_debug_preset(int preset_id);
+	        void reset_mp_debug_defaults();
+	        void reset_mp_sync_defaults();
+	        void reset_mp_netsim_defaults();
 		    };
 
 

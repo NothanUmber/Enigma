@@ -757,9 +757,13 @@ public:
 	      mpHostBroadcastResyncStrideTicksTF(NULL),
 	      mpHostBroadcastWorldStateStrideTicksTF(NULL),
 	      mpRollbackKeepTicksTF(NULL),
+	      mpWorldDesyncStreakForWorldStateRequestTF(NULL),
 	      mpPresetGoodConnButton(NULL),
 	      mpPresetMediocreConnButton(NULL),
 	      mpPresetBadConnButton(NULL),
+	      mpResetDebugButton(NULL),
+	      mpResetSyncButton(NULL),
+	      mpResetNetSimButton(NULL),
 	      menuMusicTF(NULL),
 	      background(background_),
 	      gameIsOngoing(gameIsOngoing_),
@@ -773,12 +777,12 @@ public:
     }
 
 	    void OptionsMenu::open_page(OptionsPage new_page) {
-        const VMInfo *vminfo = video_engine->GetInfo();
-        VideoTileType vtt = vminfo->tt;
-        static struct SpacingConfig {
-            int rows, button_height, small_label_height;
-            int optionl_width, optionb_width, pageb_width;
-            int vrow_row, hpage_option, hoption_option;
+	        const VMInfo *vminfo = video_engine->GetInfo();
+	        VideoTileType vtt = vminfo ? vminfo->tt : VTS_32;
+	        static struct SpacingConfig {
+	            int rows, button_height, small_label_height;
+	            int optionl_width, optionb_width, pageb_width;
+	            int vrow_row, hpage_option, hoption_option;
         } param[] = {
             {  // VTS_16 (320x240)
                 10, 17, 11,
@@ -804,12 +808,17 @@ public:
                 11, 35, 22,
                 260, 360, 140,
                 20, 76, 20
-            }
-        };
+	            }
+	        };
+	        // Defensive: some platforms/ports have been observed to report unexpected tt
+	        // values during early menu startup; clamp to avoid indexing UB.
+	        const int vtt_i = static_cast<int>(vtt);
+	        if (vtt_i < 0 || vtt_i >= static_cast<int>(sizeof(param) / sizeof(param[0])))
+	            vtt = VTS_32;
 
-        if (showVideoCheck) {
-            pageAfterVideoCheck = new_page;
-            new_page = OPTIONS_VIDEOCHECK;
+	        if (showVideoCheck) {
+	            pageAfterVideoCheck = new_page;
+	            new_page = OPTIONS_VIDEOCHECK;
             showVideoCheck = false;
         }
 
@@ -828,27 +837,23 @@ public:
             but_audio_options->setHighlight(new_page == OPTIONS_AUDIO);
             but_config_options = new StaticTextButton(N_("Config"), this);
             but_config_options->setHighlight(new_page == OPTIONS_CONFIG);
-            but_multiplayer_options = new StaticTextButton(N_("Multiplayer"), this);
-            but_multiplayer_options->setHighlight(new_page == OPTIONS_MULTIPLAYER);
-	            but_paths_options = new StaticTextButton(N_("Paths"), this);
+		            but_multiplayer_options = new StaticTextButton(N_("Multiplayer"), this);
+		            but_multiplayer_options->setHighlight(new_page == OPTIONS_MULTIPLAYER);
+		            but_paths_options = new StaticTextButton(N_("Paths"), this);
 		            but_paths_options->setHighlight(new_page == OPTIONS_PATHS);
-		            if (ShowDebugOptions) {
-		                but_debug_options = new StaticTextButton(N_("MP Debug"), this);
-		                but_debug_options->setHighlight(new_page == OPTIONS_DEBUG);
-		                but_debug2_options = new StaticTextButton(N_("MP Sync"), this);
-		                but_debug2_options->setHighlight(new_page == OPTIONS_DEBUG2);
-		                but_mp_netsim_options = new StaticTextButton(N_("MP Netsim"), this);
-		                but_mp_netsim_options->setHighlight(new_page == OPTIONS_MP_NETSIM);
-		            }
+		            // Multiplayer is still experimental; keep the MP debug tabs visible
+		            // without requiring --show-debugoptions.
+		            but_debug_options = new StaticTextButton(N_("MP Debug"), this);
+		            but_debug_options->setHighlight(new_page == OPTIONS_DEBUG);
+		            but_debug2_options = new StaticTextButton(N_("MP Sync"), this);
+		            but_debug2_options->setHighlight(new_page == OPTIONS_DEBUG2);
+		            but_mp_netsim_options = new StaticTextButton(N_("MP Netsim"), this);
+		            but_mp_netsim_options->setHighlight(new_page == OPTIONS_MP_NETSIM);
 		            back = new StaticTextButton(N_("Ok"), this);
-	            pagesVList->add_back(but_main_options);
-	            // Keep a visual separator in normal mode. When debug pages are enabled,
-	            // we need the extra space for additional tabs at low resolutions.
-	            if (!ShowDebugOptions)
-	                pagesVList->add_back(new Label(""));
-	            pagesVList->add_back(but_video_options);
-	            pagesVList->add_back(but_audio_options);
-	            pagesVList->add_back(but_config_options);
+		        pagesVList->add_back(but_main_options);
+		        pagesVList->add_back(but_video_options);
+		        pagesVList->add_back(but_audio_options);
+		        pagesVList->add_back(but_config_options);
 		            pagesVList->add_back(but_multiplayer_options);
 		            pagesVList->add_back(but_paths_options);
 		            if (but_debug_options)
@@ -859,7 +864,6 @@ public:
 		                pagesVList->add_back(but_mp_netsim_options);
 		            int used_rows = 0;
 		            used_rows += 1;  // Main
-		            used_rows += ShowDebugOptions ? 0 : 1;  // separator label
 		            used_rows += 1;  // Video
 		            used_rows += 1;  // Audio
 		            used_rows += 1;  // Config
@@ -1092,12 +1096,28 @@ public:
 	                    row->set_default_size(param[vtt].optionl_width, rowh);
 	                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER));
 	                    if (control)
-	                        row->add_back(control, List::EXPAND);
-	                    optionsVList->add_back(row);
-	                };
+		                        row->add_back(control, List::EXPAND);
+		                    optionsVList->add_back(row);
+		                };
+		                auto add_row_with_reset = [&](const char *label, gui::Widget *control, gui::StaticTextButton *reset_button) {
+		                    HList *row = new HList;
+		                    row->set_spacing(param[vtt].hoption_option);
+		                    row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
+		                    row->set_size(label_button_total_width, rowh);
+		                    row->set_default_size(param[vtt].optionl_width, rowh);
+		                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER));
+		                    if (control)
+		                        row->add_back(control, List::EXPAND);
+		                    if (reset_button)
+		                        row->add_back(reset_button);
+		                    optionsVList->add_back(row);
+		                };
 
 		                if (new_page == OPTIONS_DEBUG) {
-		                    add_row(N_("MP logs"), new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")));
+		                    mpResetDebugButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row_with_reset(N_("MP logs"),
+		                                       new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")),
+		                                       mpResetDebugButton);
 		                    add_row(N_("MP dump"), new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")));
 		                    add_row(N_("MP trace init"), new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")));
 		                    add_row(N_("MP smooth render"), new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")));
@@ -1119,7 +1139,10 @@ public:
 		                    add_row(N_("Host world stride"), mpHostBroadcastWorldStateStrideTicksTF);
 		                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
 		                } else if (new_page == OPTIONS_DEBUG2) {
-		                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
+		                    mpResetSyncButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row_with_reset(N_("MP zerofill"),
+		                                       new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")),
+		                                       mpResetSyncButton);
 		                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
 		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
 		                    add_row(N_("MP client auth pos"), new ToggleOptionButton("MultiplayerDebugClientAuthBallPos", N_("On"), N_("Off")));
@@ -1141,7 +1164,10 @@ public:
 		                    add_row(N_("World desync streak"), mpWorldDesyncStreakForWorldStateRequestTF);
 		                    add_row(N_("Tick length ms"), mpTickLengthMsTF);
 		                } else {
-		                    add_row(N_("MP netsim"), new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")));
+		                    mpResetNetSimButton = new StaticTextButton(N_("Reset"), this);
+		                    add_row_with_reset(N_("MP netsim"),
+		                                       new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")),
+		                                       mpResetNetSimButton);
 		                    add_row(N_("MP netsim all"), new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")));
 
 		                    mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
@@ -1311,13 +1337,13 @@ public:
 			            app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(v));
 			        }
 				        if (mpWorldDesyncStreakForWorldStateRequestTF) {
-				            int v = parse_int_clamped(
-				                mpWorldDesyncStreakForWorldStateRequestTF->getText(),
-				                options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"),
-				                1, 5000);
-				            app.prefs->setProperty("MultiplayerDebugWorldDesyncStreakForWorldStateRequest",
-				                                   static_cast<double>(v));
-				        }
+					            int v = parse_int_clamped(
+					                mpWorldDesyncStreakForWorldStateRequestTF->getText(),
+					                options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"),
+					                0, 5000);
+					            app.prefs->setProperty("MultiplayerDebugWorldDesyncStreakForWorldStateRequest",
+					                                   static_cast<double>(v));
+					        }
 					        if (mpInputDelayTicksTF) {
 					            int v = parse_int_clamped(mpInputDelayTicksTF->getText(),
 					                                      options::GetInt("MultiplayerDebugInputDelayTicks"),
@@ -1406,13 +1432,16 @@ public:
 			        mpHostBroadcastResyncStrideTicksTF = NULL;
 			        mpHostBroadcastWorldStateStrideTicksTF = NULL;
 			        mpRollbackKeepTicksTF = NULL;
-			        mpWorldDesyncStreakForWorldStateRequestTF = NULL;
-			        mpPresetGoodConnButton = NULL;
-			        mpPresetMediocreConnButton = NULL;
-			        mpPresetBadConnButton = NULL;
-	        pageAfterVideoCheck = OPTIONS_MAIN;
-	        currentPage = OPTIONS_MAIN;
-	        showVideoCheck = false;
+				        mpWorldDesyncStreakForWorldStateRequestTF = NULL;
+				        mpPresetGoodConnButton = NULL;
+				        mpPresetMediocreConnButton = NULL;
+				        mpPresetBadConnButton = NULL;
+				        mpResetDebugButton = NULL;
+				        mpResetSyncButton = NULL;
+				        mpResetNetSimButton = NULL;
+		        pageAfterVideoCheck = OPTIONS_MAIN;
+		        currentPage = OPTIONS_MAIN;
+		        showVideoCheck = false;
         if (videoSettingsTouched && !gameIsOngoing)
             showVideoCheck = video_engine->ApplySettings();
         videoSettingsTouched = false;
@@ -1545,6 +1574,12 @@ public:
 	            apply_mp_debug_preset(1);
 	        } else if (w == mpPresetBadConnButton) {
 	            apply_mp_debug_preset(2);
+	        } else if (w == mpResetDebugButton) {
+	            reset_mp_debug_defaults();
+	        } else if (w == mpResetSyncButton) {
+	            reset_mp_sync_defaults();
+	        } else if (w == mpResetNetSimButton) {
+	            reset_mp_netsim_defaults();
 	        } else if (w == videocheck_button_yes) {
 	            close_page();
 	            if (pageAfterVideoCheck == OPTIONS_VIDEOCHECK) {
@@ -1640,6 +1675,56 @@ public:
 		        app.prefs->setProperty("MultiplayerDebugForceRelay", false);
 		        app.prefs->setProperty("MultiplayerDebugBindLocal", false);
 
+			        invalidate_all();
+			    }
+
+		    void OptionsMenu::reset_mp_debug_defaults() {
+		        // Baseline defaults (roughly "Good connectivity" without diagnostics enabled).
+		        app.prefs->setProperty("MultiplayerDebugLogging", false);
+		        app.prefs->setProperty("MultiplayerDebugDumpState", false);
+		        app.prefs->setProperty("MultiplayerDebugTraceWorldInit", false);
+		        app.prefs->setProperty("MultiplayerDebugSmoothRender", true);
+		        app.prefs->setProperty("MultiplayerDebugSkipLocalResync", false);
+		        app.prefs->setProperty("MultiplayerDebugForceRelay", false);
+		        app.prefs->setProperty("MultiplayerDebugBindLocal", false);
+		        app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks", 50.0);
+		        app.prefs->setProperty("MultiplayerDebugHostBroadcastWorldStateStrideTicks", 50.0);
+		        app.prefs->setProperty("MultiplayerDebugRollbackKeepTicks", 200.0);
+		        if (mpHostBroadcastResyncStrideTicksTF) mpHostBroadcastResyncStrideTicksTF->set_text("50");
+		        if (mpHostBroadcastWorldStateStrideTicksTF) mpHostBroadcastWorldStateStrideTicksTF->set_text("50");
+		        if (mpRollbackKeepTicksTF) mpRollbackKeepTicksTF->set_text("200");
+		        invalidate_all();
+		    }
+
+		    void OptionsMenu::reset_mp_sync_defaults() {
+		        app.prefs->setProperty("MultiplayerDebugZeroFillInputs", false);
+		        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", false);
+		        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", false);
+		        app.prefs->setProperty("MultiplayerDebugClientAuthBallPos", false);
+		        app.prefs->setProperty("MultiplayerDebugHostOnlyWorldInteractions", false);
+		        app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", 0.0);
+		        app.prefs->setProperty("MultiplayerDebugInputDelayTicks", 4.0);
+		        // 0 means "use built-in default threshold" (no override).
+		        app.prefs->setProperty("MultiplayerDebugWorldDesyncStreakForWorldStateRequest", 0.0);
+		        app.prefs->setProperty("MultiplayerDebugTickLengthMs", 10.0);
+		        if (mpPredictMissingMouseTicksTF) mpPredictMissingMouseTicksTF->set_text("0");
+		        if (mpInputDelayTicksTF) mpInputDelayTicksTF->set_text("4");
+		        if (mpWorldDesyncStreakForWorldStateRequestTF) mpWorldDesyncStreakForWorldStateRequestTF->set_text("0");
+		        if (mpTickLengthMsTF) mpTickLengthMsTF->set_text("10");
+		        invalidate_all();
+		    }
+
+		    void OptionsMenu::reset_mp_netsim_defaults() {
+		        app.prefs->setProperty("MultiplayerDebugNetSimEnabled", false);
+		        app.prefs->setProperty("MultiplayerDebugNetSimAll", false);
+		        app.prefs->setProperty("MultiplayerDebugNetSimDelayMs", 0.0);
+		        app.prefs->setProperty("MultiplayerDebugNetSimJitterMs", 0.0);
+		        app.prefs->setProperty("MultiplayerDebugNetSimDropPct", 0.0);
+		        app.prefs->setProperty("MultiplayerDebugNetSimDupPct", 0.0);
+		        if (mpNetSimDelayTF) mpNetSimDelayTF->set_text("0");
+		        if (mpNetSimJitterTF) mpNetSimJitterTF->set_text("0");
+		        if (mpNetSimDropTF) mpNetSimDropTF->set_text("0");
+		        if (mpNetSimDupTF) mpNetSimDupTF->set_text("0");
 		        invalidate_all();
 		    }
 
