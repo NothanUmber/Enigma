@@ -402,6 +402,10 @@ namespace {
 void broadcast_world_state_snapshot(bool reliable) {
     if (!g_session.host || !has_remote_peers())
         return;
+    // World-state snapshots require a fully initialized world; clients can send
+    // late packets (e.g. during lobby / start handshake) that must not crash us.
+    if (g_session.phase != SessionState::Phase::RUNNING || !server::WorldInitialized)
+        return;
     const int w = Width();
     const int h = Height();
     if (w <= 0 || h <= 0)
@@ -520,6 +524,8 @@ void send_resync_request() {
 }
 
 void send_world_state_request() {
+    if (g_session.phase != SessionState::Phase::RUNNING || !server::WorldInitialized)
+        return;
     protocol::WorldStateRequest req;
     req.epoch = g_session.input_epoch;
     req.tick = input::CurrentTick();

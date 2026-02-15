@@ -604,6 +604,11 @@ bool handle_host_world_state_request_packet(const char *data, size_t len) {
         return false;
     if (req.epoch != g_session.input_epoch)
         return true;
+    if (g_session.phase != SessionState::Phase::RUNNING || !server::WorldInitialized) {
+        if (debug_enabled())
+            debug_log("mp host: drop world-state request (not running / world not initialized)");
+        return true;
+    }
     // For now broadcast to all peers. This keeps everyone converging even if only
     // one client noticed the mismatch.
     if (debug_enabled())
