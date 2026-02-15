@@ -33,6 +33,7 @@
 #include "lev/Index.hh"
 #include "lev/Proxy.hh"
 #include "stones/OxydStone.hh"
+#include "stones/PuzzleStone.hh"
 #include "world.hh"
 
 #include "SDL.h"
@@ -60,6 +61,43 @@
 namespace enigma {
 namespace multiplayer {
 namespace internal {
+
+namespace {
+std::string stable_world_kind(Object *obj) {
+    if (!obj)
+        return std::string();
+    // Must match the encoding side (multiplayer_session_sync.cc): use template-backed
+    // kind strings for objects where Object::getKind() is schema-incomplete.
+    if (PuzzleStone *ps = dynamic_cast<PuzzleStone *>(obj)) {
+        const int color = static_cast<int>(ps->getAttr("color"));
+        const std::string con = ps->getAttr("connections").to_string();
+        int bits = 0;
+        if (con.find('w') != std::string::npos)
+            bits |= 1;
+        if (con.find('s') != std::string::npos)
+            bits |= 2;
+        if (con.find('e') != std::string::npos)
+            bits |= 4;
+        if (con.find('n') != std::string::npos)
+            bits |= 8;
+        static const char *kSuffix[16] = {"",    "w",   "s",   "sw",  "e",   "ew",  "es",  "esw",
+                                          "n",   "nw",  "ns",  "nsw", "ne",  "new", "nes", "nesw"};
+        const char *base = "st_puzzle";
+        if (color == BLUE)
+            base = "st_puzzle_blue";
+        else if (color == YELLOW)
+            base = "st_puzzle_yellow";
+        const bool hollow = ps->getAttr("hollow").to_bool();
+        if (hollow && color == YELLOW && bits == 15)
+            return "st_puzzle_yellow_nesw_hollow";
+        const char *suffix = kSuffix[bits & 15];
+        if (!suffix || !*suffix)
+            return base;
+        return std::string(base) + "_" + suffix;
+    }
+    return obj->getKind();
+}
+}  // namespace
 
 bool abort_session_with_message(const char *message) {
     if (!client::AbortGameP())
@@ -1057,141 +1095,88 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
     if (pkt.floor_state.size() != count || pkt.stone_state.size() != count || pkt.item_state.size() != count)
         return true;
 
-    const bool have_kinds =
-        (pkt.floor_kind.size() == count && pkt.stone_kind.size() == count && pkt.item_kind.size() == count &&
-         !pkt.kind_dict.empty());
-    if (debug_enabled()) {
-        debug_log("mp world-state recv: tick=%u kinds=%d movable=%u", pkt.tick, have_kinds ? 1 : 0,
-                  static_cast<unsigned>(pkt.movable_stones.size()));
-    }
+	    const bool have_kinds =
+	        (pkt.floor_kind.size() == count && pkt.stone_kind.size() == count && pkt.item_kind.size() == count &&
+	         !pkt.kind_dict.empty());
+	    if (debug_enabled()) {
+	        debug_log("mp world-state recv: tick=%u kinds=%d movable=%u", pkt.tick, have_kinds ? 1 : 0,
+	                  static_cast<unsigned>(pkt.movable_stones.size()));
+	    }
 
-    auto kind_lookup = [&pkt](Uint16 id) -> const std::string * {
+	    auto kind_lookup = [&pkt](Uint16 id) -> const std::string * {
         if (id == 0)
             return nullptr;
         const size_t idx = static_cast<size_t>(id - 1);
         if (idx >= pkt.kind_dict.size())
             return nullptr;
-        return &pkt.kind_dict[idx];
-    };
+	        return &pkt.kind_dict[idx];
+	    };
 
-    // If we have authoritative kinds, rebuild the grid from them first. This forces
-    // convergence for objects whose kind depends on non-"state" attributes.
-    if (have_kinds) {
-        int changed = 0;
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
-                GridPos p(x, y);
+	    // Reconcile positions of movable stones (puzzle stones, doors, etc) before applying
+	    // per-tile kind/state. This avoids destructive kill/recreate moves for movable stones.
+	    if (!pkt.movable_stones.empty()) {
+	        auto key = [](int x, int y) -> uint32_t {
+	            return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
+	        };
+	        auto key_to_pos = [](uint32_t k) -> GridPos {
+	            int x = static_cast<int>((k >> 16) & 0xFFFFu);
+	            int y = static_cast<int>(k & 0xFFFFu);
+	            return GridPos(x, y);
+	        };
 
-                const std::string floor_kind = GetFloor(p) ? GetFloor(p)->getKind() : std::string();
-                const std::string stone_kind = GetStone(p) ? GetStone(p)->getKind() : std::string();
-                const std::string item_kind = GetItem(p) ? GetItem(p)->getKind() : std::string();
+	        std::unordered_map<uint32_t, uint32_t> current_pos_by_id;
+	        current_pos_by_id.reserve(pkt.movable_stones.size() * 2);
+	        for (int y = 0; y < h; ++y) {
+	            for (int x = 0; x < w; ++x) {
+	                GridPos p(x, y);
+	                Stone *st = GetStone(p);
+	                if (!st || !st->is_movable())
+	                    continue;
+	                current_pos_by_id[static_cast<uint32_t>(st->getId())] = key(x, y);
+	            }
+	        }
 
-                const std::string *want_floor = kind_lookup(pkt.floor_kind[idx]);
-                const std::string *want_stone = kind_lookup(pkt.stone_kind[idx]);
-                const std::string *want_item = kind_lookup(pkt.item_kind[idx]);
-
-                if ((want_floor ? *want_floor : std::string()) != floor_kind) {
-                    if (!want_floor)
-                        KillFloor(p);
-                    else
-                        SetFloor(p, MakeFloor(want_floor->c_str()));
-                    changed += 1;
-                }
-                if ((want_stone ? *want_stone : std::string()) != stone_kind) {
-                    if (!want_stone)
-                        KillStone(p);
-                    else
-                        SetStone(p, MakeStone(want_stone->c_str()));
-                    changed += 1;
-                }
-                if ((want_item ? *want_item : std::string()) != item_kind) {
-                    if (!want_item)
-                        KillItem(p);
-                    else
-                        SetItem(p, MakeItem(want_item->c_str()));
-                    changed += 1;
-                }
-            }
-        }
-        if (debug_enabled())
-            debug_log("mp world-state apply kinds: changed=%d", changed);
-    }
-
-    // Otherwise (older snapshot), reconcile positions of movable stones (puzzle stones, doors, etc).
-    // Apply this before per-tile state so "stone_state" lands on the correct object.
-    if (!have_kinds && !pkt.movable_stones.empty()) {
-        auto key = [](int x, int y) -> uint32_t {
-            return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
-        };
-        auto key_to_pos = [](uint32_t k) -> GridPos {
-            int x = static_cast<int>((k >> 16) & 0xFFFFu);
-            int y = static_cast<int>(k & 0xFFFFu);
-            return GridPos(x, y);
-        };
-
-        std::unordered_map<uint32_t, uint32_t> current_pos_by_id;
-        current_pos_by_id.reserve(pkt.movable_stones.size() * 2);
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                GridPos p(x, y);
-                Stone *st = GetStone(p);
-                if (!st || !st->is_movable())
-                    continue;
-                current_pos_by_id[static_cast<uint32_t>(st->getId())] = key(x, y);
-            }
-        }
-
-        std::unordered_map<uint32_t, uint32_t> src_to_dst;
-        std::unordered_map<uint32_t, uint32_t> src_by_dst;
-        std::unordered_set<uint32_t> src_keys;
-        std::unordered_set<uint32_t> dst_keys;
-        src_to_dst.reserve(pkt.movable_stones.size());
-        src_by_dst.reserve(pkt.movable_stones.size());
-        src_keys.reserve(pkt.movable_stones.size());
-        dst_keys.reserve(pkt.movable_stones.size());
-        for (const auto &e : pkt.movable_stones) {
-            auto it = current_pos_by_id.find(static_cast<uint32_t>(e.object_id));
-            if (it == current_pos_by_id.end())
-                continue;
-            const uint32_t src = it->second;
-            const uint32_t dst = key(static_cast<int>(e.x), static_cast<int>(e.y));
-            if (src == dst)
-                continue;
-            src_to_dst[src] = dst;
-            src_by_dst[dst] = src;
-            src_keys.insert(src);
-            dst_keys.insert(dst);
-        }
+	        std::unordered_map<uint32_t, uint32_t> src_to_dst;
+	        std::unordered_map<uint32_t, uint32_t> src_by_dst;
+	        src_to_dst.reserve(pkt.movable_stones.size());
+	        src_by_dst.reserve(pkt.movable_stones.size());
+	        for (const auto &e : pkt.movable_stones) {
+	            auto it = current_pos_by_id.find(static_cast<uint32_t>(e.object_id));
+	            if (it == current_pos_by_id.end())
+	                continue;
+	            const uint32_t src = it->second;
+	            const uint32_t dst = key(static_cast<int>(e.x), static_cast<int>(e.y));
+	            if (src == dst)
+	                continue;
+	            src_to_dst[src] = dst;
+	            src_by_dst[dst] = src;
+	        }
 
 	        // Resolve simple chains first: whenever a destination is empty, move into it.
 	        bool progressed = true;
 	        while (progressed) {
 	            progressed = false;
-            for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
-                const uint32_t src = it->first;
-                const uint32_t dst = it->second;
-                GridPos dst_pos = key_to_pos(dst);
-                if (GetStone(dst_pos) != nullptr)
-                    continue;
-                MoveStone(key_to_pos(src), dst_pos);
-                src_by_dst.erase(dst);
-                src_to_dst.erase(it);
-                progressed = true;
-                break;
-            }
+	            for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
+	                const uint32_t src = it->first;
+	                const uint32_t dst = it->second;
+	                GridPos dst_pos = key_to_pos(dst);
+	                if (GetStone(dst_pos) != nullptr)
+	                    continue;
+	                MoveStone(key_to_pos(src), dst_pos);
+	                src_by_dst.erase(dst);
+	                src_to_dst.erase(it);
+	                progressed = true;
+	                break;
+	            }
 	        }
 
-	        // Remaining moves are cycles. We cannot assume an unused empty buffer cell exists
-	        // (levels can be fully packed, or all empty cells can be part of the permutation),
-	        // so break cycles by temporarily yielding one stone into memory.
-        while (!src_to_dst.empty()) {
+	        // Remaining moves are cycles. Break cycles by temporarily yielding one stone into memory.
+	        while (!src_to_dst.empty()) {
 	            const uint32_t start_src = src_to_dst.begin()->first;
 	            const uint32_t start_dst = src_to_dst.begin()->second;
 	            GridPos start_src_pos = key_to_pos(start_src);
 	            Stone *held = YieldStone(start_src_pos);
 	            if (!held) {
-	                // Nothing to move; drop this mapping entry.
 	                src_by_dst.erase(start_dst);
 	                src_to_dst.erase(start_src);
 	                continue;
@@ -1201,7 +1186,6 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
 	            while (empty != start_dst) {
 	                auto it_prev = src_by_dst.find(empty);
 	                if (it_prev == src_by_dst.end()) {
-	                    // Unexpected shape; restore and stop trying to reorder this snapshot.
 	                    SetStone(start_src_pos, held);
 	                    held = nullptr;
 	                    src_to_dst.clear();
@@ -1221,7 +1205,97 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
 	                src_by_dst.erase(start_dst);
 	                src_to_dst.erase(start_src);
 	            }
+	        }
+	    }
+
+	    // If we have authoritative kinds, rebuild the grid from them first. This forces
+	    // convergence for objects whose kind depends on non-"state" attributes.
+	    if (have_kinds) {
+	        int changed = 0;
+	        int logged = 0;
+	        const int kMaxLogged = 32;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
+                GridPos p(x, y);
+
+	                const std::string floor_kind = stable_world_kind(GetFloor(p));
+	                const std::string stone_kind = stable_world_kind(GetStone(p));
+	                const std::string item_kind = stable_world_kind(GetItem(p));
+
+                const std::string *want_floor = kind_lookup(pkt.floor_kind[idx]);
+                const std::string *want_stone = kind_lookup(pkt.stone_kind[idx]);
+                const std::string *want_item = kind_lookup(pkt.item_kind[idx]);
+
+                const std::string want_floor_str = (want_floor ? *want_floor : std::string());
+                const std::string want_stone_str = (want_stone ? *want_stone : std::string());
+                const std::string want_item_str = (want_item ? *want_item : std::string());
+
+                if (want_floor_str != floor_kind) {
+                    if (debug_enabled() && logged < kMaxLogged) {
+                        debug_log("mp world-state kind fix: pos=(%d,%d) layer=floor cur=%s want=%s", x, y,
+                                  floor_kind.empty() ? "(none)" : floor_kind.c_str(),
+                                  want_floor_str.empty() ? "(none)" : want_floor_str.c_str());
+                        logged += 1;
+                    }
+                    if (!want_floor)
+                        KillFloor(p);
+                    else
+                        SetFloor(p, MakeFloor(want_floor->c_str()));
+                    changed += 1;
+                }
+                if (want_stone_str != stone_kind) {
+                    if (debug_enabled() && logged < kMaxLogged) {
+                        debug_log("mp world-state kind fix: pos=(%d,%d) layer=stone cur=%s want=%s", x, y,
+                                  stone_kind.empty() ? "(none)" : stone_kind.c_str(),
+                                  want_stone_str.empty() ? "(none)" : want_stone_str.c_str());
+                        logged += 1;
+                    }
+                    if (!want_stone)
+                        KillStone(p);
+                    else
+                        SetStone(p, MakeStone(want_stone->c_str()));
+                    changed += 1;
+                }
+                if (want_item_str != item_kind) {
+                    if (debug_enabled() && logged < kMaxLogged) {
+                        debug_log("mp world-state kind fix: pos=(%d,%d) layer=item cur=%s want=%s", x, y,
+                                  item_kind.empty() ? "(none)" : item_kind.c_str(),
+                                  want_item_str.empty() ? "(none)" : want_item_str.c_str());
+                        logged += 1;
+                    }
+                    if (!want_item)
+                        KillItem(p);
+                    else
+                        SetItem(p, MakeItem(want_item->c_str()));
+                    changed += 1;
+                }
+            }
         }
+	        if (debug_enabled())
+	            debug_log("mp world-state apply kinds: changed=%d", changed);
+	    }
+
+	    // Apply authoritative oxyd colors before per-tile state so subsequent MpForceExternalState
+	    // uses the right model variant.
+	    if (!pkt.oxyd_colors.empty()) {
+        int changed = 0;
+        for (const auto &e : pkt.oxyd_colors) {
+            const int x = static_cast<int>(e.x);
+            const int y = static_cast<int>(e.y);
+            if (x < 0 || y < 0 || x >= w || y >= h)
+                continue;
+            GridPos p(x, y);
+            if (OxydStone *ox = dynamic_cast<OxydStone *>(GetStone(p))) {
+                const int color = static_cast<int>(static_cast<int16_t>(e.color_raw));
+                if (static_cast<int>(ox->getAttr("oxydcolor")) != color) {
+                    ox->MpForceOxydColor(color);
+                    changed += 1;
+                }
+            }
+        }
+        if (debug_enabled() && changed > 0)
+            debug_log("mp world-state apply oxydcolor: changed=%d", changed);
     }
 
     auto apply_state = [](Object *obj, Uint16 s) {

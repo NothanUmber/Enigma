@@ -113,6 +113,9 @@ namespace enigma {
         // open/close gameplay logic (which can be non-idempotent and can refuse to
         // close OPEN_PAIR stones). Used by authoritative world-state reconciliation.
         void MpForceExternalState(int extState);
+        // Multiplayer: force oxydcolor even when the stone is open (normal setAttr asserts).
+        // This is required to reconcile client world state to the host.
+        void MpForceOxydColor(int color);
     
     private:
         enum iState { CLOSED, OPEN_PAIR, OPENING, CLOSING, OPEN_SINGLE };

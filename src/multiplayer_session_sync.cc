@@ -26,6 +26,8 @@
 #include "options.hh"
 #include "player.hh"
 #include "server.hh"
+#include "stones/OxydStone.hh"
+#include "stones/PuzzleStone.hh"
 #include "world.hh"
 
 #include <algorithm>
@@ -399,6 +401,42 @@ void broadcast_resync_state_unreliable() {
 }
 
 namespace {
+std::string stable_world_kind(Object *obj) {
+    if (!obj)
+        return std::string();
+    // Object::getKind() uses the XML validator schema, which does not cover all runtime
+    // variants (notably puzzle stone connections / color). For world-state resync we need
+    // a kind string that is stable and maps to an actual template name for Make*().
+    if (PuzzleStone *ps = dynamic_cast<PuzzleStone *>(obj)) {
+        const int color = static_cast<int>(ps->getAttr("color"));
+        const std::string con = ps->getAttr("connections").to_string();
+        int bits = 0;
+        if (con.find('w') != std::string::npos)
+            bits |= 1;
+        if (con.find('s') != std::string::npos)
+            bits |= 2;
+        if (con.find('e') != std::string::npos)
+            bits |= 4;
+        if (con.find('n') != std::string::npos)
+            bits |= 8;
+        static const char *kSuffix[16] = {"",    "w",   "s",   "sw",  "e",   "ew",  "es",  "esw",
+                                          "n",   "nw",  "ns",  "nsw", "ne",  "new", "nes", "nesw"};
+        const char *base = "st_puzzle";
+        if (color == BLUE)
+            base = "st_puzzle_blue";
+        else if (color == YELLOW)
+            base = "st_puzzle_yellow";
+        const bool hollow = ps->getAttr("hollow").to_bool();
+        if (hollow && color == YELLOW && bits == 15)
+            return "st_puzzle_yellow_nesw_hollow";
+        const char *suffix = kSuffix[bits & 15];
+        if (!suffix || !*suffix)
+            return base;
+        return std::string(base) + "_" + suffix;
+    }
+    return obj->getKind();
+}
+
 void broadcast_world_state_snapshot(bool reliable) {
     if (!g_session.host || !has_remote_peers())
         return;
@@ -419,6 +457,7 @@ void broadcast_world_state_snapshot(bool reliable) {
     pkt.floor_state.assign(count, 0xFFFF);
     pkt.stone_state.assign(count, 0xFFFF);
     pkt.item_state.assign(count, 0xFFFF);
+    pkt.oxyd_colors.clear();
     pkt.kind_dict.clear();
     pkt.floor_kind.assign(count, 0);
     pkt.stone_kind.assign(count, 0);
@@ -438,16 +477,16 @@ void broadcast_world_state_snapshot(bool reliable) {
         return static_cast<Uint16>(s);
     };
 
-    std::unordered_map<std::string, Uint16> kind_index;
-    kind_index.reserve(128);
-    auto kind_id = [&](Object *obj) -> Uint16 {
-        if (!obj)
-            return 0;
-        const std::string kind = obj->getKind();
-        if (kind.empty())
-            return 0;
-        auto it = kind_index.find(kind);
-        if (it != kind_index.end())
+	    std::unordered_map<std::string, Uint16> kind_index;
+	    kind_index.reserve(128);
+	    auto kind_id = [&](Object *obj) -> Uint16 {
+	        if (!obj)
+	            return 0;
+	        const std::string kind = stable_world_kind(obj);
+	        if (kind.empty())
+	            return 0;
+	        auto it = kind_index.find(kind);
+	        if (it != kind_index.end())
             return it->second;
         const size_t next = pkt.kind_dict.size() + 1;
         if (next > 0xFFFF)
@@ -458,21 +497,30 @@ void broadcast_world_state_snapshot(bool reliable) {
         return id;
     };
 
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
-            GridPos p(x, y);
-            Object *fl = GetFloor(p);
-            Object *st = GetStone(p);
-            Object *it = GetItem(p);
-            pkt.floor_state[idx] = encode_state(fl);
-            pkt.stone_state[idx] = encode_state(st);
-            pkt.item_state[idx] = encode_state(it);
-            pkt.floor_kind[idx] = kind_id(fl);
-            pkt.stone_kind[idx] = kind_id(st);
-            pkt.item_kind[idx] = kind_id(it);
-        }
-    }
+	    for (int y = 0; y < h; ++y) {
+	        for (int x = 0; x < w; ++x) {
+	            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
+	            GridPos p(x, y);
+	            Object *fl = GetFloor(p);
+	            Object *st = GetStone(p);
+	            Object *it = GetItem(p);
+	            pkt.floor_state[idx] = encode_state(fl);
+	            pkt.stone_state[idx] = encode_state(st);
+	            pkt.item_state[idx] = encode_state(it);
+	            pkt.floor_kind[idx] = kind_id(fl);
+	            pkt.stone_kind[idx] = kind_id(st);
+	            pkt.item_kind[idx] = kind_id(it);
+	            if (OxydStone *ox = dynamic_cast<OxydStone *>(st)) {
+	                const int c = static_cast<int>(ox->getAttr("oxydcolor"));
+	                const int16_t cs = static_cast<int16_t>(c);
+	                protocol::WorldStatePacket::OxydColor e;
+	                e.x = static_cast<Uint16>(x);
+	                e.y = static_cast<Uint16>(y);
+	                e.color_raw = static_cast<Uint16>(static_cast<uint16_t>(cs));
+	                pkt.oxyd_colors.push_back(e);
+	            }
+	        }
+	    }
 
     pkt.movable_stones.clear();
     for (int y = 0; y < h; ++y) {

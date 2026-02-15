@@ -332,8 +332,14 @@ To keep gameplay viable, the host can provide an authoritative world-grid snapsh
 - Host replies with `NET_WORLD_STATE` containing:
   - full grid kind + state for floors/stones/items (compressed via a kind dictionary)
   - positions of movable stones (puzzle stones/doors) by `(x,y)` so swaps can be corrected
-- Client applies the snapshot by updating object `state` attributes and rebuilding movable-stone
-  placement where needed.
+- Client first applies the movable-stone permutation (moves existing movable stones into the
+  authoritative `(x,y)` positions) to preserve object identity and attributes.
+- Client then applies authoritative per-tile kinds and states. Kind strings are expected to be
+  template-backed (usable with `MakeFloor` / `MakeStone` / `MakeItem`). For some objects the XML
+  validator kind (`Object::getKind()`) is insufficient to describe runtime variants; puzzle stones are
+  the main example (their visual shape depends on `connections` and their kind depends on color).
+  World snapshots therefore encode a stable kind derived from the object attributes so receivers do
+  not thrash between `st_puzzle` and `st_puzzle_yellow` variants.
 
 This is intentionally conservative and may visually "snap" world objects back to the host state.
 

@@ -2552,6 +2552,18 @@ uint64_t WorldGridStateChecksum() {
         } else {
             hash_u64(h, 0);
         }
+        // Oxyd stones have an additional gameplay-relevant attribute that affects their
+        // visible identity (and matching logic). Include it so multiplayer detects and
+        // repairs oxyd color divergence too.
+        if (obj->getClass() == "st_oxyd") {
+            Value c = obj->getAttr("oxydcolor");
+            if (!c.isDefault()) {
+                int c_value = static_cast<int>(c);
+                hash_i64(h, static_cast<int64_t>(c_value));
+            } else {
+                hash_u64(h, 0);
+            }
+        }
     };
     for (int y = 0; y < level->h; ++y) {
         for (int x = 0; x < level->w; ++x) {

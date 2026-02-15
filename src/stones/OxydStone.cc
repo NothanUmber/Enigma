@@ -997,6 +997,19 @@ namespace enigma {
         state = OPEN_PAIR;
         set_model(modelname + "_open");
     }
+
+    void OxydStone::MpForceOxydColor(int color) {
+        if (!isDisplayable())
+            return;
+        const int ext = externalState();
+        const int old_state = state;
+        // Satisfy OxydStone::setAttr invariants by temporarily forcing CLOSED,
+        // then bypass the OxydStone override by calling Stone::setAttr directly.
+        state = CLOSED;
+        Stone::setAttr("oxydcolor", Value(color));
+        state = old_state;
+        MpForceExternalState(ext);
+    }
     
     bool OxydStone::is_removable() const {
         return !getAttr("static").to_bool();

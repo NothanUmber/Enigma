@@ -279,6 +279,118 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Selectable from the multiplayer lobby (or the experimental pack when filters allow)."],
         ["New multiplayer test map for 4 players (includes Oxyd stones so it is finishable)."],
     )
+
+    # Level pack maintenance / version selection.
+    #
+    # Some packs contain multiple converted variants of the same level id (e.g. API2 conversions
+    # made later). These changes adjust which release/revision is referenced by the pack index and
+    # remove the no-longer-selected variants.
+    add(
+        "data/levels/enigma_iii/index.xml",
+        ["Level pack index for Enigma III levels."],
+        ["Consumed by the level pack indexer and the in-game level selection widgets."],
+        [
+            "Adjusts selected release/revision for a few levels by repointing index entries to different `_xpath` targets.",
+            "Removes now-unreferenced converted variants of those levels (see deleted `*_2.xml`/`*_3.xml` siblings).",
+        ],
+    )
+    for path in [
+        "data/levels/enigma_iii/ant33_1.xml",
+        "data/levels/enigma_iii/ss16_2.xml",
+        "data/levels/enigma_iii/wb07_1.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma III level (selected variant referenced by the pack index)."],
+            ["Loaded by the level loader when the corresponding entry in `data/levels/enigma_iii/index.xml` is selected."],
+            ["Adds a versioned level variant that the pack index now references."],
+        )
+    for path in [
+        "data/levels/enigma_iii/ant33_2.xml",
+        "data/levels/enigma_iii/ss16_3.xml",
+        "data/levels/enigma_iii/wb07_2.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma III level (previously selected converted variant)."],
+            ["Was referenced by `data/levels/enigma_iii/index.xml` before the index repointing."],
+            ["Removes a no-longer-selected level variant to avoid keeping multiple divergent conversions in-tree."],
+        )
+
+    add(
+        "data/levels/enigma_oxyd/index.xml",
+        ["Level pack index for Enigma Oxyd levels."],
+        ["Consumed by the level pack indexer and the in-game level selection widgets."],
+        [
+            "Adjusts selected release/revision for a few levels by repointing index entries to different `_xpath` targets.",
+            "Removes now-unreferenced converted variants of those levels (see deleted `*_2.xml` siblings).",
+        ],
+    )
+    for path in [
+        "data/levels/enigma_oxyd/oxyd79_1.xml",
+        "data/levels/enigma_oxyd/oxyd95_1.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma Oxyd level (selected variant referenced by the pack index)."],
+            ["Loaded by the level loader when the corresponding entry in `data/levels/enigma_oxyd/index.xml` is selected."],
+            ["Adds a versioned level variant that the pack index now references."],
+        )
+    for path in [
+        "data/levels/enigma_oxyd/oxyd79_2.xml",
+        "data/levels/enigma_oxyd/oxyd95_2.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma Oxyd level (previously selected converted variant)."],
+            ["Was referenced by `data/levels/enigma_oxyd/index.xml` before the index repointing."],
+            ["Removes a no-longer-selected level variant to avoid keeping multiple divergent conversions in-tree."],
+        )
+
+    add(
+        "data/levels/enigma_viii/index.xml",
+        ["Level pack index for Enigma VIII levels."],
+        ["Consumed by the level pack indexer and the in-game level selection widgets."],
+        [
+            "Adjusts selected release/revision for a few levels by repointing index entries to different `_xpath` targets.",
+            "Removes now-unreferenced converted variants of those levels (see deleted `*_2.xml`/`*_3.xml` siblings).",
+        ],
+    )
+    for path in [
+        "data/levels/enigma_viii/joe10_1.xml",
+        "data/levels/enigma_viii/joe12_2.xml",
+        "data/levels/enigma_viii/joe26_1.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma VIII level (selected variant referenced by the pack index)."],
+            ["Loaded by the level loader when the corresponding entry in `data/levels/enigma_viii/index.xml` is selected."],
+            ["Adds a versioned level variant that the pack index now references."],
+        )
+    for path in [
+        "data/levels/enigma_viii/joe10_2.xml",
+        "data/levels/enigma_viii/joe12_3.xml",
+        "data/levels/enigma_viii/joe26_2.xml",
+    ]:
+        add(
+            path,
+            ["Level XML for an Enigma VIII level (previously selected converted variant)."],
+            ["Was referenced by `data/levels/enigma_viii/index.xml` before the index repointing."],
+            ["Removes a no-longer-selected level variant to avoid keeping multiple divergent conversions in-tree."],
+        )
+
+    add(
+        "data/levels/enigma_x/index.xml",
+        ["Level pack index for Enigma X levels."],
+        ["Consumed by the level pack indexer and the in-game level selection widgets."],
+        ["Updates the referenced revision metadata for a level entry to match its selected XML variant."],
+    )
+    add(
+        "data/levels/enigma_x/dpl03_4.xml",
+        ["Level XML for an Enigma X level."],
+        ["Loaded by the level loader when selected from the Enigma X pack index."],
+        ["Adjusts metadata/comment content and formatting for a converted level file."],
+    )
     add(
         "data/schemas/enigmarc.xml",
         ["Schema for Enigma configuration (preferences) file."],
@@ -578,6 +690,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Ensures abort/shutdown stops transport polling immediately to avoid use-after-free and UI stalls.",
             "Validates READY/START against the current `session_id`, `epoch`, and per-level `load_id` so late packets cannot unblock the wrong level start.",
             "Implements host-driven level transitions by handling `NET_LOAD_LEVEL` (switch pack + load level by normalized path).",
+            "Improves world-state snapshot application: reorder movable stones before applying per-tile kinds/states to preserve object identity and reduce visible morphing.",
             "Uses ENet-version-compatible address formatting in debug logs (works with vendored ENet 1.0 and ENet 1.3).",
             "When ENet >= 1.3 is available, configures peer timeout on accept so temporary network stalls can recover without immediate disconnect.",
         ],
@@ -589,6 +702,7 @@ def build_narratives() -> Dict[str, FileNarrative]:
         [
             "Adds deterministic lockstep input exchange and divergence detection with soft resync.",
             "Extends drift recovery by requesting and applying host-authoritative world-grid snapshots when world checksums diverge.",
+            "Encodes stable template-backed kinds for schema-incomplete objects (notably puzzle stones) so world-state snapshots can converge without repeated kill/recreate loops.",
             "Sends READY/START with an additional `load_id` so readiness and start signals are scoped to the currently loading level.",
         ],
     )
@@ -912,6 +1026,23 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Instantiated by levels that use rubberband constraints; updated by the physics/world tick."],
         [
             "Adds a multiplayer-only helper message so rubberband internal flags can be recomputed after a soft resync, reducing persistent post-resync drift.",
+        ],
+    )
+    add(
+        "src/stones/OxydStone.hh",
+        ["Oxyd stone declarations (stateful matching stones used in many Oxyd-derived levels)."],
+        ["Included by Oxyd stone implementation and by multiplayer world-state snapshot/reconcile code."],
+        [
+            "Adds multiplayer-only force helpers to override externally visible state and `oxydcolor` without running normal open/close gameplay logic.",
+            "This is used by host-authoritative world-state reconciliation to recover from world divergence.",
+        ],
+    )
+    add(
+        "src/stones/OxydStone.cc",
+        ["Oxyd stone implementation."],
+        ["Used by levels containing Oxyd stones; invoked by world tick and by actor collisions."],
+        [
+            "Implements multiplayer force helpers for idempotent state/oxydcolor reconciliation based on the host snapshot.",
         ],
     )
     add(
