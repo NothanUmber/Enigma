@@ -452,8 +452,21 @@ void Tick(double dtime) {
     case sv_restart_game:
         current_state_dtime += dtime;
         if (current_state_dtime >= 1.0) {
-            lev::Index *ind = lev::Index::getCurrentIndex();
-            load_level(ind->getCurrent(), (state == sv_restart_level));
+            // In multiplayer, the local "current index position" can differ between peers
+            // (e.g. browsing packs/levels while a game is running). Restart must reload the
+            // actually loaded level, not whatever the local index currently points to.
+            lev::Proxy *to_reload = LoadedProxy;
+            if (!to_reload) {
+                lev::Index *ind = lev::Index::getCurrentIndex();
+                if (ind)
+                    to_reload = ind->getCurrent();
+            }
+            if (to_reload) {
+                load_level(to_reload, (state == sv_restart_level));
+            } else {
+                Log << "Server restart: no loaded level proxy, aborting restart.\n";
+                state = sv_idle;
+            }
         } else {
             gametick(dtime);
         }
