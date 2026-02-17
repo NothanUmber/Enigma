@@ -1704,19 +1704,19 @@ public:
 		            int tick_ms = 10;
 		            int input_delay_legacy_ticks = 4;
 		            int predict_mouse_ticks = 0;
-		            int host_resync_stride = 50;
+		            int host_resync_stride = 1;
 		            int host_world_stride = 50;
 		        };
 		        Preset p;
 		        switch (preset_id) {
 		        case 1:  // normal
 		            p.zerofill = true;
-		            p.rollback = true;
+		            p.rollback = false;
 		            p.remote_local_ball = false;
 		            p.tick_ms = 20;
 		            p.input_delay_legacy_ticks = 8;
-		            p.predict_mouse_ticks = 2;
-		            p.host_resync_stride = 25;
+		            p.predict_mouse_ticks = 0;
+		            p.host_resync_stride = 1;
 		            p.host_world_stride = 25;
 		            break;
 		        case 2:  // bad
@@ -1731,7 +1731,7 @@ public:
 		            p.tick_ms = 50;
 		            p.input_delay_legacy_ticks = 16;
 		            p.predict_mouse_ticks = 0;
-		            p.host_resync_stride = 10;
+		            p.host_resync_stride = 30;
 		            p.host_world_stride = 10;
 		            break;
 		        default:  // good
@@ -1741,7 +1741,7 @@ public:
 		            p.tick_ms = 10;
 		            p.input_delay_legacy_ticks = 4;
 		            p.predict_mouse_ticks = 0;
-		            p.host_resync_stride = 50;
+		            p.host_resync_stride = 1;
 		            p.host_world_stride = 50;
 		            break;
 		        }

@@ -977,12 +977,46 @@ bool handle_host_pong_packet(const char *data, size_t len, ENetPeer *peer, HostS
     return true;
 }
 
+bool handle_host_ping_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
+                             Uint32 relay_client_id) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::PingPacket ping;
+    if (!protocol::decode_ping(buf, ping))
+        return false;
+    if (!g_session.host)
+        return true;
+
+    protocol::PongPacket pong;
+    pong.ping_id = ping.ping_id;
+    ecl::Buffer out;
+    protocol::encode_pong(out, pong);
+
+    // Mirror back to the origin transport so clients can measure RTT too.
+    if (source == HostSource::DIRECT) {
+        g_transport.HostSendDirectUnreliable(peer, out);
+        g_transport.Flush();
+        return true;
+    }
+    if (source == HostSource::UDP_RELAY) {
+        g_transport.HostSendUdpRelay(relay_client_id, out);
+        return true;
+    }
+    if (source == HostSource::TCP_RELAY) {
+        g_transport.HostSendTcpRelay(relay_client_id, out);
+        return true;
+    }
+    return true;
+}
+
 bool handle_host_owner_actor_state_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                                          Uint32 relay_client_id);
 
 bool handle_host_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
                         Uint32 relay_client_id) {
     if (handle_host_pong_packet(data, len, peer, source, relay_client_id))
+        return true;
+    if (handle_host_ping_packet(data, len, peer, source, relay_client_id))
         return true;
     if (handle_host_input_bundle_packet(data, len, peer, source, relay_client_id))
         return true;
@@ -1788,6 +1822,7 @@ bool handle_client_placement_packet(const char *data, size_t len) {
 }
 
 bool handle_client_owner_actor_state_packet(const char *data, size_t len);
+bool handle_client_pong_packet(const char *data, size_t len);
 
 void handle_client_payload(const char *data, size_t len) {
     if (handle_client_input_bundle_packet(data, len))
@@ -1797,6 +1832,8 @@ void handle_client_payload(const char *data, size_t len) {
     if (handle_client_debug_options_packet(data, len))
         return;
     if (handle_client_ping_packet(data, len))
+        return;
+    if (handle_client_pong_packet(data, len))
         return;
     if (handle_client_welcome_packet(data, len))
         return;
@@ -1819,6 +1856,39 @@ void handle_client_payload(const char *data, size_t len) {
     if (handle_client_restart_packet(data, len))
         return;
     handle_client_placement_packet(data, len);
+}
+
+bool handle_client_pong_packet(const char *data, size_t len) {
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), len);
+    protocol::PongPacket pong;
+    if (!protocol::decode_pong(buf, pong))
+        return false;
+    if (g_session.host)
+        return true;
+    if (!g_session.active)
+        return true;
+
+    // Client-side RTT measurement to host (player 0). This is particularly
+    // important for relay modes where ENet's RTT is to the relay, not the host.
+    const unsigned host_player = 0;
+    if (host_player >= g_session.runtime_latency_inflight_ms.size())
+        return true;
+    auto &inflight = g_session.runtime_latency_inflight_ms[host_player];
+    auto it = inflight.find(pong.ping_id);
+    if (it == inflight.end())
+        return true;
+    const Uint32 sent_ms = it->second;
+    inflight.erase(it);
+    const Uint32 now_ms = SDL_GetTicks();
+    const Uint32 rtt_ms = (now_ms >= sent_ms) ? (now_ms - sent_ms) : 0;
+    if (host_player >= g_session.runtime_latency_rtt_ms.size())
+        g_session.runtime_latency_rtt_ms.resize(host_player + 1, 0);
+    if (host_player >= g_session.runtime_latency_valid.size())
+        g_session.runtime_latency_valid.resize(host_player + 1, false);
+    g_session.runtime_latency_rtt_ms[host_player] = rtt_ms;
+    g_session.runtime_latency_valid[host_player] = true;
+    return true;
 }
 
 bool handle_client_owner_actor_state_packet(const char *data, size_t len) {

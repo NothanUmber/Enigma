@@ -257,15 +257,15 @@ std::string latency_text_for_player(unsigned player) {
 
     Uint32 rtt = 0;
     bool have_rtt = false;
-    if (g_session.active_transport == TransportKind::DIRECT && g_session.server_peer) {
-        rtt = g_session.server_peer->roundTripTime;
-        have_rtt = true;
-    } else if (g_session.active_transport == TransportKind::UDP_RELAY && g_session.relay_peer) {
-        rtt = g_session.relay_peer->roundTripTime;
-        have_rtt = true;
-    } else if (host_player < g_session.runtime_latency_valid.size() &&
-               g_session.runtime_latency_valid[host_player]) {
+    if (host_player < g_session.runtime_latency_valid.size() &&
+        g_session.runtime_latency_valid[host_player]) {
         rtt = g_session.runtime_latency_rtt_ms[host_player];
+        have_rtt = true;
+    } else if ((g_session.active_transport == TransportKind::DIRECT ||
+                g_session.active_transport == TransportKind::UDP_RELAY) &&
+               g_session.server_peer) {
+        // Fallback: ENet RTT to the connected peer (host for direct, relay for UDP relay).
+        rtt = g_session.server_peer->roundTripTime;
         have_rtt = true;
     }
     if (!have_rtt)
@@ -826,6 +826,50 @@ void tick_host_runtime_latency_probes() {
     g_session.runtime_latency_next_send_ms = now_ms + 1000;
 }
 
+void tick_client_runtime_latency_probe() {
+    if (!g_session.active || g_session.host)
+        return;
+    if (g_session.phase != SessionState::Phase::RUNNING)
+        return;
+
+    // Ensure we have a path to the host (direct/UDP relay via ENet, or TCP relay socket).
+    const bool have_transport =
+        (g_session.server_peer != nullptr) ||
+        (g_session.active_transport == TransportKind::TCP_RELAY && tcp_socket_valid(g_session.tcp_relay_socket));
+    if (!have_transport)
+        return;
+
+    ensure_runtime_latency_storage();
+    const Uint32 now_ms = SDL_GetTicks();
+    if (now_ms < g_session.runtime_latency_next_send_ms)
+        return;
+
+    // Client measures RTT to host (player 0) by pinging and waiting for PONG.
+    const unsigned host_player = 0;
+    if (host_player >= g_session.runtime_latency_inflight_ms.size())
+        return;
+    auto &inflight = g_session.runtime_latency_inflight_ms[host_player];
+    for (auto it = inflight.begin(); it != inflight.end(); ) {
+        if (now_ms >= it->second && (now_ms - it->second) > 5000)
+            it = inflight.erase(it);
+        else
+            ++it;
+    }
+
+    if (g_session.runtime_latency_next_ping_id == 0)
+        g_session.runtime_latency_next_ping_id = 1;
+    const Uint32 ping_id = g_session.runtime_latency_next_ping_id++;
+    inflight[ping_id] = now_ms;
+
+    protocol::PingPacket msg;
+    msg.ping_id = ping_id;
+    ecl::Buffer payload;
+    protocol::encode_ping(payload, msg);
+    g_transport.ClientSendUnreliable(payload);
+
+    g_session.runtime_latency_next_send_ms = now_ms + 1000;
+}
+
 void tick_host_periodic_debug_options_broadcast(double dtime) {
     if (!g_session.active || !g_session.host)
         return;
@@ -1274,6 +1318,7 @@ void SessionTick(double dtime) {
     tick_host_reannounce_load(dtime);
     tick_update_start_phase();
     tick_host_runtime_latency_probes();
+    tick_client_runtime_latency_probe();
     tick_host_periodic_debug_options_broadcast(dtime);
     send_local_inputs();
     tick_host_periodic_sync(dtime);
