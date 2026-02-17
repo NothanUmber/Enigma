@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <sstream>
 
 /* -------------------- Multiplayer session runtime -------------------- */
 /*
@@ -156,6 +157,212 @@ void SessionSetInputClockFrozen(bool frozen) {
     g_session.input_clock_accu = 0.0;
 }
 
+namespace {
+
+// Auto-detect classifies the session based on the worst (across remotes) p90 RTT.
+constexpr Uint32 kConnectivityGoodMaxP90Ms = 70;
+constexpr Uint32 kConnectivityNormalMaxP90Ms = 180;
+
+const char *on_off(bool value) {
+    return value ? "On" : "Off";
+}
+
+struct ConnectivityPresetSpec {
+    const char *name;
+    bool zerofill;
+    bool rollback;
+    bool remote_local_ball;
+    bool client_auth_pos;
+    bool host_world_only;
+    int tick_ms;
+    int input_delay_legacy_ticks;
+    int predict_mouse_ticks;
+    int host_resync_stride;
+    int host_world_stride;
+};
+
+bool options_match_preset(const ConnectivityPresetSpec &p) {
+    return options::GetBool("MultiplayerDebugSmoothRender") &&
+           options::GetBool("MultiplayerDebugZeroFillInputs") == p.zerofill &&
+           options::GetBool("MultiplayerDebugRollbackEnabled") == p.rollback &&
+           options::GetBool("MultiplayerDebugRemoteControlLocalBall") == p.remote_local_ball &&
+           options::GetBool("MultiplayerDebugClientAuthBallPos") == p.client_auth_pos &&
+           options::GetBool("MultiplayerDebugHostOnlyWorldInteractions") == p.host_world_only &&
+           options::GetInt("MultiplayerDebugTickLengthMs") == p.tick_ms &&
+           options::GetInt("MultiplayerDebugInputDelayTicks") == p.input_delay_legacy_ticks &&
+           options::GetInt("MultiplayerDebugPredictMissingMouseTicks") == p.predict_mouse_ticks &&
+           options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks") == p.host_resync_stride &&
+           options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks") == p.host_world_stride;
+}
+
+std::string connectivity_profile_name_or_custom() {
+    static const ConnectivityPresetSpec presets[] = {
+        {"Good", false, false, false, false, false, 10, 4, 0, 50, 50},
+        {"Normal", true, true, false, false, false, 20, 8, 2, 25, 25},
+        {"Bad", true, false, false, true, true, 50, 16, 0, 10, 10}
+    };
+    for (const auto &preset : presets) {
+        if (options_match_preset(preset))
+            return preset.name;
+    }
+    return "Custom";
+}
+
+void append_bool_option(std::vector<std::string> &lines, const char *label, const char *option) {
+    std::ostringstream os;
+    os << label << ": " << on_off(options::GetBool(option));
+    lines.push_back(os.str());
+}
+
+void append_int_option(std::vector<std::string> &lines, const char *label, const char *option) {
+    std::ostringstream os;
+    os << label << ": " << options::GetInt(option);
+    lines.push_back(os.str());
+}
+
+void ensure_runtime_latency_storage() {
+    size_t players = std::max<unsigned>(1u, g_session.expected_players);
+    if (g_session.runtime_latency_inflight_ms.size() != players)
+        g_session.runtime_latency_inflight_ms.assign(players, std::unordered_map<Uint32, Uint32>());
+    if (g_session.runtime_latency_rtt_ms.size() != players)
+        g_session.runtime_latency_rtt_ms.assign(players, 0);
+    if (g_session.runtime_latency_valid.size() != players)
+        g_session.runtime_latency_valid.assign(players, false);
+    if (g_session.local_player < players) {
+        g_session.runtime_latency_valid[g_session.local_player] = true;
+        g_session.runtime_latency_rtt_ms[g_session.local_player] = 0;
+    }
+}
+
+std::string latency_text_for_player(unsigned player) {
+    if (!g_session.active)
+        return "n/a";
+    if (g_session.host) {
+        if (player == g_session.local_player)
+            return "0 ms";
+        if (player < g_session.runtime_latency_valid.size() && g_session.runtime_latency_valid[player]) {
+            std::ostringstream os;
+            os << g_session.runtime_latency_rtt_ms[player] << " ms";
+            return os.str();
+        }
+        return "n/a";
+    }
+
+    // Client-side: show RTT to host when available.
+    const unsigned host_player = 0;
+    if (player == g_session.local_player)
+        return "0 ms";
+    if (player != host_player)
+        return "n/a";
+
+    Uint32 rtt = 0;
+    bool have_rtt = false;
+    if (g_session.active_transport == TransportKind::DIRECT && g_session.server_peer) {
+        rtt = g_session.server_peer->roundTripTime;
+        have_rtt = true;
+    } else if (g_session.active_transport == TransportKind::UDP_RELAY && g_session.relay_peer) {
+        rtt = g_session.relay_peer->roundTripTime;
+        have_rtt = true;
+    } else if (host_player < g_session.runtime_latency_valid.size() &&
+               g_session.runtime_latency_valid[host_player]) {
+        rtt = g_session.runtime_latency_rtt_ms[host_player];
+        have_rtt = true;
+    }
+    if (!have_rtt)
+        return "n/a";
+    std::ostringstream os;
+    os << rtt << " ms";
+    return os.str();
+}
+
+unsigned host_transport_mask_for_player(unsigned player) {
+    if (!g_session.active || !g_session.host)
+        return 0;
+    if (player == g_session.local_player)
+        return 0;
+
+    unsigned mask = 0;
+    for (const auto &entry : g_session.peer_players) {
+        if (entry.second == player) {
+            mask |= 1u;  // direct
+            break;
+        }
+    }
+    for (const auto &entry : g_session.relay_players) {
+        if (entry.second == player) {
+            mask |= 2u;  // udp-relay
+            break;
+        }
+    }
+    for (const auto &entry : g_session.tcp_relay_players) {
+        if (entry.second == player) {
+            mask |= 4u;  // tcp-relay
+            break;
+        }
+    }
+    return mask;
+}
+
+std::string overlay_transport_text_for_player(unsigned player) {
+    if (!g_session.active)
+        return "";
+    if (player == g_session.local_player)
+        return "local";
+
+    if (g_session.host) {
+        unsigned mask = host_transport_mask_for_player(player);
+        if (mask == 1u)
+            return transport_name(TransportKind::DIRECT);
+        if (mask == 2u)
+            return transport_name(TransportKind::UDP_RELAY);
+        if (mask == 4u)
+            return transport_name(TransportKind::TCP_RELAY);
+        if (mask == 0u)
+            return "";
+        return "mixed";
+    }
+
+    // Client-side: only the host transport is known/useful.
+    const unsigned host_player = 0;
+    if (player != host_player)
+        return "";
+    return transport_name(g_session.active_transport);
+}
+
+std::string host_transport_summary_line() {
+    const unsigned direct = static_cast<unsigned>(g_session.peer_players.size());
+    const unsigned udp = static_cast<unsigned>(g_session.relay_players.size());
+    const unsigned tcp = static_cast<unsigned>(g_session.tcp_relay_players.size());
+    const unsigned kinds = (direct ? 1u : 0u) + (udp ? 1u : 0u) + (tcp ? 1u : 0u);
+
+    if (kinds == 0u)
+        return "Transport: local";
+    if (kinds == 1u) {
+        if (direct)
+            return std::string("Transport: ") + transport_name(TransportKind::DIRECT);
+        if (udp)
+            return std::string("Transport: ") + transport_name(TransportKind::UDP_RELAY);
+        return std::string("Transport: ") + transport_name(TransportKind::TCP_RELAY);
+    }
+
+    std::string used;
+    if (direct)
+        used += transport_name(TransportKind::DIRECT);
+    if (udp) {
+        if (!used.empty())
+            used += ", ";
+        used += transport_name(TransportKind::UDP_RELAY);
+    }
+    if (tcp) {
+        if (!used.empty())
+            used += ", ";
+        used += transport_name(TransportKind::TCP_RELAY);
+    }
+    return std::string("Transport: mixed (") + used + ")";
+}
+
+}  // namespace
+
 void SessionRequestPause(bool paused) {
     if (!g_session.active)
         return;
@@ -168,6 +375,78 @@ void SessionRequestPause(bool paused) {
         return;
     }
     send_pause_to_host(paused);
+}
+
+void SessionBuildStatsOverlayLines(std::vector<std::string> &lines,
+                                   ::enigma::multiplayer::StatsOverlayPage page) {
+    lines.clear();
+    if (!g_session.active)
+        return;
+
+    ensure_runtime_latency_storage();
+
+    const char *section = "MP Debug";
+    if (page == ::enigma::multiplayer::StatsOverlayPage::SYNC)
+        section = "MP Sync";
+    else if (page == ::enigma::multiplayer::StatsOverlayPage::NETSIM)
+        section = "MP Netsim";
+    lines.push_back("MP stats");
+    {
+        std::ostringstream os;
+        os << "Role: " << (g_session.host ? "Host" : "Client");
+        lines.push_back(os.str());
+    }
+    if (g_session.host) {
+        lines.push_back(host_transport_summary_line());
+    } else {
+        std::ostringstream os;
+        os << "Transport: " << transport_name(g_session.active_transport);
+        lines.push_back(os.str());
+    }
+    lines.push_back(std::string("Connectivity profile: ") + connectivity_profile_name_or_custom());
+    lines.push_back("Latency (RTT):");
+    for (unsigned player = 0; player < g_session.expected_players; ++player) {
+        std::ostringstream os;
+        os << "  P" << player << ": " << latency_text_for_player(player);
+        const std::string transport = overlay_transport_text_for_player(player);
+        if (!transport.empty())
+            os << " (" << transport << ")";
+        lines.push_back(os.str());
+    }
+
+    lines.push_back("");
+    lines.push_back(std::string(section) + ":");
+
+    if (page == ::enigma::multiplayer::StatsOverlayPage::DEBUG) {
+        append_bool_option(lines, "MP logs", "MultiplayerDebugLogging");
+        append_bool_option(lines, "MP dump", "MultiplayerDebugDumpState");
+        append_bool_option(lines, "MP trace init", "MultiplayerDebugTraceWorldInit");
+        append_bool_option(lines, "MP smooth render", "MultiplayerDebugSmoothRender");
+        append_bool_option(lines, "MP skip local resync", "MultiplayerDebugSkipLocalResync");
+        append_bool_option(lines, "MP force relay", "MultiplayerDebugForceRelay");
+        append_bool_option(lines, "MP bind local", "MultiplayerDebugBindLocal");
+        append_int_option(lines, "Host resync stride", "MultiplayerDebugHostBroadcastResyncStrideTicks");
+        append_int_option(lines, "Host world stride", "MultiplayerDebugHostBroadcastWorldStateStrideTicks");
+        append_int_option(lines, "Rollback keep ticks", "MultiplayerDebugRollbackKeepTicks");
+    } else if (page == ::enigma::multiplayer::StatsOverlayPage::SYNC) {
+        append_bool_option(lines, "MP zerofill", "MultiplayerDebugZeroFillInputs");
+        append_bool_option(lines, "MP rollback", "MultiplayerDebugRollbackEnabled");
+        append_bool_option(lines, "MP remote local ball", "MultiplayerDebugRemoteControlLocalBall");
+        append_bool_option(lines, "MP client auth pos", "MultiplayerDebugClientAuthBallPos");
+        append_bool_option(lines, "MP host world only", "MultiplayerDebugHostOnlyWorldInteractions");
+        append_int_option(lines, "Predict mouse ticks", "MultiplayerDebugPredictMissingMouseTicks");
+        append_int_option(lines, "Input delay ticks", "MultiplayerDebugInputDelayTicks");
+        append_int_option(lines, "World desync streak",
+                          "MultiplayerDebugWorldDesyncStreakForWorldStateRequest");
+        append_int_option(lines, "Tick length ms", "MultiplayerDebugTickLengthMs");
+    } else {
+        append_bool_option(lines, "MP netsim", "MultiplayerDebugNetSimEnabled");
+        append_bool_option(lines, "MP netsim all", "MultiplayerDebugNetSimAll");
+        append_int_option(lines, "Netsim delay ms", "MultiplayerDebugNetSimDelayMs");
+        append_int_option(lines, "Netsim jitter ms", "MultiplayerDebugNetSimJitterMs");
+        append_int_option(lines, "Netsim drop %", "MultiplayerDebugNetSimDropPct");
+        append_int_option(lines, "Netsim dup %", "MultiplayerDebugNetSimDupPct");
+    }
 }
 
 namespace {
@@ -365,6 +644,12 @@ void SessionPrimeInputQueueForNewLevel() {
     g_session.auto_detect_rtts_ms.clear();
     g_session.auto_detect_sent.clear();
     g_session.auto_detect_recv.clear();
+    g_session.runtime_latency_next_ping_id = 1;
+    g_session.runtime_latency_next_send_ms = 0;
+    g_session.runtime_latency_inflight_ms.clear();
+    g_session.runtime_latency_rtt_ms.clear();
+    g_session.runtime_latency_valid.clear();
+    g_session.debug_options_broadcast_timer = 0.0;
     if (g_session.host) {
         for (auto &entry : g_session.peer_ready)
             entry.second = false;
@@ -391,9 +676,9 @@ Uint32 percentile_ms(std::vector<Uint32> samples, double p) {
 
 int classify_connectivity_preset(Uint32 worst_p90_ms) {
     // Thresholds are conservative: we prefer a slower but stable experience.
-    if (worst_p90_ms <= 70)
+    if (worst_p90_ms <= kConnectivityGoodMaxP90Ms)
         return 0;  // good
-    if (worst_p90_ms <= 180)
+    if (worst_p90_ms <= kConnectivityNormalMaxP90Ms)
         return 1;  // mediocre
     return 2;      // bad
 }
@@ -403,6 +688,8 @@ void apply_connectivity_preset_to_options(int preset_id) {
     bool zerofill = false;
     bool rollback = false;
     bool remote_local_ball = false;
+    bool client_auth_pos = false;
+    bool host_world_only = false;
     int tick_ms = 10;
     int input_delay_legacy_ticks = 4;
     int predict_mouse_ticks = 0;
@@ -413,6 +700,8 @@ void apply_connectivity_preset_to_options(int preset_id) {
         zerofill = true;
         rollback = true;
         remote_local_ball = false;
+        client_auth_pos = false;
+        host_world_only = false;
         tick_ms = 20;
         input_delay_legacy_ticks = 8;
         predict_mouse_ticks = 2;
@@ -420,11 +709,16 @@ void apply_connectivity_preset_to_options(int preset_id) {
         host_world_stride = 25;
     } else if (preset_id == 2) {  // bad
         zerofill = true;
-        rollback = true;
-        remote_local_ball = true;
+        // Prefer playability over strict lockstep under poor links:
+        // - client-authoritative local ball position avoids heavy "snap back"
+        // - host-only world interactions avoids client-side stone flicker
+        rollback = false;
+        remote_local_ball = false;
+        client_auth_pos = true;
+        host_world_only = true;
         tick_ms = 50;
         input_delay_legacy_ticks = 16;
-        predict_mouse_ticks = 5;
+        predict_mouse_ticks = 0;
         host_resync_stride = 10;
         host_world_stride = 10;
     }
@@ -433,8 +727,8 @@ void apply_connectivity_preset_to_options(int preset_id) {
     options::SetOption("MultiplayerDebugZeroFillInputs", zerofill);
     options::SetOption("MultiplayerDebugRollbackEnabled", rollback);
     options::SetOption("MultiplayerDebugRemoteControlLocalBall", remote_local_ball);
-    // Keep experimental features off in presets unless explicitly enabled.
-    options::SetOption("MultiplayerDebugClientAuthBallPos", false);
+    options::SetOption("MultiplayerDebugClientAuthBallPos", client_auth_pos);
+    options::SetOption("MultiplayerDebugHostOnlyWorldInteractions", host_world_only);
 
     options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(tick_ms));
     options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(input_delay_legacy_ticks));
@@ -465,6 +759,85 @@ void host_send_ping_to_remote(HostSource source, ENetPeer *peer, Uint32 relay_cl
         g_transport.HostSendTcpRelay(relay_client_id, payload);
         return;
     }
+}
+
+void tick_host_runtime_latency_probes() {
+    if (!g_session.active || !g_session.host)
+        return;
+    if (g_session.phase != SessionState::Phase::RUNNING)
+        return;
+    if (!has_remote_peers())
+        return;
+
+    ensure_runtime_latency_storage();
+    const Uint32 now_ms = SDL_GetTicks();
+    if (now_ms < g_session.runtime_latency_next_send_ms)
+        return;
+
+    for (const auto &entry : g_session.peer_players) {
+        ENetPeer *peer = entry.first;
+        const unsigned player_id = entry.second;
+        if (player_id >= g_session.expected_players)
+            continue;
+        auto &inflight = g_session.runtime_latency_inflight_ms[player_id];
+        for (auto it = inflight.begin(); it != inflight.end(); ) {
+            if (now_ms >= it->second && (now_ms - it->second) > 5000)
+                it = inflight.erase(it);
+            else
+                ++it;
+        }
+        const Uint32 ping_id = g_session.runtime_latency_next_ping_id++;
+        inflight[ping_id] = now_ms;
+        host_send_ping_to_remote(HostSource::DIRECT, peer, 0, ping_id);
+    }
+    for (const auto &entry : g_session.relay_players) {
+        const Uint32 client_id = entry.first;
+        const unsigned player_id = entry.second;
+        if (player_id >= g_session.expected_players)
+            continue;
+        auto &inflight = g_session.runtime_latency_inflight_ms[player_id];
+        for (auto it = inflight.begin(); it != inflight.end(); ) {
+            if (now_ms >= it->second && (now_ms - it->second) > 5000)
+                it = inflight.erase(it);
+            else
+                ++it;
+        }
+        const Uint32 ping_id = g_session.runtime_latency_next_ping_id++;
+        inflight[ping_id] = now_ms;
+        host_send_ping_to_remote(HostSource::UDP_RELAY, nullptr, client_id, ping_id);
+    }
+    for (const auto &entry : g_session.tcp_relay_players) {
+        const Uint32 client_id = entry.first;
+        const unsigned player_id = entry.second;
+        if (player_id >= g_session.expected_players)
+            continue;
+        auto &inflight = g_session.runtime_latency_inflight_ms[player_id];
+        for (auto it = inflight.begin(); it != inflight.end(); ) {
+            if (now_ms >= it->second && (now_ms - it->second) > 5000)
+                it = inflight.erase(it);
+            else
+                ++it;
+        }
+        const Uint32 ping_id = g_session.runtime_latency_next_ping_id++;
+        inflight[ping_id] = now_ms;
+        host_send_ping_to_remote(HostSource::TCP_RELAY, nullptr, client_id, ping_id);
+    }
+    g_transport.Flush();
+    g_session.runtime_latency_next_send_ms = now_ms + 1000;
+}
+
+void tick_host_periodic_debug_options_broadcast(double dtime) {
+    if (!g_session.active || !g_session.host)
+        return;
+    if (g_session.phase != SessionState::Phase::RUNNING)
+        return;
+    if (!has_remote_peers())
+        return;
+    g_session.debug_options_broadcast_timer += dtime;
+    if (g_session.debug_options_broadcast_timer < 0.5)
+        return;
+    g_session.debug_options_broadcast_timer = 0.0;
+    SessionBroadcastDebugOptions();
 }
 
 void start_host_auto_detect_connectivity() {
@@ -900,6 +1273,8 @@ void SessionTick(double dtime) {
     tick_debug_report_missing_input();
     tick_host_reannounce_load(dtime);
     tick_update_start_phase();
+    tick_host_runtime_latency_probes();
+    tick_host_periodic_debug_options_broadcast(dtime);
     send_local_inputs();
     tick_host_periodic_sync(dtime);
     tick_host_broadcast_resync();

@@ -45,7 +45,9 @@ Notes:
 - The actual game session port for direct-connect is `12345` (`kGamePort`). This is currently not
   configurable via the UI and is shared by LAN and Internet direct-connect.
 - LAN discovery uses a separate UDP broadcast port `12346` (`kLobbyPort`), also not configurable.
-- While a game is running, multiplayer settings are intentionally not editable in Options.
+- While a game is running, transport/lobby settings are intentionally not editable in Options.
+  Some runtime-tuning settings in `MP Debug`, `MP Sync`, and `MP Netsim` are editable (host-only);
+  values that cannot safely be changed during gameplay are shown grey/locked.
 - If Internet mode is selected but the server is still unresolved (for example `CHANGEME`),
   the lobby shows a warning to configure the lobby/relay host in Options.
 
@@ -352,14 +354,132 @@ This is intentionally conservative and may visually "snap" world objects back to
 ### Session settings synchronization (host -> clients)
 
 To avoid sessions where players run with incompatible multiplayer debug/runtime settings, the host
-broadcasts a `NET_DEBUG_OPTIONS` packet before `NET_START`:
+broadcasts a `NET_DEBUG_OPTIONS` packet before `NET_START` (and periodically during gameplay):
 
-- Tick length (`tick_ms`) and input delay override.
-- Flags like zero-fill, rollback/replay, smoothing, and host broadcast strides.
+- Session parameters that must match across peers:
+  - Tick length (`tick_ms`), negotiated by the host and sent in `WELCOME` (clients apply it immediately).
+  - Input delay override (interpreted as "legacy 10ms ticks" and converted to current ticks; see below).
+- Runtime/debug behavior flags:
+  - zero-fill, rollback/replay, smoothing, local resync skip, host broadcast strides, etc.
 - Network simulation settings (debug-only) so host/client behavior matches during tests.
 
-Clients only apply these settings while the session is not running; during gameplay the Options UI
-keeps multiplayer settings non-editable.
+During gameplay, clients continue to apply host-broadcast debug options, but *simulation-critical*
+settings are intentionally locked once the world is RUNNING:
+
+- Safe to change while RUNNING (host broadcasts; clients apply immediately): most `MP Debug` flags,
+  most `MP Sync` flags, and all `MP Netsim` values.
+- Locked while RUNNING (require a restart / reconnect to take effect): tick length, input delay,
+  and transport-binding options like force-relay/bind-local.
+
+The Options UI reflects this by greying out locked values during gameplay.
+
+### MP Debug / MP Sync / MP Netsim options (reference)
+
+These options live under `Options -> MP Debug`, `Options -> MP Sync`, and `Options -> MP Netsim`.
+They are stored as `MultiplayerDebug*` preferences. When hosting, the selected values are broadcast
+to clients via `NET_DEBUG_OPTIONS` (on join/start, and periodically while running).
+
+Important: Several "ticks" values are intentionally interpreted as *legacy 10ms ticks* so presets
+remain stable even if `Tick length ms` changes. The engine converts them to "current ticks" based on
+the negotiated tick length.
+
+#### MP Debug
+
+- **MP logs** (`MultiplayerDebugLogging`, default: off)
+  - Enables verbose multiplayer logging (packet flow, state transitions, desync classification).
+- **MP dump** (`MultiplayerDebugDumpState`, default: off)
+  - When a sync mismatch is detected, dump a one-time deterministic actor digest to the log to aid
+    debugging desyncs.
+- **MP trace init** (`MultiplayerDebugTraceWorldInit`, default: off)
+  - Traces how `WorldInitLevel()` initializes actors (useful for tracking ownership/controller
+    changes from Lua/compat mappings).
+- **MP smooth render** (`MultiplayerDebugSmoothRender`, default: on)
+  - Render-only smoothing for actor teleports caused by resync corrections. Does not affect
+    simulation state.
+- **MP skip local resync** (`MultiplayerDebugSkipLocalResync`, default: off)
+  - When applying a resync snapshot, skip teleporting actors controlled by the local player.
+    This reduces "snap back" locally, but can temporarily increase divergence between peers.
+    Automatically ignored in "remote local ball" mode (where the local ball must be overwritten).
+- **MP force relay** (`MultiplayerDebugForceRelay`, default: off; locked while RUNNING)
+  - Forces relay use (skips direct-connect). Connection-time only.
+- **MP bind local** (`MultiplayerDebugBindLocal`, default: off; locked while RUNNING)
+  - Forces ENet direct-connect to bind to the probed local interface (can help on multi-homed hosts
+    or VPN setups; can also make some NAT/VM setups worse). Connection-time only.
+- **Host resync stride** (`MultiplayerDebugHostBroadcastResyncStrideTicks`, default: 50 legacy ticks)
+  - Host-side periodic broadcast of authoritative actor snapshots (`NET_RESYNC_STATE`) over
+    unreliable transport. A value of `50` means "about 0.5s at 10ms ticks", and is converted to the
+    current tick length for stability.
+  - In **MP remote local ball** mode, the host forces this to per-tick snapshots to keep the local
+    ball responsive.
+- **Host world stride** (`MultiplayerDebugHostBroadcastWorldStateStrideTicks`, default: 50 legacy ticks)
+  - Host-side periodic broadcast of authoritative world-grid snapshots (`NET_WORLD_STATE`) over
+    unreliable transport. Also interpreted as legacy 10ms ticks and converted to current ticks.
+- **Rollback keep ticks** (`MultiplayerDebugRollbackKeepTicks`, default: 200)
+  - Size of the client rollback history in simulation ticks (used when rollback/replay is enabled).
+    The effective value is clamped to also cover input delay and input bundle back-window to avoid
+    frequent "too late to replay" cases.
+
+#### MP Sync
+
+- **MP zerofill** (`MultiplayerDebugZeroFillInputs`, default: off)
+  - Disables lockstep stalling on missing inputs: if an input for a (tick, player) is missing,
+    it is treated as "no input" (zero mouse force and no actions). Improves playability under loss,
+    but increases the odds of divergence that must be corrected by resync.
+- **MP rollback** (`MultiplayerDebugRollbackEnabled`, default: off)
+  - Enables client-side rollback/replay reconciliation when resync snapshots arrive. Requires
+    **MP zerofill**. The host never rolls back (authoritative host stays monotonic).
+- **MP remote local ball** (`MultiplayerDebugRemoteControlLocalBall`, default: off)
+  - "Host authoritative local ball" experiment: on clients, continuous mouse force is suppressed in
+    local simulation (discrete actions like rotate/activate still apply), and the host keeps the
+    locally controlled ball in sync via frequent authoritative actor snapshots.
+- **MP client auth pos** (`MultiplayerDebugClientAuthBallPos`, default: off)
+  - "Client authoritative local ball position" experiment: clients send per-tick position/velocity
+    updates for their locally controlled steerable actors. The host applies bounded corrections and
+    rebroadcasts the owner state to other peers. Sync logic ignores expected local-ball position
+    mismatch in this mode.
+- **MP host world only** (`MultiplayerDebugHostOnlyWorldInteractions`, default: off)
+  - Host authoritative world interactions: on clients, suppress world mutations caused by actor
+    movement/collisions (triggers, items, stone touch/hit). Clients rely on host snapshots to
+    converge world state. This mitigates flicker and "stone snap back" under poor links.
+- **Predict mouse ticks** (`MultiplayerDebugPredictMissingMouseTicks`, default: 0)
+  - Only active when **MP zerofill** is enabled. When mouse-force samples are missing, hold the last
+    consumed mouse force and linearly decay it to zero over `N` missing ticks. Discrete actions
+    (rotate/activate) are never repeated.
+- **Input delay ticks** (`MultiplayerDebugInputDelayTicks`, default: 4 legacy ticks; locked while RUNNING)
+  - Input lookahead used to stamp local input into a future tick to absorb jitter. The value is in
+    legacy 10ms ticks and converted to current ticks based on `Tick length ms`. Locked during
+    gameplay because changing it mid-session breaks the lockstep timing assumptions.
+- **World desync streak** (`MultiplayerDebugWorldDesyncStreakForWorldStateRequest`, default: 0)
+  - Threshold for consecutive world-grid checksum mismatches before requesting a `NET_WORLD_STATE`
+    snapshot from the host. `0` means "use built-in default" (`kWorldDesyncStreakForWorldStateRequest`,
+    currently 2).
+- **Tick length ms** (`MultiplayerDebugTickLengthMs`, default: 10; range: 5..50; locked while RUNNING)
+  - Simulation tick duration in milliseconds. Must match across all peers, is negotiated by the host
+    at join/start, and cannot be changed safely once the session is RUNNING.
+
+#### MP Netsim
+
+These are debug-only controls that simulate latency, jitter, drop, and duplication in the
+multiplayer transport layer.
+
+- **MP netsim** (`MultiplayerDebugNetSimEnabled`, default: off)
+  - Enables NetSim for selected packet types (gameplay packets by default).
+- **MP netsim all** (`MultiplayerDebugNetSimAll`, default: off)
+  - Applies NetSim to all session packets, including control-plane packets like `WELCOME`.
+  - Join timeouts are scaled up accordingly so simulated high latency doesn't make joins flaky.
+- **Netsim delay ms** (`MultiplayerDebugNetSimDelayMs`, default: 0)
+  - Base one-way delay. Applied on both send and receive paths. For RTT measurements, the added
+    round-trip time can therefore be roughly `~4 * delay_ms` when both request and response traverse
+    delayed send and delayed receive paths.
+- **Netsim jitter ms** (`MultiplayerDebugNetSimJitterMs`, default: 0)
+  - Adds uniform random jitter in `[-jitter_ms, +jitter_ms]` to each simulated one-way delay.
+- **Netsim drop %** (`MultiplayerDebugNetSimDropPct`, default: 0)
+  - Drop percentage applied only to payload types that are intended to be lossy at the application
+    layer (inputs). Reliable control-plane packets are not dropped to avoid bypassing ENet/TCP
+    retransmission semantics.
+- **Netsim dup %** (`MultiplayerDebugNetSimDupPct`, default: 0)
+  - Duplicate percentage. Duplicates are delivered with their own (potentially different) simulated
+    delay.
 
 ### Connectivity auto-detect (host)
 
@@ -368,6 +488,7 @@ loaded the level and reported READY, but before `NET_START`:
 
 - Host sends `NET_PING(id)` bursts to each connected client and records `NET_PONG(id)` timing.
 - The host chooses **Good / Normal / Bad** based on the worst observed link (p90 RTT).
+  - Thresholds (worst-link p90 RTT): **Good** `<= 70 ms`, **Normal** `<= 180 ms`, **Bad** `> 180 ms`.
 - The selected preset is applied to the host settings and broadcast via `NET_DEBUG_OPTIONS` so all
   clients run with the same parameters for that session.
 

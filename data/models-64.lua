@@ -9,6 +9,10 @@ LevelMenuFont = "" -- will load levelmenu.bmf instead
 
 DefineFont ("timefont", MainFont, 44, "timefont", 180, 180, 180)
 DefineFont ("smallalternative", MainFont, 14, "menufont")
+DefineFont ("smallalternative_good", MainFont, 14, "menufont", 80, 220, 80)
+DefineFont ("smallalternative_normal", MainFont, 14, "menufont", 255, 180, 0)
+DefineFont ("smallalternative_bad", MainFont, 14, "menufont", 255, 90, 90)
+DefineFont ("smallalternative_selected", MainFont, 14, "menufont", 120, 200, 255)
 DefineFont ("modesfont", MainFont, 16, "menufont", 70, 120, 255)
 DefineFont ("menufont", MainFont, 16, "menufont")
 DefineFont ("levelmenu", LevelMenuFont, 16, "levelmenu")

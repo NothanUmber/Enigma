@@ -80,6 +80,8 @@ void SessionCancelClientJoin(const char *reason);
 void SessionTick(double dtime);
 void SessionShutdown();
 void SessionSetInputClockFrozen(bool frozen);
+void SessionBuildStatsOverlayLines(std::vector<std::string> &lines,
+                                   ::enigma::multiplayer::StatsOverlayPage page);
 
 }  // namespace internal
 }  // namespace multiplayer

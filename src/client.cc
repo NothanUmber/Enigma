@@ -663,8 +663,18 @@ void Client::on_keydown(SDL_Event &e) {
                 }
             }
             break;
-        case SDLK_LEFT: set_mousespeed(options::GetMouseSpeed() - 1); break;
-        case SDLK_RIGHT: set_mousespeed(options::GetMouseSpeed() + 1); break;
+        case SDLK_LEFT:
+            if (multiplayer::IsActive() && display::MultiplayerStatsOverlayEnabled())
+                display::MultiplayerStatsOverlayAdjustSelection(-1);
+            else
+                set_mousespeed(options::GetMouseSpeed() - 1);
+            break;
+        case SDLK_RIGHT:
+            if (multiplayer::IsActive() && display::MultiplayerStatsOverlayEnabled())
+                display::MultiplayerStatsOverlayAdjustSelection(+1);
+            else
+                set_mousespeed(options::GetMouseSpeed() + 1);
+            break;
         case SDLK_TAB: rotate_inventory(+1); break;
         case SDLK_F1: show_help(); break;
         case SDLK_F2:
@@ -680,6 +690,17 @@ void Client::on_keydown(SDL_Event &e) {
         case SDLK_F4: Msg_AdvanceLevel(lev::ADVANCE_STRICTLY); break;
         case SDLK_F5: Msg_AdvanceLevel(lev::ADVANCE_UNSOLVED); break;
         case SDLK_F6: Msg_JumpBack(); break;
+        case SDLK_F8:
+            if (multiplayer::IsActive()) {
+                display::ToggleMultiplayerStatsOverlay();
+                // The overlay is drawn directly on the game screen. Force a full redraw when
+                // switching pages or disabling it, otherwise old pixels may remain visible.
+                if (m_state == cls_game || m_state == cls_multiplayer_menu ||
+                    m_state == cls_multiplayer_paused || m_state == cls_multiplayer_waiting_for_players ||
+                    m_state == cls_waiting_for_network_start)
+                    display::RedrawAll(video_engine->GetScreen());
+            }
+            break;
 
         case SDLK_F10: {
             video_engine->Screenshot(server::LoadedProxy->getNextScreenshotPath());
@@ -687,8 +708,18 @@ void Client::on_keydown(SDL_Event &e) {
         }
         case SDLK_RETURN: process_userinput(); break;
         case SDLK_BACKSPACE: user_input_backspace(); break;
-        case SDLK_UP: user_input_previous(); break;
-        case SDLK_DOWN: user_input_next(); break;
+        case SDLK_UP:
+            if (multiplayer::IsActive() && display::MultiplayerStatsOverlayEnabled())
+                display::MultiplayerStatsOverlayMoveSelection(-1);
+            else
+                user_input_previous();
+            break;
+        case SDLK_DOWN:
+            if (multiplayer::IsActive() && display::MultiplayerStatsOverlayEnabled())
+                display::MultiplayerStatsOverlayMoveSelection(+1);
+            else
+                user_input_next();
+            break;
         case SDLK_SPACE: user_input_append(' '); break;
         default: {
             // SDL2's GetKeyName only returns uppercase keys.

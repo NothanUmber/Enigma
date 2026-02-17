@@ -25,6 +25,8 @@
 #include "client.hh"
 #include "errors.hh"
 #include "main.hh"
+#include "multiplayer.hh"
+#include "options.hh"
 #include "resource_cache.hh"
 #include "server.hh"
 #include "video.hh"
@@ -36,6 +38,8 @@
 #include <algorithm>
 #include <functional>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 
 using namespace std;
@@ -76,9 +80,124 @@ namespace {
 const int NTILESH = 20;  // Default game screen width in tiles
 const int NTILESV = 13;  // Default game screen height in tiles
 
-DisplayFlags display_flags = SHOW_ALL;
-GameDisplay *gamedpy = nullptr;
-bool ShowFPS = false;
+	DisplayFlags display_flags = SHOW_ALL;
+	GameDisplay *gamedpy = nullptr;
+	bool ShowFPS = false;
+int ShowMultiplayerStatsPage = -1;
+int MultiplayerStatsSelectedIndex[3] = {0, 0, 0};
+
+}  // namespace
+
+namespace {
+
+struct OverlayOptionDef {
+    const char *option = nullptr;
+    bool is_bool = false;
+    int step = 1;
+    int minv = 0;
+    int maxv = 0;
+    bool mutable_during_game = false;
+};
+
+constexpr OverlayOptionDef kOverlayDebugOpts[] = {
+    {"MultiplayerDebugLogging", true, 1, 0, 1, true},
+    {"MultiplayerDebugDumpState", true, 1, 0, 1, true},
+    {"MultiplayerDebugTraceWorldInit", true, 1, 0, 1, true},
+    {"MultiplayerDebugSmoothRender", true, 1, 0, 1, true},
+    {"MultiplayerDebugSkipLocalResync", true, 1, 0, 1, true},
+    {"MultiplayerDebugForceRelay", true, 1, 0, 1, false},  // locked during gameplay
+    {"MultiplayerDebugBindLocal", true, 1, 0, 1, false},   // locked during gameplay
+    {"MultiplayerDebugHostBroadcastResyncStrideTicks", false, 1, 1, 1000, true},
+    {"MultiplayerDebugHostBroadcastWorldStateStrideTicks", false, 1, 1, 1000, true},
+    {"MultiplayerDebugRollbackKeepTicks", false, 10, 0, 5000, true},
+};
+
+constexpr OverlayOptionDef kOverlaySyncOpts[] = {
+    {"MultiplayerDebugZeroFillInputs", true, 1, 0, 1, true},
+    {"MultiplayerDebugRollbackEnabled", true, 1, 0, 1, true},
+    {"MultiplayerDebugRemoteControlLocalBall", true, 1, 0, 1, true},
+    {"MultiplayerDebugClientAuthBallPos", true, 1, 0, 1, true},
+    {"MultiplayerDebugHostOnlyWorldInteractions", true, 1, 0, 1, true},
+    {"MultiplayerDebugPredictMissingMouseTicks", false, 1, 0, 1000, true},
+    {"MultiplayerDebugInputDelayTicks", false, 1, 0, 200, false},  // locked during gameplay
+    {"MultiplayerDebugWorldDesyncStreakForWorldStateRequest", false, 1, 0, 1000, true},
+    {"MultiplayerDebugTickLengthMs", false, 1, 1, 200, false},     // locked during gameplay
+};
+
+constexpr OverlayOptionDef kOverlayNetSimOpts[] = {
+    {"MultiplayerDebugNetSimEnabled", true, 1, 0, 1, true},
+    {"MultiplayerDebugNetSimAll", true, 1, 0, 1, true},
+    {"MultiplayerDebugNetSimDelayMs", false, 10, 0, 60000, true},
+    {"MultiplayerDebugNetSimJitterMs", false, 10, 0, 60000, true},
+    {"MultiplayerDebugNetSimDropPct", false, 1, 0, 100, true},
+    {"MultiplayerDebugNetSimDupPct", false, 1, 0, 100, true},
+};
+
+const OverlayOptionDef *overlay_opts_for_page(int page, size_t &count) {
+    count = 0;
+    if (page == 0) {
+        count = sizeof(kOverlayDebugOpts) / sizeof(kOverlayDebugOpts[0]);
+        return kOverlayDebugOpts;
+    }
+    if (page == 1) {
+        count = sizeof(kOverlaySyncOpts) / sizeof(kOverlaySyncOpts[0]);
+        return kOverlaySyncOpts;
+    }
+    if (page == 2) {
+        count = sizeof(kOverlayNetSimOpts) / sizeof(kOverlayNetSimOpts[0]);
+        return kOverlayNetSimOpts;
+    }
+    return nullptr;
+}
+
+int clamp_wrap_index(int idx, int count) {
+    if (count <= 0)
+        return 0;
+    int r = idx % count;
+    if (r < 0)
+        r += count;
+    return r;
+}
+
+bool overlay_option_selectable(const OverlayOptionDef &d) {
+    // Options that are locked during gameplay are still shown in the overlay,
+    // but we skip them for cursor navigation to avoid implying they can be changed.
+    return d.mutable_during_game;
+}
+
+int overlay_find_next_selectable(int page, int start_idx, int delta) {
+    size_t count = 0;
+    const OverlayOptionDef *defs = overlay_opts_for_page(page, count);
+    if (!defs || count == 0)
+        return 0;
+    const int n = static_cast<int>(count);
+    int idx = clamp_wrap_index(start_idx, n);
+    const int step = (delta >= 0) ? 1 : -1;
+    for (int i = 0; i < n; ++i) {
+        idx = clamp_wrap_index(idx + step, n);
+        if (overlay_option_selectable(defs[static_cast<size_t>(idx)]))
+            return idx;
+    }
+    // No selectable entries: keep current.
+    return clamp_wrap_index(start_idx, n);
+}
+
+int overlay_normalize_selection(int page, int idx) {
+    size_t count = 0;
+    const OverlayOptionDef *defs = overlay_opts_for_page(page, count);
+    if (!defs || count == 0)
+        return 0;
+    const int n = static_cast<int>(count);
+    idx = clamp_wrap_index(idx, n);
+    if (overlay_option_selectable(defs[static_cast<size_t>(idx)]))
+        return idx;
+    // Prefer the first selectable entry.
+    for (int i = 0; i < n; ++i) {
+        if (overlay_option_selectable(defs[static_cast<size_t>(i)]))
+            return i;
+    }
+    return idx;
+}
 
 }  // namespace
 
@@ -1826,6 +1945,128 @@ void GameDisplay::redraw_all(Screen *scr) {
     redraw(scr);
 }
 
+namespace {
+
+	void draw_multiplayer_stats_overlay(ecl::GC &gc, ecl::Screen *screen) {
+    if (ShowMultiplayerStatsPage < 0 || ShowMultiplayerStatsPage > 2)
+        return;
+
+    std::vector<std::string> lines;
+    multiplayer::StatsOverlayPage page = multiplayer::StatsOverlayPage::DEBUG;
+    if (ShowMultiplayerStatsPage == 1)
+        page = multiplayer::StatsOverlayPage::SYNC;
+    else if (ShowMultiplayerStatsPage == 2)
+        page = multiplayer::StatsOverlayPage::NETSIM;
+    multiplayer::BuildStatsOverlayLines(lines, page);
+    if (lines.empty())
+        return;
+
+	    ecl::Font *f = enigma::GetFont("smallalternative");
+	    if (!f)
+	        f = enigma::GetFont("menufont");
+	    if (!f)
+	        return;
+
+	    // Optional colored variants for RTT lines (defined in data/models-*.lua).
+	    ecl::Font *f_good = enigma::GetFont("smallalternative_good");
+	    if (!f_good)
+	        f_good = f;
+	    ecl::Font *f_normal = enigma::GetFont("smallalternative_normal");
+	    if (!f_normal)
+	        f_normal = f;
+	    ecl::Font *f_bad = enigma::GetFont("smallalternative_bad");
+	    if (!f_bad)
+	        f_bad = f;
+	    ecl::Font *f_sel = enigma::GetFont("smallalternative_selected");
+	    if (!f_sel)
+	        f_sel = f;
+
+	    const int page_idx = ShowMultiplayerStatsPage;
+	    size_t overlay_opt_count = 0;
+	    overlay_opts_for_page(page_idx, overlay_opt_count);
+	    int selected_idx = 0;
+	    if (page_idx >= 0 && page_idx <= 2) {
+	        selected_idx = clamp_wrap_index(MultiplayerStatsSelectedIndex[page_idx],
+	                                        static_cast<int>(overlay_opt_count));
+	    }
+
+	    int first_opt_line = -1;
+	    for (size_t i = 0; i < lines.size(); ++i) {
+	        if (lines[i] == "MP Debug:" || lines[i] == "MP Sync:" || lines[i] == "MP Netsim:") {
+	            first_opt_line = static_cast<int>(i) + 1;
+	            break;
+	        }
+	    }
+	    int selected_line = -1;
+	    if (first_opt_line >= 0 && overlay_opt_count > 0) {
+	        selected_line = first_opt_line + selected_idx;
+	        if (selected_line < first_opt_line || selected_line >= static_cast<int>(lines.size()))
+	            selected_line = -1;
+	    }
+
+	    auto pick_font_for_line = [&](const std::string &line) -> ecl::Font * {
+	        // Colorize latency lines based on the auto-detect thresholds.
+	        // Keep thresholds in sync with multiplayer_session_runtime.cc.
+	        if (line.rfind("  P", 0) != 0)
+	            return f;
+	        const size_t p = line.find(": ");
+	        if (p == std::string::npos)
+	            return f;
+	        const char *s = line.c_str() + p + 2;
+	        if (!*s || !std::isdigit(static_cast<unsigned char>(*s)))
+	            return f;
+	        char *end = nullptr;
+	        long ms = std::strtol(s, &end, 10);
+	        if (end == s)
+	            return f;
+	        if (ms <= 70)
+	            return f_good;
+	        if (ms <= 180)
+	            return f_normal;
+	        return f_bad;
+	    };
+
+    int maxw = 0;
+    for (const auto &line : lines) {
+        int w = f->get_width(line.c_str());
+        if (w > maxw)
+            maxw = w;
+    }
+
+    const int pad = 6;
+    const int line_h = std::max(1, f->get_height() + 1);
+    ecl::Rect full = screen->size();
+    int max_h = std::max(40, full.h - 16);
+    int wanted_h = static_cast<int>(lines.size()) * line_h + 2 * pad;
+    int area_h = std::min(max_h, wanted_h);
+    int area_w = std::min(std::max(180, maxw + 2 * pad), std::max(180, full.w - 16));
+    ecl::Rect area(8, 8, area_w, area_h);
+
+    clip(gc);
+    set_color(gc, 0, 0, 0);
+    box(gc, area);
+    set_color(gc, 80, 80, 80);
+    frame(gc, area);
+
+    int y = area.y + pad;
+    const int lines_fit = std::max(1, (area.h - 2 * pad) / line_h);
+    const int count = std::min(static_cast<int>(lines.size()), lines_fit);
+	    for (int i = 0; i < count; ++i) {
+	        if (i == selected_line) {
+	            ecl::Rect bar(area.x + 2, y - 1, area.w - 4, line_h);
+	            set_color(gc, 30, 30, 30);
+	            box(gc, bar);
+	        }
+	        ecl::Font *lf = (i == selected_line) ? f_sel : pick_font_for_line(lines[static_cast<size_t>(i)]);
+	        lf->render(gc, area.x + pad, y, lines[static_cast<size_t>(i)]);
+	        y += line_h;
+	    }
+
+    screen->update_rect(area);
+}
+
+}  // namespace
+
 void GameDisplay::redraw(ecl::Screen *screen) {
     GC gc(screen->get_surface());
     if (SDL_GetTicks() - last_frame_time > 10) {
@@ -1844,6 +2085,7 @@ void GameDisplay::redraw(ecl::Screen *screen) {
 
             screen->update_rect(area);
         }
+        draw_multiplayer_stats_overlay(gc, screen);
         last_frame_time = SDL_GetTicks();
     }
     if (status_bar->has_changed() || redraw_everything) {
@@ -1975,6 +2217,73 @@ SpriteHandle display::AddSprite(const V2 &pos, const char *modelname) {
 
 void display::ToggleFlag(DisplayFlags flag) {
     toggle_flags(display_flags, flag);
+}
+
+void display::ToggleMultiplayerStatsOverlay() {
+    // Cycle: Off -> Debug -> Sync -> Netsim -> Off
+    ShowMultiplayerStatsPage += 1;
+    if (ShowMultiplayerStatsPage > 2)
+        ShowMultiplayerStatsPage = -1;
+    if (ShowMultiplayerStatsPage >= 0 && ShowMultiplayerStatsPage <= 2) {
+        size_t count = 0;
+        overlay_opts_for_page(ShowMultiplayerStatsPage, count);
+        MultiplayerStatsSelectedIndex[ShowMultiplayerStatsPage] =
+            overlay_normalize_selection(ShowMultiplayerStatsPage,
+                                        clamp_wrap_index(MultiplayerStatsSelectedIndex[ShowMultiplayerStatsPage],
+                                                         static_cast<int>(count)));
+    }
+}
+
+bool display::MultiplayerStatsOverlayEnabled() {
+    return ShowMultiplayerStatsPage >= 0;
+}
+
+void display::MultiplayerStatsOverlayMoveSelection(int delta) {
+    if (!MultiplayerStatsOverlayEnabled())
+        return;
+    if (ShowMultiplayerStatsPage < 0 || ShowMultiplayerStatsPage > 2)
+        return;
+    size_t count = 0;
+    overlay_opts_for_page(ShowMultiplayerStatsPage, count);
+    if (count == 0)
+        return;
+    int &sel = MultiplayerStatsSelectedIndex[ShowMultiplayerStatsPage];
+    // Skip locked entries while navigating.
+    sel = overlay_find_next_selectable(ShowMultiplayerStatsPage, sel, delta);
+}
+
+void display::MultiplayerStatsOverlayAdjustSelection(int delta) {
+    if (!MultiplayerStatsOverlayEnabled())
+        return;
+    if (ShowMultiplayerStatsPage < 0 || ShowMultiplayerStatsPage > 2)
+        return;
+    if (!multiplayer::IsActive() || !multiplayer::IsHost())
+        return;
+
+    size_t count = 0;
+    const OverlayOptionDef *defs = overlay_opts_for_page(ShowMultiplayerStatsPage, count);
+    if (!defs || count == 0)
+        return;
+
+    const int sel = clamp_wrap_index(MultiplayerStatsSelectedIndex[ShowMultiplayerStatsPage],
+                                     static_cast<int>(count));
+    const OverlayOptionDef &d = defs[static_cast<size_t>(sel)];
+    if (!d.mutable_during_game || !d.option)
+        return;
+
+    if (d.is_bool) {
+        const bool v = options::GetBool(d.option);
+        options::SetOption(d.option, !v);
+        return;
+    }
+
+    int v = options::GetInt(d.option);
+    int next = v + delta * std::max(1, d.step);
+    if (next < d.minv)
+        next = d.minv;
+    if (next > d.maxv)
+        next = d.maxv;
+    options::SetOption(d.option, static_cast<double>(next));
 }
 
 void display::DrawAll(GC &gc) {

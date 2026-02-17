@@ -65,6 +65,10 @@ void SetInputClockFrozen(bool frozen) {
     internal::SessionSetInputClockFrozen(frozen);
 }
 
+void BuildStatsOverlayLines(std::vector<std::string> &lines, StatsOverlayPage page) {
+    internal::SessionBuildStatsOverlayLines(lines, page);
+}
+
 void PrepareExtraActors() {
     internal::SessionPrepareExtraActors();
 }

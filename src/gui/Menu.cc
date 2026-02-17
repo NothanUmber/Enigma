@@ -23,6 +23,7 @@
 #include "MusicManager.hh"
 #include "video.hh"
 #include "options.hh"
+#include "multiplayer.hh"
 #include "main.hh"
 #include "nls.hh"
 #include "ecl_video.hh"
@@ -151,7 +152,13 @@ Menu::Menu()
 
     bool Menu::manage() {
         begin_manage();
-        while (step_manage(0.01, true)) {
+        while (true) {
+            // Multiplayer menus must keep the main loop alive so ENet can service peers
+            // while a (blocking) modal menu is open.
+            if (multiplayer::IsActive())
+                multiplayer::Tick(0.01);
+            if (!step_manage(0.01, true))
+                break;
         }
         return finish_manage(true);
     }

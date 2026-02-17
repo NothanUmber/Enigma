@@ -285,6 +285,16 @@ struct LobbyState {
 		    std::vector<std::vector<Uint32>> auto_detect_rtts_ms;
 		    std::vector<Uint32> auto_detect_sent;
 		    std::vector<Uint32> auto_detect_recv;
+		    // Host-side runtime RTT probes (player-indexed). Updated continuously
+		    // while a session runs so the in-game overlay can show per-player latency.
+		    Uint32 runtime_latency_next_ping_id = 1;
+		    Uint32 runtime_latency_next_send_ms = 0;
+		    std::vector<std::unordered_map<Uint32, Uint32>> runtime_latency_inflight_ms;
+		    std::vector<Uint32> runtime_latency_rtt_ms;
+		    std::vector<bool> runtime_latency_valid;
+		    // Periodic host -> clients propagation of debug options while RUNNING.
+		    // This keeps runtime-mutable MP settings synchronized without restart.
+		    double debug_options_broadcast_timer = 0.0;
 		    bool has_pending_sync = false;
 		    protocol::SyncPacket pending_sync;
     struct ChecksumSample {

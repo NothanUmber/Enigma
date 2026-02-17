@@ -80,6 +80,12 @@ enum class ClientJoinStatus {
     FAILED = 3
 };
 
+enum class StatsOverlayPage {
+    DEBUG = 0,
+    SYNC = 1,
+    NETSIM = 2
+};
+
 bool BeginClientJoin(const protocol::LobbyStart &start, const std::string &host_ip);
 bool BeginClientJoin(const protocol::LobbyStart &start, const std::vector<std::string> &host_ips);
 ClientJoinStatus PollClientJoin();
@@ -89,6 +95,7 @@ void CancelClientJoin(const char *reason);
 void Tick(double dtime);
 void Shutdown();
 void SetInputClockFrozen(bool frozen);
+void BuildStatsOverlayLines(std::vector<std::string> &lines, StatsOverlayPage page);
 
 }  // namespace multiplayer
 }  // namespace enigma

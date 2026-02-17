@@ -219,10 +219,14 @@ enum DisplayFlags {
     SHOW_ALL = 0x7f
 };
 
-void ToggleFlag(DisplayFlags flag);
+	void ToggleFlag(DisplayFlags flag);
+	void ToggleMultiplayerStatsOverlay();
+	bool MultiplayerStatsOverlayEnabled();
+	void MultiplayerStatsOverlayMoveSelection(int delta);
+	void MultiplayerStatsOverlayAdjustSelection(int delta);
 
-void Init(bool show_fps = false);
-void Shutdown();
+	void Init(bool show_fps = false);
+	void Shutdown();
 
 void NewWorld(int w, int h);
 void ResizeGameArea(int w, int h);

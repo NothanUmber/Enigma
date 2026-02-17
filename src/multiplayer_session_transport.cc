@@ -262,13 +262,7 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
     // Transport-only experiments: allow toggling while RUNNING so host changes can
     // propagate without needing a full session restart.
     options::SetOption("MultiplayerDebugClientAuthBallPos", (m & DBG_CLIENT_AUTH_BALL_POS) != 0);
-
-    if (!allow_simulation_mutation)
-        return;
-
     options::SetOption("MultiplayerDebugSkipLocalResync", (m & DBG_SKIP_LOCAL_RESYNC) != 0);
-    options::SetOption("MultiplayerDebugForceRelay", (m & DBG_FORCE_RELAY) != 0);
-    options::SetOption("MultiplayerDebugBindLocal", (m & DBG_BIND_LOCAL) != 0);
     options::SetOption("MultiplayerDebugZeroFillInputs", (m & DBG_ZEROFILL) != 0);
     options::SetOption("MultiplayerDebugRollbackEnabled", (m & DBG_ROLLBACK) != 0);
     options::SetOption("MultiplayerDebugRemoteControlLocalBall", (m & DBG_REMOTE_LOCAL_BALL) != 0);
@@ -278,7 +272,6 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
 
     options::SetOption("MultiplayerDebugPredictMissingMouseTicks",
                        static_cast<double>(msg.predict_missing_mouse_ticks));
-    options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(msg.input_delay_legacy_ticks));
     options::SetOption("MultiplayerDebugHostBroadcastResyncStrideTicks",
                        static_cast<double>(msg.host_resync_stride_legacy_ticks));
     options::SetOption("MultiplayerDebugHostBroadcastWorldStateStrideTicks",
@@ -288,6 +281,13 @@ void apply_debug_options_to_options(const protocol::DebugOptionsPacket &msg, boo
     options::SetOption("MultiplayerDebugNetSimJitterMs", static_cast<double>(msg.netsim_jitter_ms));
     options::SetOption("MultiplayerDebugNetSimDropPct", static_cast<double>(msg.netsim_drop_pct));
     options::SetOption("MultiplayerDebugNetSimDupPct", static_cast<double>(msg.netsim_dup_pct));
+
+    if (!allow_simulation_mutation)
+        return;
+
+    options::SetOption("MultiplayerDebugForceRelay", (m & DBG_FORCE_RELAY) != 0);
+    options::SetOption("MultiplayerDebugBindLocal", (m & DBG_BIND_LOCAL) != 0);
+    options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(msg.input_delay_legacy_ticks));
     // Keep the Debug UI consistent with the negotiated tick length.
     options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(msg.tick_ms));
 }
@@ -938,25 +938,42 @@ bool handle_host_pong_packet(const char *data, size_t len, ENetPeer *peer, HostS
     protocol::PongPacket pong;
     if (!protocol::decode_pong(buf, pong))
         return false;
-    if (!g_session.host || !g_session.auto_detect_active)
+    if (!g_session.host)
         return true;
     unsigned player_id = 0;
     if (!lookup_remote_player(source, peer, relay_client_id, player_id))
         return true;
-    if (player_id >= g_session.auto_detect_inflight_ms.size())
-        return true;
-    auto &inflight = g_session.auto_detect_inflight_ms[player_id];
-    auto it = inflight.find(pong.ping_id);
-    if (it == inflight.end())
-        return true;
-    const Uint32 sent_ms = it->second;
-    inflight.erase(it);
     const Uint32 now_ms = SDL_GetTicks();
-    const Uint32 rtt_ms = (now_ms >= sent_ms) ? (now_ms - sent_ms) : 0;
-    if (player_id < g_session.auto_detect_recv.size())
-        g_session.auto_detect_recv[player_id] += 1;
-    if (player_id < g_session.auto_detect_rtts_ms.size())
-        g_session.auto_detect_rtts_ms[player_id].push_back(rtt_ms);
+
+    if (g_session.auto_detect_active && player_id < g_session.auto_detect_inflight_ms.size()) {
+        auto &inflight = g_session.auto_detect_inflight_ms[player_id];
+        auto it = inflight.find(pong.ping_id);
+        if (it != inflight.end()) {
+            const Uint32 sent_ms = it->second;
+            inflight.erase(it);
+            const Uint32 rtt_ms = (now_ms >= sent_ms) ? (now_ms - sent_ms) : 0;
+            if (player_id < g_session.auto_detect_recv.size())
+                g_session.auto_detect_recv[player_id] += 1;
+            if (player_id < g_session.auto_detect_rtts_ms.size())
+                g_session.auto_detect_rtts_ms[player_id].push_back(rtt_ms);
+        }
+    }
+
+    if (player_id < g_session.runtime_latency_inflight_ms.size()) {
+        auto &inflight = g_session.runtime_latency_inflight_ms[player_id];
+        auto it = inflight.find(pong.ping_id);
+        if (it != inflight.end()) {
+            const Uint32 sent_ms = it->second;
+            inflight.erase(it);
+            const Uint32 rtt_ms = (now_ms >= sent_ms) ? (now_ms - sent_ms) : 0;
+            if (player_id >= g_session.runtime_latency_rtt_ms.size())
+                g_session.runtime_latency_rtt_ms.resize(player_id + 1, 0);
+            if (player_id >= g_session.runtime_latency_valid.size())
+                g_session.runtime_latency_valid.resize(player_id + 1, false);
+            g_session.runtime_latency_rtt_ms[player_id] = rtt_ms;
+            g_session.runtime_latency_valid[player_id] = true;
+        }
+    }
     return true;
 }
 

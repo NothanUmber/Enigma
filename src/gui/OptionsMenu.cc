@@ -253,6 +253,14 @@ public:
         : BoolOptionButton(option_name, true_text, false_text, this) {}
 };
 
+class ReadOnlyOptionLabel : public UntranslatedLabel {
+public:
+    explicit ReadOnlyOptionLabel(const std::string &text)
+    : UntranslatedLabel(text, HALIGN_LEFT, VALIGN_CENTER) {
+        set_font(enigma::GetFont("menufontsel"));
+    }
+};
+
     class MouseSpeedButton : public ValueButton {
         int get_value() const     {
             return ecl::round_nearest<int>(options::GetMouseSpeed());
@@ -929,6 +937,57 @@ public:
         optionsVList->add_back(lb); \
 // end define
 
+        auto make_locked_value = [](const std::string &text) -> Widget * {
+            return new ReadOnlyOptionLabel(text);
+        };
+
+        auto on_off_text = [](bool value) -> std::string {
+            return value ? _("On") : _("Off");
+        };
+
+        auto make_toggle_or_locked = [&](const char *option_name,
+                                         bool mutable_during_game) -> Widget * {
+            if (!gameIsOngoing || mutable_during_game)
+                return new ToggleOptionButton(option_name, N_("On"), N_("Off"));
+            return make_locked_value(on_off_text(options::GetBool(option_name)));
+        };
+
+        auto connectivity_profile_name_or_custom = []() -> std::string {
+            struct Preset {
+                const char *name;
+                bool zerofill;
+                bool rollback;
+                bool remote_local_ball;
+                bool client_auth_pos;
+                bool host_world_only;
+                int tick_ms;
+                int input_delay_legacy_ticks;
+                int predict_mouse_ticks;
+                int host_resync_stride;
+                int host_world_stride;
+            };
+            static const Preset presets[] = {
+                {"Good", false, false, false, false, false, 10, 4, 0, 50, 50},
+                {"Normal", true, true, false, false, false, 20, 8, 2, 25, 25},
+                {"Bad", true, false, false, true, true, 50, 16, 0, 10, 10}
+            };
+            for (const auto &p : presets) {
+                if (options::GetBool("MultiplayerDebugSmoothRender") &&
+                    options::GetBool("MultiplayerDebugZeroFillInputs") == p.zerofill &&
+                    options::GetBool("MultiplayerDebugRollbackEnabled") == p.rollback &&
+                    options::GetBool("MultiplayerDebugRemoteControlLocalBall") == p.remote_local_ball &&
+                    options::GetBool("MultiplayerDebugClientAuthBallPos") == p.client_auth_pos &&
+                    options::GetBool("MultiplayerDebugHostOnlyWorldInteractions") == p.host_world_only &&
+                    options::GetInt("MultiplayerDebugTickLengthMs") == p.tick_ms &&
+                    options::GetInt("MultiplayerDebugInputDelayTicks") == p.input_delay_legacy_ticks &&
+                    options::GetInt("MultiplayerDebugPredictMissingMouseTicks") == p.predict_mouse_ticks &&
+                    options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks") == p.host_resync_stride &&
+                    options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks") == p.host_world_stride)
+                    return p.name;
+            }
+            return "Custom";
+        };
+
         switch (new_page) {
             case OPTIONS_MAIN:
                 OPTIONS_NEW_LB(N_("Language: "), language = new LanguageButton(this))
@@ -993,75 +1052,83 @@ public:
                 OPTIONS_NEW_L(N_("User name: "))
                 OPTIONS_NEW_T(userNameTF)
                 break;
-	            case OPTIONS_MULTIPLAYER: {
-	                if (gameIsOngoing) {
-	                    optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
-	                    optionsVList->set_spacing(0);
-                    ecl::Font* f = enigma::GetFont("menufont");
-                    const std::string text =
-                        _("Leave current game to change multiplayer settings.");
-                    std::vector<std::string> lines =
-                        ecl::breakToLines(f, text, " ", label_button_total_width);
-                    for (auto it = lines.begin(); it != lines.end(); it++) {
-                        OPTIONS_NEW_USL(std::string(*it));
-                    }
-                } else {
-	                    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-	                    std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
-	                    multiplayerLobbyTF = new TextField(lobby_server);
-	                    multiplayerLobbyTF->setMaxChars(128);
-	                    OPTIONS_NEW_LB(N_("Lobby/Relay server: "), multiplayerLobbyTF)
+		            case OPTIONS_MULTIPLAYER: {
+		                if (gameIsOngoing) {
+		                    optionsVList->set_default_size(label_button_total_width, param[vtt].small_label_height);
+		                    optionsVList->set_spacing(0);
+		                    OPTIONS_NEW_USL(_("Grey values are locked during gameplay."))
+		                }
 
-	                    // Transport toggles (order is still direct > UDP relay > TCP relay).
-	                    OPTIONS_NEW_LB(N_("Direct connect: "),
-	                                  new ToggleOptionButton("MultiplayerEnableDirect", N_("On"), N_("Off")))
-	                    OPTIONS_NEW_LB(N_("UDP relay: "),
-                                  new ToggleOptionButton("MultiplayerEnableUdpRelay", N_("On"), N_("Off")))
-                    OPTIONS_NEW_LB(N_("TCP relay: "),
-                                  new ToggleOptionButton("MultiplayerEnableTcpRelay", N_("On"), N_("Off")))
+		                multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+		                std::string lobby_server = cfg.server_host.empty() ? "CHANGEME" : cfg.server_host;
+		                if (!gameIsOngoing) {
+		                    multiplayerLobbyTF = new TextField(lobby_server);
+		                    multiplayerLobbyTF->setMaxChars(128);
+		                    OPTIONS_NEW_LB(N_("Lobby/Relay server: "), multiplayerLobbyTF)
+		                } else {
+		                    OPTIONS_NEW_LB(N_("Lobby/Relay server: "), make_locked_value(lobby_server))
+		                }
 
-                    OPTIONS_NEW_LB(N_("Auto detect connectivity: "),
-                                  new ToggleOptionButton("MultiplayerAutoDetectConnectivity", N_("On"), N_("Off")))
+		                // Transport toggles (order is still direct > UDP relay > TCP relay).
+		                OPTIONS_NEW_LB(N_("Direct connect: "),
+		                              make_toggle_or_locked("MultiplayerEnableDirect", false))
+		                OPTIONS_NEW_LB(N_("UDP relay: "),
+		                              make_toggle_or_locked("MultiplayerEnableUdpRelay", false))
+		                OPTIONS_NEW_LB(N_("TCP relay: "),
+		                              make_toggle_or_locked("MultiplayerEnableTcpRelay", false))
+		                OPTIONS_NEW_LB(N_("Auto detect connectivity: "),
+		                              make_toggle_or_locked("MultiplayerAutoDetectConnectivity", true))
 
-                    // Port overrides. These are primarily for Internet mode hosting/debugging and
-                    // should match the lobby/relay server deployment.
-                    auto make_port_field = [](int value) -> TextField * {
-                        TextField *tf = new TextField(std::to_string(value));
-                        tf->setMaxChars(5);
-                        return tf;
-                    };
-	                    multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
-	                    multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
-	                    multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
-	                    OPTIONS_NEW_LB(N_("Lobby port: "), multiplayerLobbyPortTF)
-	                    OPTIONS_NEW_LB(N_("UDP relay port: "), multiplayerUdpRelayPortTF)
-	                    OPTIONS_NEW_LB(N_("TCP relay port: "), multiplayerTcpRelayPortTF)
+		                auto make_port_field = [](int value) -> TextField * {
+		                    TextField *tf = new TextField(std::to_string(value));
+		                    tf->setMaxChars(5);
+		                    return tf;
+		                };
+		                if (!gameIsOngoing) {
+		                    multiplayerLobbyPortTF = make_port_field(options::GetInt("MultiplayerInternetLobbyPort"));
+		                    multiplayerUdpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetUdpRelayPort"));
+		                    multiplayerTcpRelayPortTF = make_port_field(options::GetInt("MultiplayerInternetTcpRelayPort"));
+		                    OPTIONS_NEW_LB(N_("Lobby port: "), multiplayerLobbyPortTF)
+		                    OPTIONS_NEW_LB(N_("UDP relay port: "), multiplayerUdpRelayPortTF)
+		                    OPTIONS_NEW_LB(N_("TCP relay port: "), multiplayerTcpRelayPortTF)
+		                } else {
+		                    OPTIONS_NEW_LB(N_("Lobby port: "),
+		                                  make_locked_value(std::to_string(options::GetInt("MultiplayerInternetLobbyPort"))))
+		                    OPTIONS_NEW_LB(N_("UDP relay port: "),
+		                                  make_locked_value(std::to_string(options::GetInt("MultiplayerInternetUdpRelayPort"))))
+		                    OPTIONS_NEW_LB(N_("TCP relay port: "),
+		                                  make_locked_value(std::to_string(options::GetInt("MultiplayerInternetTcpRelayPort"))))
+		                }
 
-	                    // Presets apply MultiplayerDebug* prefs. Keep this on the Multiplayer
-	                    // page so users can switch behavior without understanding all options.
-	                    mpPresetGoodConnButton = new StaticTextButton(N_("Good"), this);
-	                    mpPresetMediocreConnButton = new StaticTextButton(N_("Normal"), this);
-	                    mpPresetBadConnButton = new StaticTextButton(N_("Bad"), this);
+		                if (!gameIsOngoing) {
+		                    // Presets apply MultiplayerDebug* prefs. Keep this on the Multiplayer
+		                    // page so users can switch behavior without understanding all options.
+		                    mpPresetGoodConnButton = new StaticTextButton(N_("Good"), this);
+		                    mpPresetMediocreConnButton = new StaticTextButton(N_("Normal"), this);
+		                    mpPresetBadConnButton = new StaticTextButton(N_("Bad"), this);
 
-	                    HList *preset_row = new HList;
-	                    preset_row->set_spacing(param[vtt].hoption_option);
-	                    preset_row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
-	                    preset_row->set_size(label_button_total_width, param[vtt].button_height);
-	                    preset_row->set_default_size(param[vtt].optionl_width, param[vtt].button_height);
-	                    preset_row->add_back(new Label(N_("Connectivity:"), HALIGN_RIGHT, VALIGN_CENTER));
+		                    HList *preset_row = new HList;
+		                    preset_row->set_spacing(param[vtt].hoption_option);
+		                    preset_row->set_alignment(HALIGN_CENTER, VALIGN_TOP);
+		                    preset_row->set_size(label_button_total_width, param[vtt].button_height);
+		                    preset_row->set_default_size(param[vtt].optionl_width, param[vtt].button_height);
+		                    preset_row->add_back(new Label(N_("Connectivity:"), HALIGN_RIGHT, VALIGN_CENTER));
 
-	                    HList *preset_buttons = new HList;
-	                    preset_buttons->set_spacing(param[vtt].hoption_option / 2);
-	                    preset_buttons->set_alignment(HALIGN_LEFT, VALIGN_TOP);
-	                    preset_buttons->add_back(mpPresetGoodConnButton, List::EXPAND);
-	                    preset_buttons->add_back(mpPresetMediocreConnButton, List::EXPAND);
-	                    preset_buttons->add_back(mpPresetBadConnButton, List::EXPAND);
+		                    HList *preset_buttons = new HList;
+		                    preset_buttons->set_spacing(param[vtt].hoption_option / 2);
+		                    preset_buttons->set_alignment(HALIGN_LEFT, VALIGN_TOP);
+		                    preset_buttons->add_back(mpPresetGoodConnButton, List::EXPAND);
+		                    preset_buttons->add_back(mpPresetMediocreConnButton, List::EXPAND);
+		                    preset_buttons->add_back(mpPresetBadConnButton, List::EXPAND);
 
-	                    preset_row->add_back(preset_buttons, List::EXPAND);
-	                    optionsVList->add_back(preset_row);
-	                }
-	                break;
-	            }
+		                    preset_row->add_back(preset_buttons, List::EXPAND);
+		                    optionsVList->add_back(preset_row);
+		                } else {
+		                    OPTIONS_NEW_LB(N_("Connectivity: "),
+		                                  make_locked_value(connectivity_profile_name_or_custom()))
+		                }
+		                break;
+		            }
 	            case OPTIONS_PATHS:
 	                userPathTF = new TextField(XMLtoUtf8(LocalToXML(app.userPath.c_str()).x_str()).c_str());
 	                OPTIONS_NEW_L(N_("User path: "))
@@ -1096,76 +1163,111 @@ public:
 	                    row->set_default_size(param[vtt].optionl_width, rowh);
 	                    row->add_back(new Label(label, HALIGN_LEFT, VALIGN_CENTER));
 	                    if (control)
-		                        row->add_back(control, List::EXPAND);
-		                    optionsVList->add_back(row);
-		                };
+	                        row->add_back(control, List::EXPAND);
+	                    optionsVList->add_back(row);
+	                };
 
-		                if (new_page == OPTIONS_DEBUG) {
-		                    add_row(N_("MP logs"), new ToggleOptionButton("MultiplayerDebugLogging", N_("On"), N_("Off")));
-		                    add_row(N_("MP dump"), new ToggleOptionButton("MultiplayerDebugDumpState", N_("On"), N_("Off")));
-		                    add_row(N_("MP trace init"), new ToggleOptionButton("MultiplayerDebugTraceWorldInit", N_("On"), N_("Off")));
-		                    add_row(N_("MP smooth render"), new ToggleOptionButton("MultiplayerDebugSmoothRender", N_("On"), N_("Off")));
-		                    add_row(N_("MP skip local resync"), new ToggleOptionButton("MultiplayerDebugSkipLocalResync", N_("On"), N_("Off")));
-		                    add_row(N_("MP force relay"), new ToggleOptionButton("MultiplayerDebugForceRelay", N_("On"), N_("Off")));
-		                    add_row(N_("MP bind local"), new ToggleOptionButton("MultiplayerDebugBindLocal", N_("On"), N_("Off")));
+	                auto add_int_row = [&](const std::string &label, int value, int max_chars,
+	                                       TextField *&target, bool mutable_during_game) {
+	                    if (!gameIsOngoing || mutable_during_game) {
+	                        target = make_int_field(value, max_chars);
+	                        add_row(label, target);
+	                    } else {
+	                        target = NULL;
+	                        add_row(label, make_locked_value(std::to_string(value)));
+	                    }
+	                };
 
-		                    mpHostBroadcastResyncStrideTicksTF =
-		                        make_int_field(options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3);
-		                    mpHostBroadcastWorldStateStrideTicksTF =
-		                        make_int_field(options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3);
-		                    {
-		                        int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
-		                        if (keep <= 0)
-		                            keep = 200;
-		                        mpRollbackKeepTicksTF = make_int_field(keep, 4);
-		                    }
-		                    add_row(N_("Host resync stride"), mpHostBroadcastResyncStrideTicksTF);
-		                    add_row(N_("Host world stride"), mpHostBroadcastWorldStateStrideTicksTF);
-		                    add_row(N_("Rollback keep ticks"), mpRollbackKeepTicksTF);
+	                if (gameIsOngoing)
+	                    add_row(N_("In-game"), make_locked_value(_("Grey values are locked during gameplay.")));
 
-		                    mpResetDebugButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row(N_("Defaults:"), mpResetDebugButton);
-		                } else if (new_page == OPTIONS_DEBUG2) {
-		                    add_row(N_("MP zerofill"), new ToggleOptionButton("MultiplayerDebugZeroFillInputs", N_("On"), N_("Off")));
-		                    add_row(N_("MP rollback"), new ToggleOptionButton("MultiplayerDebugRollbackEnabled", N_("On"), N_("Off")));
-		                    add_row(N_("MP remote local ball"), new ToggleOptionButton("MultiplayerDebugRemoteControlLocalBall", N_("On"), N_("Off")));
-		                    add_row(N_("MP client auth pos"), new ToggleOptionButton("MultiplayerDebugClientAuthBallPos", N_("On"), N_("Off")));
-		                    add_row(N_("MP host world only"), new ToggleOptionButton("MultiplayerDebugHostOnlyWorldInteractions", N_("On"), N_("Off")));
+	                if (new_page == OPTIONS_DEBUG) {
+	                    add_row(N_("MP logs"), make_toggle_or_locked("MultiplayerDebugLogging", true));
+	                    add_row(N_("MP dump"), make_toggle_or_locked("MultiplayerDebugDumpState", true));
+	                    add_row(N_("MP trace init"), make_toggle_or_locked("MultiplayerDebugTraceWorldInit", true));
+	                    add_row(N_("MP smooth render"), make_toggle_or_locked("MultiplayerDebugSmoothRender", true));
+	                    add_row(N_("MP skip local resync"),
+	                            make_toggle_or_locked("MultiplayerDebugSkipLocalResync", true));
+	                    add_row(N_("MP force relay"),
+	                            make_toggle_or_locked("MultiplayerDebugForceRelay", false));
+	                    add_row(N_("MP bind local"),
+	                            make_toggle_or_locked("MultiplayerDebugBindLocal", false));
 
-		                    mpPredictMissingMouseTicksTF =
-		                        make_int_field(options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2);
-		                    mpInputDelayTicksTF = make_int_field(options::GetInt("MultiplayerDebugInputDelayTicks"), 4);
-		                    mpWorldDesyncStreakForWorldStateRequestTF =
-		                        make_int_field(options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"), 3);
-		                    {
-		                        int ms = options::GetInt("MultiplayerDebugTickLengthMs");
-		                        if (ms <= 0)
-		                            ms = 10;
-		                        mpTickLengthMsTF = make_int_field(ms, 3);
-		                    }
-		                    add_row(N_("Predict mouse ticks"), mpPredictMissingMouseTicksTF);
-		                    add_row(N_("Input delay ticks"), mpInputDelayTicksTF);
-		                    add_row(N_("World desync streak"), mpWorldDesyncStreakForWorldStateRequestTF);
-		                    add_row(N_("Tick length ms"), mpTickLengthMsTF);
+	                    add_int_row(N_("Host resync stride"),
+	                                options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks"), 3,
+	                                mpHostBroadcastResyncStrideTicksTF, true);
+	                    add_int_row(N_("Host world stride"),
+	                                options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks"), 3,
+	                                mpHostBroadcastWorldStateStrideTicksTF, true);
+	                    {
+	                        int keep = options::GetInt("MultiplayerDebugRollbackKeepTicks");
+	                        if (keep <= 0)
+	                            keep = 200;
+	                        add_int_row(N_("Rollback keep ticks"), keep, 4, mpRollbackKeepTicksTF, true);
+	                    }
 
-		                    mpResetSyncButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row(N_("Defaults:"), mpResetSyncButton);
-		                } else {
-		                    add_row(N_("MP netsim"), new ToggleOptionButton("MultiplayerDebugNetSimEnabled", N_("On"), N_("Off")));
-		                    add_row(N_("MP netsim all"), new ToggleOptionButton("MultiplayerDebugNetSimAll", N_("On"), N_("Off")));
+	                    if (!gameIsOngoing) {
+	                        mpResetDebugButton = new StaticTextButton(N_("Reset"), this);
+	                        add_row(N_("Defaults:"), mpResetDebugButton);
+	                    } else {
+	                        add_row(N_("Defaults:"), make_locked_value(_("Locked")));
+	                    }
+	                } else if (new_page == OPTIONS_DEBUG2) {
+	                    add_row(N_("MP zerofill"),
+	                            make_toggle_or_locked("MultiplayerDebugZeroFillInputs", true));
+	                    add_row(N_("MP rollback"),
+	                            make_toggle_or_locked("MultiplayerDebugRollbackEnabled", true));
+	                    add_row(N_("MP remote local ball"),
+	                            make_toggle_or_locked("MultiplayerDebugRemoteControlLocalBall", true));
+	                    add_row(N_("MP client auth pos"),
+	                            make_toggle_or_locked("MultiplayerDebugClientAuthBallPos", true));
+	                    add_row(N_("MP host world only"),
+	                            make_toggle_or_locked("MultiplayerDebugHostOnlyWorldInteractions", true));
 
-		                    mpNetSimDelayTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDelayMs"), 5);
-		                    mpNetSimJitterTF = make_int_field(options::GetInt("MultiplayerDebugNetSimJitterMs"), 5);
-		                    mpNetSimDropTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDropPct"), 3);
-		                    mpNetSimDupTF = make_int_field(options::GetInt("MultiplayerDebugNetSimDupPct"), 3);
-		                    add_row(N_("Netsim delay ms"), mpNetSimDelayTF);
-		                    add_row(N_("Netsim jitter ms"), mpNetSimJitterTF);
-		                    add_row(N_("Netsim drop %"), mpNetSimDropTF);
-		                    add_row(N_("Netsim dup %"), mpNetSimDupTF);
+	                    add_int_row(N_("Predict mouse ticks"),
+	                                options::GetInt("MultiplayerDebugPredictMissingMouseTicks"), 2,
+	                                mpPredictMissingMouseTicksTF, true);
+	                    add_int_row(N_("Input delay ticks"),
+	                                options::GetInt("MultiplayerDebugInputDelayTicks"), 4,
+	                                mpInputDelayTicksTF, false);
+	                    add_int_row(N_("World desync streak"),
+	                                options::GetInt("MultiplayerDebugWorldDesyncStreakForWorldStateRequest"), 3,
+	                                mpWorldDesyncStreakForWorldStateRequestTF, true);
+	                    {
+	                        int ms = options::GetInt("MultiplayerDebugTickLengthMs");
+	                        if (ms <= 0)
+	                            ms = 10;
+	                        add_int_row(N_("Tick length ms"), ms, 3, mpTickLengthMsTF, false);
+	                    }
 
-		                    mpResetNetSimButton = new StaticTextButton(N_("Reset"), this);
-		                    add_row(N_("Defaults:"), mpResetNetSimButton);
-		                }
+	                    if (!gameIsOngoing) {
+	                        mpResetSyncButton = new StaticTextButton(N_("Reset"), this);
+	                        add_row(N_("Defaults:"), mpResetSyncButton);
+	                    } else {
+	                        add_row(N_("Defaults:"), make_locked_value(_("Locked")));
+	                    }
+	                } else {
+	                    add_row(N_("MP netsim"),
+	                            make_toggle_or_locked("MultiplayerDebugNetSimEnabled", true));
+	                    add_row(N_("MP netsim all"),
+	                            make_toggle_or_locked("MultiplayerDebugNetSimAll", true));
+
+	                    add_int_row(N_("Netsim delay ms"),
+	                                options::GetInt("MultiplayerDebugNetSimDelayMs"), 5,
+	                                mpNetSimDelayTF, true);
+	                    add_int_row(N_("Netsim jitter ms"),
+	                                options::GetInt("MultiplayerDebugNetSimJitterMs"), 5,
+	                                mpNetSimJitterTF, true);
+	                    add_int_row(N_("Netsim drop %"),
+	                                options::GetInt("MultiplayerDebugNetSimDropPct"), 3,
+	                                mpNetSimDropTF, true);
+	                    add_int_row(N_("Netsim dup %"),
+	                                options::GetInt("MultiplayerDebugNetSimDupPct"), 3,
+	                                mpNetSimDupTF, true);
+
+	                    mpResetNetSimButton = new StaticTextButton(N_("Reset"), this);
+	                    add_row(N_("Defaults:"), mpResetNetSimButton);
+	                }
 		                break;
 		            }
 	            case OPTIONS_VIDEOCHECK:
