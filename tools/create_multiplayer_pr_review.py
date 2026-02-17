@@ -74,6 +74,8 @@ def should_exclude_review_path(path: str) -> bool:
     # better reviewed in their native format.
     if path.endswith(".pyc") or "/__pycache__/" in f"/{path}":
         return True
+    if path == "doc/multiplayer_pr_review.html":
+        return True
     if path == "doc/multiplayer_architecture.md":
         return True
     if path == "tools/create_multiplayer_pr_review.py":
@@ -403,6 +405,26 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ["Used to validate level XML metadata such as player counts and network flags."],
         ["Extends/aligns schema to support the multiplayer metadata used by the lobby filters."],
     )
+
+    # Font/model definitions (per tilesize). Used by multiplayer overlays for colored latency and selection.
+    for path in [
+        "data/models-16.lua",
+        "data/models-32.lua",
+        "data/models-40.lua",
+        "data/models-48.lua",
+        "data/models-64.lua",
+    ]:
+        add(
+            path,
+            ["Font/model definitions for a specific tile size (UI scaling preset)."],
+            [
+                "Loaded by the model/font bootstrap based on the selected tile size.",
+                "Provides font aliases used by UI and overlays (including multiplayer stats overlay).",
+            ],
+            [
+                "Adds colored `smallalternative_*` fonts used by the multiplayer statistics overlay (latency color coding and option selection highlight).",
+            ],
+        )
 
     # Docs
     add(
@@ -1276,7 +1298,7 @@ def render_file_section(path: str, tag: str, narrative: FileNarrative, diff_html
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="upstream/master", help="Base ref to diff against (default: upstream/master)")
+    ap.add_argument("--base", default="origin/master", help="Base ref to diff against (default: origin/master)")
     ap.add_argument("--out", default="doc/multiplayer_pr_review.html", help="Output HTML path")
     args = ap.parse_args()
 
@@ -1380,13 +1402,7 @@ h1 {{ margin: 0 0 8px; }}
 <div class="section"><h2>Extension proposals (not applied)</h2>
 <div class="rationale">
 <div><b>Scope note:</b> The multiplayer branch already includes substantial restructuring (transport facade, explicit session state, centralized config, UI split files) to keep review and maintenance tractable. The items below are intentionally deferred because they add tooling or cross-language coordination not required for the initial multiplayer PR.</div>
-<div style="margin-top:10px"><b>4) In-process integration tests with a fake transport</b></div>
-<ul>
-<li><b>What it is:</b> A deterministic harness that instantiates a host and N clients in-process and drives the multiplayer session with a fake transport that can simulate packet loss/reordering/latency without real sockets.</li>
-<li><b>Why it helps:</b> Multiplayer bugs are often timing-sensitive. A fake transport would allow CI to cover join/start/restart/resync/peer-leave reliably and prevent regressions that are otherwise hard to reproduce.</li>
-<li><b>Why it is deferred:</b> It adds a non-trivial test framework surface (fake transport, scripted ticking, fixtures) that maintainers may want to evaluate after the core feature set lands.</li>
-</ul>
-<div style="margin-top:10px"><b>5) Single source of truth for Internet lobby protocol schema</b></div>
+<div style="margin-top:10px"><b>1) Single source of truth for Internet lobby protocol schema</b></div>
 <ul>
 <li><b>What it is:</b> Share an explicit schema between the C++ client and <code>tools/internet_lobby_server.py</code> so request/response formats cannot drift silently (today: a custom binary UDP lobby protocol implemented in both C++ and Python).</li>
 <li><b>Why it helps:</b> Internet mode spans two languages and a separately deployed service. A shared schema reduces compatibility breakage and simplifies future API extensions (capability negotiation, versioned endpoints).</li>

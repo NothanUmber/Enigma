@@ -615,8 +615,8 @@ not unblock the next level's start barrier.
 ## Maintainer notes
 
 - `doc/multiplayer_pr_review.html` is generated from the current branch diff via:
-  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py --base origin/master`
-  - (default base is `upstream/master`, but for PRs against your fork you typically want `origin/master`)
+  - `PYTHONDONTWRITEBYTECODE=1 python3 tools/create_multiplayer_pr_review.py`
+  - (default base is `origin/master`; override via `--base <ref>` if needed)
 - The generator intentionally excludes this architecture document so the review stays focused on source changes.
 - The integration test harness lives under `tools/mp_test_env.py` and uses `--mp-test-*` flags
   (implemented in `src/multiplayer_test_driver.*`) to drive host/client instances.
