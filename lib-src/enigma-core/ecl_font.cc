@@ -308,5 +308,11 @@ Font *ecl::LoadTTF(const char *filename, int ptsize, int r, int g, int b) {
         exit(1);
     }
     TTF_Font *font = TTF_OpenFont(filename, ptsize);
+    if (!font) {
+        // Some SDL_ttf builds are pickier about TrueType collections (.ttc/.otc)
+        // unless the face index is provided explicitly. Trying index 0 is safe
+        // for normal .ttf fonts too.
+        font = TTF_OpenFontIndex(filename, ptsize, 0);
+    }
     return (font) ? new TrueTypeFont(font, r, g, b) : 0;
 }

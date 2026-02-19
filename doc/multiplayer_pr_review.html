@@ -30,7 +30,7 @@ h1 { margin: 0 0 8px; }
 </style>
 </head><body>
 <h1>Enigma Multiplayer PR Review Diff</h1>
-<div class="small">Generated 2026-02-19 02:43:50. Base: <code>origin/master</code> (085e2bda) &rarr; Working tree (HEAD a48a5acb). Diff hash: <code>5974fd27c159</code>.</div>
+<div class="small">Generated 2026-02-19 02:51:42. Base: <code>origin/master</code> (085e2bda) &rarr; Working tree (HEAD 6e4f709f). Diff hash: <code>eb55183c39ee</code>.</div>
 <div class="warn" style="margin-top:12px"><b>How to use:</b> Grouped by path. Each file begins with a narrative (Description, Where used, What changed vs base) followed by a red/green diff. Per-hunk notes are intentionally not embedded here; long-lived explanations are kept as code comments instead.</div>
 
 <div class="section"><h2>Extension proposals (not applied)</h2>
@@ -58,6 +58,7 @@ h1 { margin: 0 0 8px; }
 <div><span class="tag">M</span> <a href="#data_schemas_enigmarc_xml"><code>data/schemas/enigmarc.xml</code></a></div>
 <div><span class="tag">M</span> <a href="#data_schemas_level_xsd"><code>data/schemas/level.xsd</code></a></div>
 <div><span class="tag">M</span> <a href="#doc_gitignore"><code>doc/.gitignore</code></a></div>
+<div><span class="tag">M</span> <a href="#lib_src_enigma_core_ecl_font_cc"><code>lib-src/enigma-core/ecl_font.cc</code></a></div>
 <div><span class="tag">M</span> <a href="#lib_src_enigma_core_ecl_video_hh"><code>lib-src/enigma-core/ecl_video.hh</code></a></div>
 <div><span class="tag">M</span> <a href="#src_Makefile_am"><code>src/Makefile.am</code></a></div>
 <div><span class="tag">M</span> <a href="#src_MouseCursor_cc"><code>src/MouseCursor.cc</code></a></div>
@@ -109,6 +110,7 @@ h1 { margin: 0 0 8px; }
 <div><span class="tag">A</span> <a href="#src_multiplayer_ball_assignment_hh"><code>src/multiplayer_ball_assignment.hh</code></a></div>
 <div><span class="tag">A</span> <a href="#src_multiplayer_config_cc"><code>src/multiplayer_config.cc</code></a></div>
 <div><span class="tag">A</span> <a href="#src_multiplayer_config_hh"><code>src/multiplayer_config.hh</code></a></div>
+<div><span class="tag">A</span> <a href="#src_multiplayer_connectivity_presets_hh"><code>src/multiplayer_connectivity_presets.hh</code></a></div>
 <div><span class="tag">A</span> <a href="#src_multiplayer_debug_cc"><code>src/multiplayer_debug.cc</code></a></div>
 <div><span class="tag">A</span> <a href="#src_multiplayer_enet_socket_cc"><code>src/multiplayer_enet_socket.cc</code></a></div>
 <div><span class="tag">A</span> <a href="#src_multiplayer_extra_players_cc"><code>src/multiplayer_extra_players.cc</code></a></div>
@@ -719,6 +721,42 @@ h1 { margin: 0 0 8px; }
 <div class="line ctx"><span class="ln old">6</span><span class="ln new">8</span><span class="code">*.pdf</span></div>
 <div class="line ctx"><span class="ln old">7</span><span class="ln new">9</span><span class="code">*.ky</span></div>
 <div class="line ctx"><span class="ln old">8</span><span class="ln new">10</span><span class="code">*.pg</span></div>
+</div>
+</div>
+<div class="section" id="lib_src_enigma_core_ecl_font_cc">
+<h2><span class="tag">M</span> <code>lib-src/enigma-core/ecl_font.cc</code></h2>
+<div class="rationale">
+<div class="subhead">Description</div>
+<ul>
+<li>enigma-core font rendering implementation (bitmap fonts + SDL_ttf TrueType fonts).</li>
+</ul>
+<div class="subhead">Where it is used</div>
+<ul>
+<li>Used by all UI and overlay drawing code via `enigma::GetFont()` / `ecl::Font`.</li>
+</ul>
+<div class="subhead">What changed vs base</div>
+<ul>
+<li>Improves cross-platform TrueType loading by falling back to `TTF_OpenFontIndex(..., 0)` when `TTF_OpenFont()` fails.</li>
+<li>Fixes missing multiplayer overlay color coding on Windows builds where `.ttc` font collections could not be loaded via `TTF_OpenFont()` and thus silently fell back to bitmap fonts.</li>
+</ul>
+</div>
+<div class="diff">
+<div class="line meta"><span class="code">diff --git a/lib-src/enigma-core/ecl_font.cc b/lib-src/enigma-core/ecl_font.cc</span></div>
+<div class="line meta"><span class="code">index 6040154d..6f2f5aca 100644</span></div>
+<div class="line meta"><span class="code">--- a/lib-src/enigma-core/ecl_font.cc</span></div>
+<div class="line meta"><span class="code">+++ b/lib-src/enigma-core/ecl_font.cc</span></div>
+<div class="line hunkhdr"><span class="code">@@ -308,5 +308,11 @@ Font *ecl::LoadTTF(const char *filename, int ptsize, int r, int g, int b) {</span></div>
+<div class="line ctx"><span class="ln old">308</span><span class="ln new">308</span><span class="code">        exit(1);</span></div>
+<div class="line ctx"><span class="ln old">309</span><span class="ln new">309</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">310</span><span class="ln new">310</span><span class="code">    TTF_Font *font = TTF_OpenFont(filename, ptsize);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">311</span><span class="code">    if (!font) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">312</span><span class="code">        // Some SDL_ttf builds are pickier about TrueType collections (.ttc/.otc)</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">313</span><span class="code">        // unless the face index is provided explicitly. Trying index 0 is safe</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">314</span><span class="code">        // for normal .ttf fonts too.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">315</span><span class="code">        font = TTF_OpenFontIndex(filename, ptsize, 0);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">316</span><span class="code">    }</span></div>
+<div class="line ctx"><span class="ln old">311</span><span class="ln new">317</span><span class="code">    return (font) ? new TrueTypeFont(font, r, g, b) : 0;</span></div>
+<div class="line ctx"><span class="ln old">312</span><span class="ln new">318</span><span class="code">}</span></div>
 </div>
 </div>
 <div class="section" id="lib_src_enigma_core_ecl_video_hh">
@@ -8438,6 +8476,188 @@ h1 { margin: 0 0 8px; }
 <div class="line add"><span class="ln old"></span><span class="ln new">63</span><span class="code">}  // namespace enigma</span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">64</span><span class="code"></span></div>
 <div class="line add"><span class="ln old"></span><span class="ln new">65</span><span class="code">#endif</span></div>
+</div>
+</div>
+<div class="section" id="src_multiplayer_connectivity_presets_hh">
+<h2><span class="tag">A</span> <code>src/multiplayer_connectivity_presets.hh</code></h2>
+<div class="rationale">
+<div class="subhead">Description</div>
+<ul>
+<li>Single source of truth for the Good/Normal/Bad connectivity preset parameter values.</li>
+</ul>
+<div class="subhead">Where it is used</div>
+<ul>
+<li>Included by both the Options UI and the multiplayer session runtime (auto-detect + overlay).</li>
+</ul>
+<div class="subhead">What changed vs base</div>
+<ul>
+<li>Centralizes preset definitions so the manual UI buttons and host auto-detect always apply identical values.</li>
+<li>Defines the RTT threshold constants used for auto-detect classification and overlay latency coloring.</li>
+</ul>
+</div>
+<div class="diff">
+<div class="line meta"><span class="code">diff --git a/src/multiplayer_connectivity_presets.hh b/src/multiplayer_connectivity_presets.hh</span></div>
+<div class="line meta"><span class="code">new file mode 100644</span></div>
+<div class="line meta"><span class="code">index 00000000..677174f8</span></div>
+<div class="line meta"><span class="code">--- /dev/null</span></div>
+<div class="line meta"><span class="code">+++ b/src/multiplayer_connectivity_presets.hh</span></div>
+<div class="line hunkhdr"><span class="code">@@ -0,0 +1,156 @@</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">1</span><span class="code">/*</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">2</span><span class="code"> * 2026 LLM generated contribution - concept, review and revision by Ferdinand Strixner</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">3</span><span class="code"> *</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">4</span><span class="code"> * This program is free software; you can redistribute it and/or</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">5</span><span class="code"> * modify it under the terms of the GNU General Public License</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">6</span><span class="code"> * as published by the Free Software Foundation; either version 2</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">7</span><span class="code"> * of the License, or (at your option) any later version.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">8</span><span class="code"> *</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">9</span><span class="code"> * This program is distributed in the hope that it will be useful,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">10</span><span class="code"> * but WITHOUT ANY WARRANTY; without even the implied warranty of</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">11</span><span class="code"> * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">12</span><span class="code"> * GNU General Public License for more details.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">13</span><span class="code"> *</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">14</span><span class="code"> * You should have received a copy of the GNU General Public License along</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">15</span><span class="code"> * with this program; if not, write to the Free Software Foundation, Inc.,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">16</span><span class="code"> * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">17</span><span class="code"> */</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">18</span><span class="code">#ifndef ENIGMA_MULTIPLAYER_CONNECTIVITY_PRESETS_HH</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">19</span><span class="code">#define ENIGMA_MULTIPLAYER_CONNECTIVITY_PRESETS_HH</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">20</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">21</span><span class="code">#include &lt;array&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">22</span><span class="code">#include &lt;cstddef&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">23</span><span class="code">#include &lt;cstdint&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">24</span><span class="code">#include &lt;string&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">25</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">26</span><span class="code">namespace enigma {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">27</span><span class="code">namespace multiplayer {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">28</span><span class="code">namespace connectivity {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">29</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">30</span><span class="code">// Auto-detect classification thresholds based on worst-link p90 RTT.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">31</span><span class="code">// Keep in sync with display overlays and documentation.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">32</span><span class="code">constexpr uint32_t kConnectivityGoodMaxP90Ms = 70;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">33</span><span class="code">constexpr uint32_t kConnectivityNormalMaxP90Ms = 180;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">34</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">35</span><span class="code">struct PresetSpec {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">36</span><span class="code">    const char *name = &quot;Custom&quot;;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">37</span><span class="code">    bool zerofill = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">38</span><span class="code">    bool rollback = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">39</span><span class="code">    bool remote_local_ball = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">40</span><span class="code">    bool client_auth_pos = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">41</span><span class="code">    bool host_world_only = false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">42</span><span class="code">    int tick_ms = 10;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">43</span><span class="code">    int input_delay_legacy_ticks = 4;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">44</span><span class="code">    int predict_mouse_ticks = 0;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">45</span><span class="code">    int host_resync_stride_legacy_ticks = 50;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">46</span><span class="code">    int host_world_stride_legacy_ticks = 50;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">47</span><span class="code">    int rollback_keep_ticks = 200;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">48</span><span class="code">};</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">49</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">50</span><span class="code">inline const std::array&lt;PresetSpec, 3&gt; &amp;presets() {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">51</span><span class="code">    // Keep in sync with OptionsMenu::apply_mp_debug_preset() UI labels.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">52</span><span class="code">    static const std::array&lt;PresetSpec, 3&gt; k = {{</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">53</span><span class="code">        PresetSpec{</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">54</span><span class="code">            /*name=*/&quot;Good&quot;,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">55</span><span class="code">            /*zerofill=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">56</span><span class="code">            /*rollback=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">57</span><span class="code">            /*remote_local_ball=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">58</span><span class="code">            /*client_auth_pos=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">59</span><span class="code">            /*host_world_only=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">60</span><span class="code">            /*tick_ms=*/10,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">61</span><span class="code">            /*input_delay_legacy_ticks=*/4,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">62</span><span class="code">            /*predict_mouse_ticks=*/0,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">63</span><span class="code">            /*host_resync_stride_legacy_ticks=*/1,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">64</span><span class="code">            /*host_world_stride_legacy_ticks=*/50,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">65</span><span class="code">            /*rollback_keep_ticks=*/200,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">66</span><span class="code">        },</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">67</span><span class="code">        PresetSpec{</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">68</span><span class="code">            /*name=*/&quot;Normal&quot;,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">69</span><span class="code">            /*zerofill=*/true,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">70</span><span class="code">            /*rollback=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">71</span><span class="code">            /*remote_local_ball=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">72</span><span class="code">            /*client_auth_pos=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">73</span><span class="code">            /*host_world_only=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">74</span><span class="code">            /*tick_ms=*/20,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">75</span><span class="code">            /*input_delay_legacy_ticks=*/8,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">76</span><span class="code">            /*predict_mouse_ticks=*/0,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">77</span><span class="code">            /*host_resync_stride_legacy_ticks=*/1,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">78</span><span class="code">            /*host_world_stride_legacy_ticks=*/25,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">79</span><span class="code">            /*rollback_keep_ticks=*/200,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">80</span><span class="code">        },</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">81</span><span class="code">        PresetSpec{</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">82</span><span class="code">            /*name=*/&quot;Bad&quot;,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">83</span><span class="code">            /*zerofill=*/true,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">84</span><span class="code">            /*rollback=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">85</span><span class="code">            /*remote_local_ball=*/false,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">86</span><span class="code">            /*client_auth_pos=*/true,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">87</span><span class="code">            /*host_world_only=*/true,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">88</span><span class="code">            /*tick_ms=*/50,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">89</span><span class="code">            /*input_delay_legacy_ticks=*/16,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">90</span><span class="code">            /*predict_mouse_ticks=*/0,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">91</span><span class="code">            /*host_resync_stride_legacy_ticks=*/30,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">92</span><span class="code">            /*host_world_stride_legacy_ticks=*/10,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">93</span><span class="code">            /*rollback_keep_ticks=*/200,</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">94</span><span class="code">        },</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">95</span><span class="code">    }};</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">96</span><span class="code">    return k;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">97</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">98</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">99</span><span class="code">template &lt;class GetBoolFn, class GetIntFn&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">100</span><span class="code">inline bool options_match_preset(const PresetSpec &amp;p, GetBoolFn get_bool, GetIntFn get_int) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">101</span><span class="code">    return get_bool(&quot;MultiplayerDebugSmoothRender&quot;) &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">102</span><span class="code">           get_bool(&quot;MultiplayerDebugZeroFillInputs&quot;) == p.zerofill &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">103</span><span class="code">           get_bool(&quot;MultiplayerDebugRollbackEnabled&quot;) == p.rollback &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">104</span><span class="code">           get_bool(&quot;MultiplayerDebugRemoteControlLocalBall&quot;) == p.remote_local_ball &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">105</span><span class="code">           get_bool(&quot;MultiplayerDebugClientAuthBallPos&quot;) == p.client_auth_pos &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">106</span><span class="code">           get_bool(&quot;MultiplayerDebugHostOnlyWorldInteractions&quot;) == p.host_world_only &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">107</span><span class="code">           get_int(&quot;MultiplayerDebugTickLengthMs&quot;) == p.tick_ms &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">108</span><span class="code">           get_int(&quot;MultiplayerDebugInputDelayTicks&quot;) == p.input_delay_legacy_ticks &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">109</span><span class="code">           get_int(&quot;MultiplayerDebugPredictMissingMouseTicks&quot;) == p.predict_mouse_ticks &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">110</span><span class="code">           get_int(&quot;MultiplayerDebugHostBroadcastResyncStrideTicks&quot;) == p.host_resync_stride_legacy_ticks &amp;&amp;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">111</span><span class="code">           get_int(&quot;MultiplayerDebugHostBroadcastWorldStateStrideTicks&quot;) == p.host_world_stride_legacy_ticks;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">112</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">113</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">114</span><span class="code">template &lt;class GetBoolFn, class GetIntFn&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">115</span><span class="code">inline std::string profile_name_or_custom(GetBoolFn get_bool, GetIntFn get_int) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">116</span><span class="code">    for (const auto &amp;p : presets()) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">117</span><span class="code">        if (options_match_preset(p, get_bool, get_int))</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">118</span><span class="code">            return p.name;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">119</span><span class="code">    }</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">120</span><span class="code">    return &quot;Custom&quot;;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">121</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">122</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">123</span><span class="code">template &lt;class SetBoolFn, class SetIntFn&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">124</span><span class="code">inline void apply_preset(const PresetSpec &amp;p, SetBoolFn set_bool, SetIntFn set_int) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">125</span><span class="code">    set_bool(&quot;MultiplayerDebugSmoothRender&quot;, true);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">126</span><span class="code">    // Conservative: avoid surprising transport/bind behavior when switching presets.</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">127</span><span class="code">    set_bool(&quot;MultiplayerDebugForceRelay&quot;, false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">128</span><span class="code">    set_bool(&quot;MultiplayerDebugBindLocal&quot;, false);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">129</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">130</span><span class="code">    set_bool(&quot;MultiplayerDebugZeroFillInputs&quot;, p.zerofill);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">131</span><span class="code">    set_bool(&quot;MultiplayerDebugRollbackEnabled&quot;, p.rollback);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">132</span><span class="code">    set_bool(&quot;MultiplayerDebugRemoteControlLocalBall&quot;, p.remote_local_ball);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">133</span><span class="code">    set_bool(&quot;MultiplayerDebugClientAuthBallPos&quot;, p.client_auth_pos);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">134</span><span class="code">    set_bool(&quot;MultiplayerDebugHostOnlyWorldInteractions&quot;, p.host_world_only);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">135</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">136</span><span class="code">    set_int(&quot;MultiplayerDebugTickLengthMs&quot;, p.tick_ms);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">137</span><span class="code">    set_int(&quot;MultiplayerDebugInputDelayTicks&quot;, p.input_delay_legacy_ticks);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">138</span><span class="code">    set_int(&quot;MultiplayerDebugPredictMissingMouseTicks&quot;, p.predict_mouse_ticks);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">139</span><span class="code">    set_int(&quot;MultiplayerDebugHostBroadcastResyncStrideTicks&quot;, p.host_resync_stride_legacy_ticks);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">140</span><span class="code">    set_int(&quot;MultiplayerDebugHostBroadcastWorldStateStrideTicks&quot;, p.host_world_stride_legacy_ticks);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">141</span><span class="code">    set_int(&quot;MultiplayerDebugRollbackKeepTicks&quot;, p.rollback_keep_ticks);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">142</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">143</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">144</span><span class="code">template &lt;class SetBoolFn, class SetIntFn&gt;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">145</span><span class="code">inline bool apply_preset_id(int preset_id, SetBoolFn set_bool, SetIntFn set_int) {</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">146</span><span class="code">    if (preset_id &lt; 0 || preset_id &gt;= static_cast&lt;int&gt;(presets().size()))</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">147</span><span class="code">        return false;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">148</span><span class="code">    apply_preset(presets()[static_cast&lt;size_t&gt;(preset_id)], set_bool, set_int);</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">149</span><span class="code">    return true;</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">150</span><span class="code">}</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">151</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">152</span><span class="code">}  // namespace connectivity</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">153</span><span class="code">}  // namespace multiplayer</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">154</span><span class="code">}  // namespace enigma</span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">155</span><span class="code"></span></div>
+<div class="line add"><span class="ln old"></span><span class="ln new">156</span><span class="code">#endif  // ENIGMA_MULTIPLAYER_CONNECTIVITY_PRESETS_HH</span></div>
 </div>
 </div>
 <div class="section" id="src_multiplayer_debug_cc">

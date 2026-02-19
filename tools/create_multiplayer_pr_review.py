@@ -624,6 +624,15 @@ def build_narratives() -> Dict[str, FileNarrative]:
             "Undefines the `RGB` macro from `<windows.h>` so Enigma's `ecl::RGB` type can be declared reliably on Windows builds.",
         ],
     )
+    add(
+        "lib-src/enigma-core/ecl_font.cc",
+        ["enigma-core font rendering implementation (bitmap fonts + SDL_ttf TrueType fonts)."],
+        ["Used by all UI and overlay drawing code via `enigma::GetFont()` / `ecl::Font`."],
+        [
+            "Improves cross-platform TrueType loading by falling back to `TTF_OpenFontIndex(..., 0)` when `TTF_OpenFont()` fails.",
+            "Fixes missing multiplayer overlay color coding on Windows builds where `.ttc` font collections could not be loaded via `TTF_OpenFont()` and thus silently fell back to bitmap fonts.",
+        ],
+    )
 
     # Multiplayer public API + core orchestration
     add(
