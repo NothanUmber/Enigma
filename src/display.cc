@@ -27,6 +27,7 @@
 #include "main.hh"
 #include "multiplayer.hh"
 #include "options.hh"
+#include "multiplayer_connectivity_presets.hh"
 #include "resource_cache.hh"
 #include "server.hh"
 #include "video.hh"
@@ -2006,7 +2007,7 @@ namespace {
 
 	    auto pick_font_for_line = [&](const std::string &line) -> ecl::Font * {
 	        // Colorize latency lines based on the auto-detect thresholds.
-	        // Keep thresholds in sync with multiplayer_session_runtime.cc.
+	        // Keep thresholds in sync with connectivity auto-detect.
 	        if (line.rfind("  P", 0) != 0)
 	            return f;
 	        const size_t p = line.find(": ");
@@ -2019,9 +2020,9 @@ namespace {
 	        long ms = std::strtol(s, &end, 10);
 	        if (end == s)
 	            return f;
-	        if (ms <= 70)
+	        if (ms <= static_cast<long>(multiplayer::connectivity::kConnectivityGoodMaxP90Ms))
 	            return f_good;
-	        if (ms <= 180)
+	        if (ms <= static_cast<long>(multiplayer::connectivity::kConnectivityNormalMaxP90Ms))
 	            return f_normal;
 	        return f_bad;
 	    };

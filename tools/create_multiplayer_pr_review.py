@@ -740,6 +740,15 @@ def build_narratives() -> Dict[str, FileNarrative]:
         ],
     )
     add(
+        "src/multiplayer_connectivity_presets.hh",
+        ["Single source of truth for the Good/Normal/Bad connectivity preset parameter values."],
+        ["Included by both the Options UI and the multiplayer session runtime (auto-detect + overlay)."],
+        [
+            "Centralizes preset definitions so the manual UI buttons and host auto-detect always apply identical values.",
+            "Defines the RTT threshold constants used for auto-detect classification and overlay latency coloring.",
+        ],
+    )
+    add(
         "src/multiplayer_protocol.hh",
         ["Binary protocol definitions for gameplay session packets (inputs, sync, control messages)."],
         ["Used by host/client session code across all gameplay transports."],

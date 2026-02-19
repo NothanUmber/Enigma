@@ -18,6 +18,7 @@
 
 #include "multiplayer_session.hh"
 
+#include "multiplayer_connectivity_presets.hh"
 #include "multiplayer_extra_players.hh"
 #include "multiplayer_rollback.hh"
 #include "multiplayer_session_impl.hh"
@@ -159,53 +160,12 @@ void SessionSetInputClockFrozen(bool frozen) {
 
 namespace {
 
-// Auto-detect classifies the session based on the worst (across remotes) p90 RTT.
-constexpr Uint32 kConnectivityGoodMaxP90Ms = 70;
-constexpr Uint32 kConnectivityNormalMaxP90Ms = 180;
-
 const char *on_off(bool value) {
     return value ? "On" : "Off";
 }
 
-struct ConnectivityPresetSpec {
-    const char *name;
-    bool zerofill;
-    bool rollback;
-    bool remote_local_ball;
-    bool client_auth_pos;
-    bool host_world_only;
-    int tick_ms;
-    int input_delay_legacy_ticks;
-    int predict_mouse_ticks;
-    int host_resync_stride;
-    int host_world_stride;
-};
-
-bool options_match_preset(const ConnectivityPresetSpec &p) {
-    return options::GetBool("MultiplayerDebugSmoothRender") &&
-           options::GetBool("MultiplayerDebugZeroFillInputs") == p.zerofill &&
-           options::GetBool("MultiplayerDebugRollbackEnabled") == p.rollback &&
-           options::GetBool("MultiplayerDebugRemoteControlLocalBall") == p.remote_local_ball &&
-           options::GetBool("MultiplayerDebugClientAuthBallPos") == p.client_auth_pos &&
-           options::GetBool("MultiplayerDebugHostOnlyWorldInteractions") == p.host_world_only &&
-           options::GetInt("MultiplayerDebugTickLengthMs") == p.tick_ms &&
-           options::GetInt("MultiplayerDebugInputDelayTicks") == p.input_delay_legacy_ticks &&
-           options::GetInt("MultiplayerDebugPredictMissingMouseTicks") == p.predict_mouse_ticks &&
-           options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks") == p.host_resync_stride &&
-           options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks") == p.host_world_stride;
-}
-
 std::string connectivity_profile_name_or_custom() {
-    static const ConnectivityPresetSpec presets[] = {
-        {"Good", false, false, false, false, false, 10, 4, 0, 50, 50},
-        {"Normal", true, true, false, false, false, 20, 8, 2, 25, 25},
-        {"Bad", true, false, false, true, true, 50, 16, 0, 10, 10}
-    };
-    for (const auto &preset : presets) {
-        if (options_match_preset(preset))
-            return preset.name;
-    }
-    return "Custom";
+    return connectivity::profile_name_or_custom(options::GetBool, options::GetInt);
 }
 
 void append_bool_option(std::vector<std::string> &lines, const char *label, const char *option) {
@@ -676,68 +636,25 @@ Uint32 percentile_ms(std::vector<Uint32> samples, double p) {
 
 int classify_connectivity_preset(Uint32 worst_p90_ms) {
     // Thresholds are conservative: we prefer a slower but stable experience.
-    if (worst_p90_ms <= kConnectivityGoodMaxP90Ms)
+    if (worst_p90_ms <= connectivity::kConnectivityGoodMaxP90Ms)
         return 0;  // good
-    if (worst_p90_ms <= kConnectivityNormalMaxP90Ms)
+    if (worst_p90_ms <= connectivity::kConnectivityNormalMaxP90Ms)
         return 1;  // mediocre
     return 2;      // bad
 }
 
 void apply_connectivity_preset_to_options(int preset_id) {
-    // Keep in sync with the UI presets (OptionsMenu::apply_mp_debug_preset()).
-    bool zerofill = false;
-    bool rollback = false;
-    bool remote_local_ball = false;
-    bool client_auth_pos = false;
-    bool host_world_only = false;
-    int tick_ms = 10;
-    int input_delay_legacy_ticks = 4;
-    int predict_mouse_ticks = 0;
-    int host_resync_stride = 50;
-    int host_world_stride = 50;
-
-    if (preset_id == 1) {  // mediocre
-        zerofill = true;
-        rollback = true;
-        remote_local_ball = false;
-        client_auth_pos = false;
-        host_world_only = false;
-        tick_ms = 20;
-        input_delay_legacy_ticks = 8;
-        predict_mouse_ticks = 2;
-        host_resync_stride = 25;
-        host_world_stride = 25;
-    } else if (preset_id == 2) {  // bad
-        zerofill = true;
-        // Prefer playability over strict lockstep under poor links:
-        // - client-authoritative local ball position avoids heavy "snap back"
-        // - host-only world interactions avoids client-side stone flicker
-        rollback = false;
-        remote_local_ball = false;
-        client_auth_pos = true;
-        host_world_only = true;
-        tick_ms = 50;
-        input_delay_legacy_ticks = 16;
-        predict_mouse_ticks = 0;
-        host_resync_stride = 10;
-        host_world_stride = 10;
-    }
-
-    options::SetOption("MultiplayerDebugSmoothRender", true);
-    options::SetOption("MultiplayerDebugZeroFillInputs", zerofill);
-    options::SetOption("MultiplayerDebugRollbackEnabled", rollback);
-    options::SetOption("MultiplayerDebugRemoteControlLocalBall", remote_local_ball);
-    options::SetOption("MultiplayerDebugClientAuthBallPos", client_auth_pos);
-    options::SetOption("MultiplayerDebugHostOnlyWorldInteractions", host_world_only);
-
-    options::SetOption("MultiplayerDebugTickLengthMs", static_cast<double>(tick_ms));
-    options::SetOption("MultiplayerDebugInputDelayTicks", static_cast<double>(input_delay_legacy_ticks));
-    options::SetOption("MultiplayerDebugPredictMissingMouseTicks", static_cast<double>(predict_mouse_ticks));
-    options::SetOption("MultiplayerDebugHostBroadcastResyncStrideTicks", static_cast<double>(host_resync_stride));
-    options::SetOption("MultiplayerDebugHostBroadcastWorldStateStrideTicks", static_cast<double>(host_world_stride));
-    options::SetOption("MultiplayerDebugRollbackKeepTicks", 200.0);
+    const bool ok = connectivity::apply_preset_id(
+        preset_id,
+        [](const char *name, bool value) { options::SetOption(name, value ? 1.0 : 0.0); },
+        [](const char *name, int value) { options::SetOption(name, static_cast<double>(value)); });
+    if (!ok)
+        return;
 
     // Ensure the host session uses the chosen tick immediately (before NET_START).
+    int tick_ms = options::GetInt("MultiplayerDebugTickLengthMs");
+    if (tick_ms <= 0)
+        tick_ms = 10;
     g_session.tick_ms = static_cast<Uint16>(tick_ms);
     input::SetTickTimestep(static_cast<double>(g_session.tick_ms) / 1000.0);
 }

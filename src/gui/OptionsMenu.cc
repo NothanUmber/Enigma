@@ -30,6 +30,7 @@
 #include "XMLtoLocal.hh"
 #include "XMLtoUtf8.hh"
 #include "multiplayer_config.hh"
+#include "multiplayer_connectivity_presets.hh"
 #include "display.hh"
 #include "ecl_video.hh"
 #include "lev/ScoreManager.hh"
@@ -953,39 +954,7 @@ public:
         };
 
         auto connectivity_profile_name_or_custom = []() -> std::string {
-            struct Preset {
-                const char *name;
-                bool zerofill;
-                bool rollback;
-                bool remote_local_ball;
-                bool client_auth_pos;
-                bool host_world_only;
-                int tick_ms;
-                int input_delay_legacy_ticks;
-                int predict_mouse_ticks;
-                int host_resync_stride;
-                int host_world_stride;
-            };
-            static const Preset presets[] = {
-                {"Good", false, false, false, false, false, 10, 4, 0, 50, 50},
-                {"Normal", true, true, false, false, false, 20, 8, 2, 25, 25},
-                {"Bad", true, false, false, true, true, 50, 16, 0, 10, 10}
-            };
-            for (const auto &p : presets) {
-                if (options::GetBool("MultiplayerDebugSmoothRender") &&
-                    options::GetBool("MultiplayerDebugZeroFillInputs") == p.zerofill &&
-                    options::GetBool("MultiplayerDebugRollbackEnabled") == p.rollback &&
-                    options::GetBool("MultiplayerDebugRemoteControlLocalBall") == p.remote_local_ball &&
-                    options::GetBool("MultiplayerDebugClientAuthBallPos") == p.client_auth_pos &&
-                    options::GetBool("MultiplayerDebugHostOnlyWorldInteractions") == p.host_world_only &&
-                    options::GetInt("MultiplayerDebugTickLengthMs") == p.tick_ms &&
-                    options::GetInt("MultiplayerDebugInputDelayTicks") == p.input_delay_legacy_ticks &&
-                    options::GetInt("MultiplayerDebugPredictMissingMouseTicks") == p.predict_mouse_ticks &&
-                    options::GetInt("MultiplayerDebugHostBroadcastResyncStrideTicks") == p.host_resync_stride &&
-                    options::GetInt("MultiplayerDebugHostBroadcastWorldStateStrideTicks") == p.host_world_stride)
-                    return p.name;
-            }
-            return "Custom";
+            return multiplayer::connectivity::profile_name_or_custom(options::GetBool, options::GetInt);
         };
 
         switch (new_page) {
@@ -1693,76 +1662,10 @@ public:
 
 		    void OptionsMenu::apply_mp_debug_preset(int preset_id)
 		    {
-		        // Keep this explicit: presets directly set MultiplayerDebug* values so
-		        // users can inspect/modify them in Debug/Debug2 afterwards.
-		        struct Preset {
-		            bool zerofill = false;
-		            bool rollback = false;
-		            bool remote_local_ball = false;
-		            bool client_auth_ball_pos = false;
-		            bool host_world_only = false;
-		            int tick_ms = 10;
-		            int input_delay_legacy_ticks = 4;
-		            int predict_mouse_ticks = 0;
-		            int host_resync_stride = 1;
-		            int host_world_stride = 50;
-		        };
-		        Preset p;
-		        switch (preset_id) {
-		        case 1:  // normal
-		            p.zerofill = true;
-		            p.rollback = false;
-		            p.remote_local_ball = false;
-		            p.tick_ms = 20;
-		            p.input_delay_legacy_ticks = 8;
-		            p.predict_mouse_ticks = 0;
-		            p.host_resync_stride = 1;
-		            p.host_world_stride = 25;
-		            break;
-		        case 2:  // bad
-		            p.zerofill = true;
-		            // Prefer playability over strict lockstep under poor links:
-		            // - client-authoritative local ball position avoids heavy "snap back"
-		            // - host-only world interactions avoids client-side stone flicker
-		            p.rollback = false;
-		            p.remote_local_ball = false;
-		            p.client_auth_ball_pos = true;
-		            p.host_world_only = true;
-		            p.tick_ms = 50;
-		            p.input_delay_legacy_ticks = 16;
-		            p.predict_mouse_ticks = 0;
-		            p.host_resync_stride = 30;
-		            p.host_world_stride = 10;
-		            break;
-		        default:  // good
-		            p.zerofill = false;
-		            p.rollback = false;
-		            p.remote_local_ball = false;
-		            p.tick_ms = 10;
-		            p.input_delay_legacy_ticks = 4;
-		            p.predict_mouse_ticks = 0;
-		            p.host_resync_stride = 1;
-		            p.host_world_stride = 50;
-		            break;
-		        }
-
-	        app.prefs->setProperty("MultiplayerDebugSmoothRender", true);
-	        app.prefs->setProperty("MultiplayerDebugZeroFillInputs", p.zerofill);
-	        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", p.rollback);
-	        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", p.remote_local_ball);
-	        app.prefs->setProperty("MultiplayerDebugClientAuthBallPos", p.client_auth_ball_pos);
-	        app.prefs->setProperty("MultiplayerDebugHostOnlyWorldInteractions", p.host_world_only);
-
-	        app.prefs->setProperty("MultiplayerDebugTickLengthMs", p.tick_ms);
-	        app.prefs->setProperty("MultiplayerDebugInputDelayTicks", p.input_delay_legacy_ticks);
-	        app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", p.predict_mouse_ticks);
-		        app.prefs->setProperty("MultiplayerDebugHostBroadcastResyncStrideTicks", p.host_resync_stride);
-		        app.prefs->setProperty("MultiplayerDebugHostBroadcastWorldStateStrideTicks", p.host_world_stride);
-		        app.prefs->setProperty("MultiplayerDebugRollbackKeepTicks", 200);
-
-		        // Conservative: ensure transport debug toggles don't surprise.
-		        app.prefs->setProperty("MultiplayerDebugForceRelay", false);
-		        app.prefs->setProperty("MultiplayerDebugBindLocal", false);
+		        multiplayer::connectivity::apply_preset_id(
+		            preset_id,
+		            [](const char *name, bool value) { app.prefs->setProperty(name, value ? 1.0 : 0.0); },
+		            [](const char *name, int value) { app.prefs->setProperty(name, static_cast<double>(value)); });
 
 			        invalidate_all();
 			    }
