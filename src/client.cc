@@ -31,6 +31,7 @@
 #include "SoundEngine.hh"
 #include "SoundEffectManager.hh"
 #include "MusicManager.hh"
+#include "multiplayer_script_recorder.hh"
 #include "multiplayer_state.hh"
 #include "player.hh"
 #include "resource_cache.hh"
@@ -701,6 +702,18 @@ void Client::on_keydown(SDL_Event &e) {
                     display::RedrawAll(video_engine->GetScreen());
             }
             break;
+        case SDLK_F9:
+            if (keymod & KMOD_SHIFT) {
+                multiplayer::scriptrecorder::Toggle();
+                Msg_ShowText(multiplayer::scriptrecorder::StatusMessage(), false);
+            }
+            break;
+        case SDLK_F11:
+            if (keymod & KMOD_SHIFT) {
+                multiplayer::scriptrecorder::CaptureSetupSnapshot();
+                Msg_ShowText(multiplayer::scriptrecorder::StatusMessage(), false);
+            }
+            break;
 
         case SDLK_F10: {
             video_engine->Screenshot(server::LoadedProxy->getNextScreenshotPath());
@@ -755,6 +768,8 @@ static const char *helptext_ingame[] = {
     N_("F4:"), N_("Skip to next level"),
     N_("F5:"), 0,  // see below
     N_("F6:"), N_("Jump back to last level"),
+    N_("Shift+F9:"), N_("Toggle multiplayer script recorder"),
+    N_("Shift+F11:"), N_("Capture multiplayer setup snapshot"),
     N_("F10:"), N_("Make screenshot"),
     N_("Left/right arrow:"), N_("Change mouse speed"),
     N_("Alt+x:"), N_("Return to level menu"),

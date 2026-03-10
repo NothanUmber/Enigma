@@ -309,6 +309,7 @@ struct Field {
 };
 
 const Field *GetField(GridPos p);
+void SetSuppressWorldChangeNotifications(bool suppress);
 
 /* -------------------- Stones -------------------- */
 

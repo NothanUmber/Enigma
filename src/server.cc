@@ -175,6 +175,7 @@ void SimulateOneTick(double timestep) {
     // across smaller physics steps for stable, controllable motion at large tick sizes.
     for (unsigned player = 0; player < players; ++player) {
         const input::PlayerInput &pi = inputs[player];
+        player::InhibitPickup(player, pi.activate_count > 0 || pi.rotate_steps != 0);
         if (pi.rotate_steps != 0) {
             int dir = (pi.rotate_steps > 0) ? 1 : -1;
             int steps = (pi.rotate_steps > 0) ? pi.rotate_steps : -pi.rotate_steps;

@@ -524,6 +524,12 @@ void player::InhibitPickup(bool flag) {
     players[icurrent_player].inhibit_pickup = flag;
 }
 
+void player::InhibitPickup(unsigned iplayer, bool flag) {
+    if (iplayer >= players.size())
+        return;
+    players[iplayer].inhibit_pickup = flag;
+}
+
 /*! Return pointer to inventory if actor may pick up items, 0
    otherwise. */
 Inventory *player::MayPickup(Actor *a, Item *it, bool allowFlying) {

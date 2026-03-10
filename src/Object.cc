@@ -94,6 +94,11 @@ Object::~Object() {
     freeId(id);
 }
 
+bool Object::MpRestoreStateForSnapshot(int state) {
+    (void)state;
+    return false;
+}
+
 int Object::getId() const {
     return id;
 }

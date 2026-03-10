@@ -76,6 +76,11 @@ namespace enigma {
     void ShogunDot::setState(int extState) {
         // deny any write access 
     }
+
+    bool ShogunDot::MpRestoreStateForSnapshot(int snapshot_state) {
+        state = snapshot_state ? ON : OFF;
+        return true;
+    }
     
     void ShogunDot::on_creation(GridPos p) {
         if (server::WorldInitialized &&

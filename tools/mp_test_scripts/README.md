@@ -35,5 +35,10 @@ These are sent via `host ...` / `client ...` / `both ...` lines in scripts:
 - `LIST_STEERABLE`: dump steerable actors (controllers/ownership hints).
 - `MOUSE_FORCE player=<p> fx=<f> fy=<f>`: add a one-shot local pending mouse force.
 - `HOLD_MOUSE_FORCE player=<p> ticks=<n> fx=<f> fy=<f>`: submit a fixed mouse-force delta once per simulation tick for the next `n` ticks.
+- `QUEUE_MOUSE_FORCE player=<p> tick=<t>|ticks_ahead=<n> fx=<f> fy=<f>`: schedule a mouse-force submission for a specific simulation tick.
+- `QUEUE_LOCAL_INPUT player=<p> tick=<t>|ticks_ahead=<n> [fx=<f> fy=<f>] [rot=<i>] [act=<i>]`: schedule local pending input at a specific tick.
 - `INJECT_INPUT player=<p> fx=<f> fy=<f> [rot=<i>] [act=<i>]`: enqueue an input sample for the current tick.
 - `OVERRIDE_INPUT player=<p> ticks=<n> fx=<f> fy=<f> [rot=<i>] [act=<i>]`: force an input sample for the next `n` simulation ticks.
+- `SET_ACTOR_POS player=<p> x=<f> y=<f> [vx=<f> vy=<f>]`: directly place a player's main actor.
+- `SET_STONE x=<i> y=<i> kind=<kind>` / `MOVE_STONE from_x=<i> from_y=<i> to_x=<i> to_y=<i>` / `CLEAR_MOVABLE_STONES`: deterministic world setup helpers.
+- `SETUP_SAVE_FILE path=<file>` / `SETUP_LOAD_FILE path=<file>`: persist and restore a grid/actor setup snapshot.

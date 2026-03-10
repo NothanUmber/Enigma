@@ -356,6 +356,7 @@ public:
     RubberbandList rubberbands;
     MouseForce m_mouseforce;
     ecl::V2 globalForce;
+    double rest_time;
     int scrambleIntensity;
     int numMeditatists;
     int indispensableHollows;
@@ -381,6 +382,8 @@ private:
     ecl::Dict<Value> namedPositions;  // Name -> position mapping
 
     std::list<Scramble> scrambles;
+
+    unsigned next_actor_stable_id = 1;
 };
 
 }  // namespace enigma

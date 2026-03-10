@@ -28,10 +28,11 @@ namespace enigma {
 /* -------------------- BasicBall  -------------------- */
 
     const double BasicBall::SHIELD_TIME = 10.0;
+    constexpr double kAppearDurationSeconds = 0.025;
 
     BasicBall::BasicBall(const ActorTraits &tr) : Actor (tr),
             sinkDepth (minSinkDepth), sinkModel (-1),
-            lastshinep (false), vortex_normal_time (0), m_halosprite (),
+            lastshinep (false), vortex_normal_time (0), appear_time(0), m_halosprite (),
             m_shield_rest_time (0), m_halostate (NOHALO),
             m_drunk_rest_time (0), m_invisible_rest_time (0) {
         state = NO_STATE;
@@ -226,6 +227,8 @@ namespace enigma {
         if (m_invisible_rest_time > 0)
             m_invisible_rest_time -= dtime;
 
+        const std::string kind = getModelBaseName();
+
         // Update protection shield
         if (m_shield_rest_time > 0)
             m_shield_rest_time -= dtime;
@@ -236,9 +239,16 @@ namespace enigma {
                     m_drunk_rest_time -= dtime;
                 sink (dtime);
                 break;
+            case APPEARING:
+                appear_time += dtime;
+                if (appear_time >= kAppearDurationSeconds) {
+                    set_model(kind);
+                    change_state(NORMAL);
+                }
+                break;
             case JUMP_VORTEX:
                 vortex_normal_time += dtime;
-                if (vortex_normal_time > 0.025) // same time as appear animation
+                if (vortex_normal_time > kAppearDurationSeconds)
                     if (vortex_normal_time > dtime) // ensure min. one tick in state JUMP_VORTEX!
                         change_state(JUMPING); // end of short control over actor
                 break;
@@ -294,8 +304,6 @@ namespace enigma {
                 change_state(NORMAL);
                 break;
             case APPEARING:
-                set_model(kind);
-                change_state(NORMAL);
                 break;
             case DISAPPEARING:
                 set_model("ring-anim");
@@ -444,6 +452,8 @@ namespace enigma {
                 break;
             case APPEARING:
             case RISING_VORTEX:
+                if (newstate == APPEARING)
+                    appear_time = 0.0;
                 set_anim(kind+"-appear");
                 GrabActor(this);
                 break;

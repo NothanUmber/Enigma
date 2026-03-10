@@ -4,6 +4,7 @@
 #include "multiplayer_internal.hh"
 #include "multiplayer_protocol.hh"
 #include "multiplayer_rollback.hh"
+#include "multiplayer_script_recorder.hh"
 
 #include "client.hh"
 #include "game.hh"
@@ -75,6 +76,20 @@ struct DriverState {
     ecl::V2 hold_mouse_force_value;
     int hold_mouse_force_ticks_left = 0;
     uint32_t hold_mouse_force_last_tick = UINT32_MAX;
+
+    struct QueuedMouseForce {
+        uint32_t tick = 0;
+        unsigned player = 0;
+        ecl::V2 value;
+    };
+    std::vector<QueuedMouseForce> queued_mouse_forces;
+
+    struct QueuedLocalInput {
+        uint32_t tick = 0;
+        unsigned player = 0;
+        input::PlayerInput value;
+    };
+    std::vector<QueuedLocalInput> queued_local_inputs;
 };
 
 DriverState g_drv;
@@ -117,6 +132,8 @@ static std::map<std::string, std::string> parse_kv(const std::vector<std::string
             continue;
         std::string k = t.substr(0, pos);
         std::string v = t.substr(pos + 1);
+        if (v.size() >= 2 && ((v.front() == '"' && v.back() == '"') || (v.front() == '\'' && v.back() == '\'')))
+            v = v.substr(1, v.size() - 2);
         if (!k.empty())
             out[k] = v;
     }
@@ -177,6 +194,23 @@ static bool parse_f32(const std::map<std::string, std::string> &kv, const char *
         return false;
     out = v;
     return true;
+}
+
+static bool resolve_driver_tick(const std::map<std::string, std::string> &kv, uint32_t &tick,
+                                std::string &err) {
+    tick = 0;
+    err.clear();
+    if (parse_u32(kv, "tick", tick))
+        return true;
+
+    uint32_t ticks_ahead = 0;
+    if (parse_u32(kv, "ticks_ahead", ticks_ahead)) {
+        tick = input::CurrentTick() + ticks_ahead;
+        return true;
+    }
+
+    err = "missing_tick";
+    return false;
 }
 
 static void send_frame(const std::string &msg) {
@@ -317,6 +351,51 @@ static void maybe_apply_hold_mouse_force() {
     g_drv.hold_mouse_force_ticks_left -= 1;
 }
 
+static void maybe_apply_queued_mouse_forces() {
+    if (!g_drv.enabled || g_drv.queued_mouse_forces.empty())
+        return;
+    const uint32_t tick = input::CurrentTick();
+    for (auto it = g_drv.queued_mouse_forces.begin(); it != g_drv.queued_mouse_forces.end();) {
+        if (tick > it->tick) {
+            it = g_drv.queued_mouse_forces.erase(it);
+            continue;
+        }
+        if (tick == it->tick) {
+            input::SubmitMouseForce(it->player, it->value);
+            it = g_drv.queued_mouse_forces.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
+static void maybe_apply_queued_local_inputs() {
+    if (!g_drv.enabled || g_drv.queued_local_inputs.empty())
+        return;
+    const uint32_t tick = input::CurrentTick();
+    for (auto it = g_drv.queued_local_inputs.begin(); it != g_drv.queued_local_inputs.end();) {
+        if (tick > it->tick) {
+            it = g_drv.queued_local_inputs.erase(it);
+            continue;
+        }
+        if (tick == it->tick) {
+            if (it->value.mouse_force[0] != 0.0 || it->value.mouse_force[1] != 0.0)
+                input::SubmitMouseForce(it->player, it->value.mouse_force);
+            if (it->value.rotate_steps != 0)
+                input::SubmitRotateInventory(it->player, it->value.rotate_steps);
+            for (int i = 0; i < it->value.activate_count; ++i)
+                input::SubmitActivateItem(it->player);
+            it = g_drv.queued_local_inputs.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
+static bool world_accessible() {
+    return server::WorldInitialized && Width() > 0 && Height() > 0;
+}
+
 static void emit_state_snapshot() {
     if (!g_drv.enabled)
         return;
@@ -453,11 +532,60 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "SET_ACTOR_POS") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("SET_ACTOR_POS", "missing_player");
+            return true;
+        }
+        float x = 0.0f;
+        float y = 0.0f;
+        if (!parse_f32(kv, "x", x) || !parse_f32(kv, "y", y)) {
+            send_err("SET_ACTOR_POS", "missing_xy");
+            return true;
+        }
+        float vx = 0.0f;
+        float vy = 0.0f;
+        parse_f32(kv, "vx", vx);
+        parse_f32(kv, "vy", vy);
+        Actor *a = player::GetMainActor(static_cast<unsigned>(player_u32));
+        if (!a) {
+            send_err("SET_ACTOR_POS", "no_actor");
+            return true;
+        }
+        ActorInfo *ai = a->get_actorinfo();
+        ai->pos = ecl::V2(x, y);
+        DidMoveActor(a);
+        ai->last_gridpos = ai->gridpos;
+        ai->vel = ecl::V2(vx, vy);
+        ai->frozen_vel = ecl::V2(0, 0);
+        ai->forceacc = ecl::V2(0, 0);
+        ai->pos_force = ecl::V2(0, 0);
+        ai->force = ecl::V2(0, 0);
+        ai->collforce = ecl::V2(0, 0);
+        ai->render_pos = ai->pos;
+        ai->render_initialized = true;
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " x=" << static_cast<double>(ai->pos[0])
+           << " y=" << static_cast<double>(ai->pos[1])
+           << " vx=" << static_cast<double>(ai->vel[0])
+           << " vy=" << static_cast<double>(ai->vel[1]);
+        send_ok("SET_ACTOR_POS", os.str());
+        return true;
+    }
+
     if (cmd == "GET_CELL") {
         int x = 0;
         int y = 0;
         if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
             send_err("GET_CELL", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_CELL", "no_world");
             return true;
         }
         GridPos p(x, y);
@@ -484,6 +612,85 @@ static bool handle_command(const std::string &line) {
            << " st_state=" << state_or_dash(st)
            << " it_state=" << state_or_dash(it);
         send_ok("GET_CELL", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_STONE") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("SET_STONE", "missing_xy");
+            return true;
+        }
+        std::string kind;
+        {
+            auto it = kv.find("kind");
+            if (it != kv.end())
+                kind = it->second;
+        }
+        if (kind.empty()) {
+            send_err("SET_STONE", "missing_kind");
+            return true;
+        }
+        Stone *st = MakeStone(kind.c_str());
+        if (!st) {
+            send_err("SET_STONE", "make_failed");
+            return true;
+        }
+        SetStone(GridPos(x, y), st);
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y << " kind=" << kind << " id=" << st->getId();
+        send_ok("SET_STONE", os.str());
+        return true;
+    }
+
+    if (cmd == "MOVE_STONE") {
+        int from_x = 0;
+        int from_y = 0;
+        int to_x = 0;
+        int to_y = 0;
+        if (!parse_i32(kv, "from_x", from_x) || !parse_i32(kv, "from_y", from_y) ||
+            !parse_i32(kv, "to_x", to_x) || !parse_i32(kv, "to_y", to_y)) {
+            send_err("MOVE_STONE", "missing_xy");
+            return true;
+        }
+        const GridPos from(from_x, from_y);
+        const GridPos to(to_x, to_y);
+        Stone *st = GetStone(from);
+        if (!st) {
+            send_err("MOVE_STONE", "no_stone");
+            return true;
+        }
+        if (GetStone(to)) {
+            send_err("MOVE_STONE", "target_occupied");
+            return true;
+        }
+        MoveStone(from, to);
+        std::ostringstream os;
+        os << "from_x=" << from_x << " from_y=" << from_y
+           << " to_x=" << to_x << " to_y=" << to_y
+           << " id=" << st->getId() << " kind=" << st->getKind();
+        send_ok("MOVE_STONE", os.str());
+        return true;
+    }
+
+    if (cmd == "CLEAR_MOVABLE_STONES") {
+        if (!world_accessible()) {
+            send_err("CLEAR_MOVABLE_STONES", "no_world");
+            return true;
+        }
+        int cleared = 0;
+        for (int y = 0; y < Height(); ++y) {
+            for (int x = 0; x < Width(); ++x) {
+                const GridPos p(x, y);
+                Stone *st = GetStone(p);
+                if (!st || !st->is_movable())
+                    continue;
+                KillStone(p);
+                ++cleared;
+            }
+        }
+        send_ok("CLEAR_MOVABLE_STONES", "count=" + std::to_string(cleared));
         return true;
     }
 
@@ -876,6 +1083,128 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "QUEUE_MOUSE_FORCE") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("QUEUE_MOUSE_FORCE", "missing_player");
+            return true;
+        }
+        uint32_t tick = 0;
+        std::string tick_err;
+        if (!resolve_driver_tick(kv, tick, tick_err)) {
+            send_err("QUEUE_MOUSE_FORCE", tick_err);
+            return true;
+        }
+        float fx = 0.0f;
+        float fy = 0.0f;
+        if (!parse_f32(kv, "fx", fx) || !parse_f32(kv, "fy", fy)) {
+            send_err("QUEUE_MOUSE_FORCE", "missing_force");
+            return true;
+        }
+        DriverState::QueuedMouseForce entry;
+        entry.tick = tick;
+        entry.player = static_cast<unsigned>(player_u32);
+        entry.value = ecl::V2(fx, fy);
+        g_drv.queued_mouse_forces.push_back(entry);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " tick=" << static_cast<unsigned>(tick)
+           << " fx=" << static_cast<double>(fx)
+           << " fy=" << static_cast<double>(fy);
+        send_ok("QUEUE_MOUSE_FORCE", os.str());
+        return true;
+    }
+
+    if (cmd == "QUEUE_LOCAL_INPUT") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("QUEUE_LOCAL_INPUT", "missing_player");
+            return true;
+        }
+        uint32_t tick = 0;
+        std::string tick_err;
+        if (!resolve_driver_tick(kv, tick, tick_err)) {
+            send_err("QUEUE_LOCAL_INPUT", tick_err);
+            return true;
+        }
+        float fx = 0.0f;
+        float fy = 0.0f;
+        int rot = 0;
+        int act = 0;
+        parse_f32(kv, "fx", fx);
+        parse_f32(kv, "fy", fy);
+        parse_i32(kv, "rot", rot);
+        parse_i32(kv, "act", act);
+        if (fx == 0.0f && fy == 0.0f && rot == 0 && act == 0) {
+            send_err("QUEUE_LOCAL_INPUT", "empty_input");
+            return true;
+        }
+        DriverState::QueuedLocalInput entry;
+        entry.tick = tick;
+        entry.player = static_cast<unsigned>(player_u32);
+        entry.value.mouse_force = ecl::V2(fx, fy);
+        entry.value.rotate_steps = rot;
+        entry.value.activate_count = act;
+        g_drv.queued_local_inputs.push_back(entry);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " tick=" << static_cast<unsigned>(tick)
+           << " fx=" << static_cast<double>(fx)
+           << " fy=" << static_cast<double>(fy)
+           << " rot=" << rot
+           << " act=" << act;
+        send_ok("QUEUE_LOCAL_INPUT", os.str());
+        return true;
+    }
+
+    if (cmd == "SETUP_SAVE_FILE") {
+        std::string path;
+        {
+            auto it = kv.find("path");
+            if (it != kv.end())
+                path = it->second;
+        }
+        if (path.empty()) {
+            send_err("SETUP_SAVE_FILE", "missing_path");
+            return true;
+        }
+        const multiplayer::setupsnapshot::Snapshot snapshot = multiplayer::setupsnapshot::Capture();
+        if (!multiplayer::setupsnapshot::SaveToFile(snapshot, path)) {
+            send_err("SETUP_SAVE_FILE", "save_failed");
+            return true;
+        }
+        send_ok("SETUP_SAVE_FILE", "path=" + path);
+        return true;
+    }
+
+    if (cmd == "SETUP_LOAD_FILE") {
+        std::string path;
+        {
+            auto it = kv.find("path");
+            if (it != kv.end())
+                path = it->second;
+        }
+        if (path.empty()) {
+            send_err("SETUP_LOAD_FILE", "missing_path");
+            return true;
+        }
+        multiplayer::setupsnapshot::Snapshot snapshot;
+        if (!multiplayer::setupsnapshot::LoadFromFile(path, snapshot)) {
+            send_err("SETUP_LOAD_FILE", "load_failed");
+            return true;
+        }
+        if (!multiplayer::setupsnapshot::Restore(snapshot)) {
+            send_err("SETUP_LOAD_FILE", "restore_failed");
+            return true;
+        }
+        send_ok("SETUP_LOAD_FILE", "path=" + path);
+        return true;
+    }
+
     if (cmd == "SET_INT") {
         std::string key;
         int value = 0;
@@ -1041,6 +1370,8 @@ void Tick(double dtime) {
 
     // Apply any input override before the next simulation tick consumes inputs.
     maybe_apply_hold_mouse_force();
+    maybe_apply_queued_mouse_forces();
+    maybe_apply_queued_local_inputs();
     maybe_apply_input_override();
 
     if (g_drv.stream_state_interval_ms > 0) {
@@ -1063,6 +1394,8 @@ void Run() {
         multiplayer::Tick(dtime);
         client::Tick(dtime);
         // Ensure override wins even if multiplayer transport enqueued after Tick().
+        maybe_apply_queued_mouse_forces();
+        maybe_apply_queued_local_inputs();
         maybe_apply_input_override();
         server::Tick(dtime);
 

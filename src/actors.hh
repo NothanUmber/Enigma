@@ -189,6 +189,8 @@ public:
     bool isSteerable() const { return adhesion != 0.0; }
     double get_mouseforce() const { return adhesion; }
 
+    unsigned stable_id() const { return stable_id_; }
+
     bool controlled_by(int player) const {
         const int ctr = get_controllers();
         if (ctr != 0)
@@ -228,6 +230,7 @@ private:
     bool spikes;  // set by "it_pin"
     int controllers;
     double adhesion;
+    unsigned stable_id_ = 0;
 };
 
 inline ActorID get_id(Actor *a) {

@@ -20,6 +20,7 @@
 
 #include "multiplayer_extra_players.hh"
 #include "multiplayer_rollback.hh"
+#include "multiplayer_script_recorder.hh"
 #include "multiplayer_session_impl.hh"
 #include "multiplayer_transport.hh"
 #include "multiplayer_wait_settings.hh"
@@ -2260,6 +2261,8 @@ void send_local_inputs() {
 	    input::PlayerInput pending;
 	    if (ticks_to_fill)
 	        pending = input::DrainLocalPending(g_session.local_player);
+        if (ticks_to_fill)
+            multiplayer::scriptrecorder::RecordLocalPending(current_tick, g_session.local_player, pending);
 	    // Local pending inputs are accumulated across frames. If we need to fill
 	    // multiple ticks at once (e.g. after a stall), distribute the accumulated
 	    // mouse-force impulse across those ticks so physics stays consistent.

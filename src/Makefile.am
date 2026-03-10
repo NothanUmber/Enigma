@@ -99,6 +99,8 @@ enigma_SOURCES = 		\
 			multiplayer_session_transport.cc \
 			multiplayer_rollback.cc \
 			multiplayer_rollback.hh \
+			multiplayer_script_recorder.cc \
+			multiplayer_script_recorder.hh \
 			multiplayer_sim_snapshot.cc \
 			multiplayer_sim_snapshot.hh \
 			multiplayer_state.hh	\

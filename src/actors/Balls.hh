@@ -115,6 +115,7 @@ namespace enigma {
         bool   lastshinep;
 
         double vortex_normal_time; // while jumping out of vortex: time at normal level
+        double appear_time;
 
         // Variables
         static const double   SHIELD_TIME;

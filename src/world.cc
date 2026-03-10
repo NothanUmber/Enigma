@@ -61,6 +61,14 @@ const double ActorTimeStep = 0.0025;
 /* -------------------- Auxiliary functions -------------------- */
 
 namespace {
+bool g_suppress_world_change_notifications = false;
+}
+
+void SetSuppressWorldChangeNotifications(bool suppress) {
+    g_suppress_world_change_notifications = suppress;
+}
+
+namespace {
 
 double g_render_frame_dtime = 0.0;
 Uint32 g_render_frame_last_ms = 0;
@@ -218,6 +226,7 @@ World::World(int ww, int hh)
 : fields(ww, hh),
   leftmost_actor(nullptr),
   rightmost_actor(nullptr),
+  rest_time(0.0),
   scrambleIntensity(10),  // difficult default
   numMeditatists(0),
   indispensableHollows(0),
@@ -403,6 +412,9 @@ void World::add_actor(Actor *a) {
 }
 
 void World::add_actor(Actor *a, const V2 &pos) {
+    if (a->stable_id_ == 0)
+        a->stable_id_ = next_actor_stable_id++;
+
     actorlist.push_back(a);
     a->m_actorinfo.pos = pos;
     a->m_actorinfo.gridpos = GridPos(pos);
@@ -1282,22 +1294,35 @@ struct ActorEntry {
 }  // namespace
 
 void World::handle_actor_contacts() {
-    // For each actor, search for possible collisions with other actors.
-    // If there is a good chance for a collision, call handle_actor_contact.
-    Actor *a = leftmost_actor;
-    while (a != nullptr) {
-        Actor *candidate = a->right;
+    std::vector<Actor *> actors;
+    actors.reserve(actorlist.size());
+    for (Actor *actor : actorlist)
+        actors.push_back(actor);
+
+    std::sort(actors.begin(), actors.end(), [](const Actor *lhs, const Actor *rhs) {
+        const double lx = lhs->m_actorinfo.pos[0];
+        const double rx = rhs->m_actorinfo.pos[0];
+        if (lx < rx)
+            return true;
+        if (lx > rx)
+            return false;
+        return lhs->stable_id() < rhs->stable_id();
+    });
+
+    const size_t nactors = actors.size();
+    for (size_t i = 0; i < nactors; ++i) {
+        Actor *a = actors[i];
         double actingradius = a->m_actorinfo.radius + Actor::max_radius;
         double max_x = a->m_actorinfo.pos[0] + actingradius;
-        while (candidate != nullptr && candidate->m_actorinfo.pos[0] <= max_x) {
+        for (size_t j = i + 1; j < nactors; ++j) {
+            Actor *candidate = actors[j];
+            if (candidate->m_actorinfo.pos[0] > max_x)
+                break;
             double ydist = candidate->m_actorinfo.pos[1] - a->m_actorinfo.pos[1];
             ydist = (ydist < 0) ? -ydist : ydist;
-            if (ydist <= actingradius) {
+            if (ydist <= actingradius)
                 handle_actor_contact(a, candidate);
-            }
-            candidate = candidate->right;
         }
-        a = a->right;
     }
 }
 
@@ -1317,6 +1342,14 @@ void World::handle_actor_contact(Actor *actor1, Actor *actor2) {
         n[1] = (n[1] >= 0) ? abs(n[0]) : -abs(n[0]);
     }
     double dist = n.normalize();
+    if (dist == 0) {
+        V2 dv = a2.vel - a1.vel;
+        if (dv.normalize() != 0) {
+            n = dv;
+        } else {
+            n = (actor1->stable_id() < actor2->stable_id()) ? V2(1.0, 0.0) : V2(-1.0, 0.0);
+        }
+    }
     double overlap = a1.radius + a2.radius - dist;
     if (overlap > 0 && !a1.grabbed && !a2.grabbed) {
         double relspeed = (a2.vel - a1.vel) * n;
@@ -1394,7 +1427,6 @@ void World::handle_stone_contacts(unsigned actoridx) {
 void World::move_actors(double dtime) {
     const double dt = ActorTimeStep;
 
-    static double rest_time = 0;
     rest_time += dtime;
 
     size_t nactors = actorlist.size();
@@ -1557,7 +1589,8 @@ void World::advance_actor(Actor *a, double &dtime) {
             // as the edge belongs to either old or new position we would never hit an
             // adjacent grid and thus would pass the diagonal unchecked.
             // we disturb the movement with a random minimal temporarily correcture
-            midPos += (0.5 - IntegerRand(0, 1)) * V2(1e-10, -1e-10);
+            const double sign = (a->stable_id() & 1) ? 0.5 : -0.5;
+            midPos += sign * V2(1e-10, -1e-10);
         }
         ai.pos = midPos;
         did_move_actor(a);
@@ -2251,19 +2284,22 @@ Stone *GetStone(GridPos p) {
 
 void KillStone(GridPos p) {
     level->st_layer.kill(p);
-    level->changed_stones.push_back(p);
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(p);
 }
 
 Stone *YieldStone(GridPos p) {
     Stone *st = level->st_layer.yield(p);
-    level->changed_stones.push_back(p);
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(p);
     return st;
 }
 
 void SetStone(GridPos p, Stone *st) {
     level->st_layer.set(p, st);
-    level->changed_stones.push_back(p);
-    if (level->registerCriticalPositions)
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(p);
+    if (!g_suppress_world_change_notifications && level->registerCriticalPositions)
         level->collisionCriticalPositions.push_back(p);
 }
 
@@ -2281,8 +2317,9 @@ void MoveStone(GridPos oldPos, GridPos newPos) {
 }
 
 void TouchStone(GridPos pos) {
-    level->changed_stones.push_back(pos);
-    if (level->registerCriticalPositions)
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(pos);
+    if (!g_suppress_world_change_notifications && level->registerCriticalPositions)
         level->collisionCriticalPositions.push_back(pos);
 }
 
