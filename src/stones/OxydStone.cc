@@ -857,6 +857,23 @@ namespace enigma {
         return "st_oxyd";
     }
 
+    void OxydStone::MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const {
+        Stone::MpCaptureAttrsForSnapshot(attrs);
+        attrs.push_back(std::make_pair(std::string("oxydcolor"), getAttr("oxydcolor")));
+    }
+
+    void OxydStone::MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) {
+        MpAttrSnapshot runtime_attrs;
+        runtime_attrs.reserve(attrs.size());
+        for (MpAttrSnapshot::const_iterator it = attrs.begin(); it != attrs.end(); ++it) {
+            if (it->first == "oxydcolor")
+                MpForceOxydColor(static_cast<int>(it->second));
+            else
+                runtime_attrs.push_back(*it);
+        }
+        Stone::MpRestoreAttrsForSnapshot(runtime_attrs);
+    }
+
     OxydStone * OxydStone::clone() { 
         OxydStone *o = new OxydStone(*this); 
         levelOxyds.push_back(o);

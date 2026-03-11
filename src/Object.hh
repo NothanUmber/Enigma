@@ -25,6 +25,7 @@
 #include "Value.hh"
 #include <map>
 #include <stdint.h>
+#include <vector>
 
 namespace enigma {
 
@@ -85,6 +86,7 @@ public:
     enum ObjectType { OBJECT, OTHER, STONE, FLOOR, ITEM, ACTOR };
 
     typedef ecl::AssocList<std::string, Value> AttribMap;
+    typedef std::vector<std::pair<std::string, Value>> MpAttrSnapshot;
 
     Object();
     Object(const char *kind);
@@ -188,6 +190,10 @@ public:
     virtual void dispose() = 0;
     virtual int MpCaptureStateForSnapshot() const;
     virtual bool MpRestoreStateForSnapshot(int state);
+    virtual uint32_t MpCaptureFlagsForSnapshot() const;
+    virtual void MpRestoreFlagsForSnapshot(uint32_t flags);
+    virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const;
+    virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs);
 
     virtual void warning(const char *format, ...) const;
     virtual ObjectType getObjectType() const;

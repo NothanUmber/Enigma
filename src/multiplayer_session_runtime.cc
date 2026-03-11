@@ -1120,6 +1120,12 @@ void tick_host_broadcast_resync() {
         // Remote-control mode relies on frequent authoritative actor snapshots.
         // Force a per-tick resync broadcast so the local ball stays responsive.
         stride = 1;
+    } else if (options::GetBool("MultiplayerDebugVisualPrediction")) {
+        // Mixed-time visual prediction suppresses local resync while the local actor
+        // is still moving. Once the actor settles, we want the latest authoritative
+        // snapshot immediately so post-collision drift heals in one step instead of
+        // waiting for a coarse periodic broadcast cadence.
+        stride = 1;
     }
     if (legacy_stride > 0) {
         // Keep debug UX stable across tick sizes: interpret stride as 10ms ticks.

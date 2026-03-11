@@ -88,6 +88,8 @@ namespace enigma {
         virtual void dispose() override;
         virtual Value message(const Message &m) override;
         virtual void setAttr(const std::string& key, const Value &val) override;
+        virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
+        virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
 
         // StateObject interface
         virtual int maxState() const override;

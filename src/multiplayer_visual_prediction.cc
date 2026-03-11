@@ -18,10 +18,36 @@ namespace multiplayer {
 namespace {
 
 struct PredictionState {
+    struct GridModelSnapshot {
+        GridLayer layer = GRID_COUNT;
+        uint16_t x = 0;
+        uint16_t y = 0;
+        std::unique_ptr<::display::Model> model;
+
+        GridModelSnapshot() = default;
+        GridModelSnapshot(const GridModelSnapshot &other)
+        : layer(other.layer),
+          x(other.x),
+          y(other.y),
+          model(other.model ? std::unique_ptr<::display::Model>(other.model->clone()) : nullptr) {
+        }
+
+        GridModelSnapshot &operator=(const GridModelSnapshot &other) {
+            if (this == &other)
+                return *this;
+            layer = other.layer;
+            x = other.x;
+            y = other.y;
+            model.reset(other.model ? other.model->clone() : nullptr);
+            return *this;
+        }
+    };
+
     bool render_active = false;
     bool simulation_active = false;
     uint32_t last_delay_ticks = std::numeric_limits<uint32_t>::max();
     sim_snapshot::Snapshot truth_snapshot_for_render;
+    std::vector<GridModelSnapshot> truth_grid_models_for_render;
 };
 
 PredictionState g_prediction;
@@ -47,12 +73,49 @@ void maybe_invalidate_for_config_change() {
     clear_prediction_cache();
 }
 
-void refresh_actor_sprites() {
-    std::vector<Actor *> actors;
-    GetActors(actors);
-    for (Actor *actor : actors) {
-        if (actor)
-            actor->move_screen();
+void capture_grid_models_for_render(std::vector<PredictionState::GridModelSnapshot> &out) {
+    out.clear();
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return;
+    out.reserve(static_cast<size_t>(w) * static_cast<size_t>(h) * 3);
+    const GridLayer layers[] = {GRID_FLOOR, GRID_ITEMS, GRID_STONES};
+    for (GridLayer layer : layers) {
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                ::display::Model *model = ::display::GetModel(GridLoc(layer, GridPos(x, y)));
+                if (!model)
+                    continue;
+                PredictionState::GridModelSnapshot entry;
+                entry.layer = layer;
+                entry.x = static_cast<uint16_t>(x);
+                entry.y = static_cast<uint16_t>(y);
+                entry.model.reset(model->clone());
+                out.push_back(std::move(entry));
+            }
+        }
+    }
+}
+
+void restore_grid_models_for_render(const std::vector<PredictionState::GridModelSnapshot> &snapshot) {
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return;
+    const GridLayer layers[] = {GRID_FLOOR, GRID_ITEMS, GRID_STONES};
+    for (GridLayer layer : layers) {
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x)
+                ::display::KillModel(GridLoc(layer, GridPos(x, y)));
+        }
+    }
+    for (const auto &entry : snapshot) {
+        if (!entry.model)
+            continue;
+        ::display::SetModel(GridLoc(entry.layer,
+                                    GridPos(static_cast<int>(entry.x), static_cast<int>(entry.y))),
+                            entry.model->clone());
     }
 }
 
@@ -127,19 +190,21 @@ void VisualPredictionBeginRender() {
     if (!prediction_enabled_now())
         return;
     g_prediction.truth_snapshot_for_render = sim_snapshot::Capture();
+    capture_grid_models_for_render(g_prediction.truth_grid_models_for_render);
     if (!rebuild_predicted_world_for_render(input::CurrentTick(), input::TickTimestep())) {
         return;
     }
     g_prediction.render_active = true;
-    refresh_actor_sprites();
+    RefreshRenderState(0.0);
 }
 
 void VisualPredictionEndRender() {
     if (!g_prediction.render_active)
         return;
     sim_snapshot::Restore(g_prediction.truth_snapshot_for_render);
+    restore_grid_models_for_render(g_prediction.truth_grid_models_for_render);
     g_prediction.render_active = false;
-    refresh_actor_sprites();
+    RefreshRenderState(0.0);
 }
 
 bool VisualPredictionRenderActive() {

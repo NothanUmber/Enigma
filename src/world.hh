@@ -67,6 +67,20 @@ struct Action {
     : senderId(senderId_), isCallback(isCallback_), targetId(targetId_), name(std::move(name_)), val(val_) {}
 };
 
+struct ObjectStateSnapshot {
+    int object_id = -1;
+    int state = 0;
+    uint32_t flags = 0;
+    Object::MpAttrSnapshot attrs;
+};
+
+struct OtherStateSnapshot {
+    int object_id = -1;
+    int state = 0;
+    uint32_t flags = 0;
+    Object::MpAttrSnapshot attrs;
+};
+
 struct Message {
     // Variables
     std::string message;
@@ -168,6 +182,7 @@ uint64_t ActorChecksum();
 void GetActors(std::vector<Actor *> &out);
 
 void WorldTick(double dtime);
+void RefreshRenderState(double dtime);
 void TickFinished(double dtime);
 // Approximate wall-clock delta time between TickFinished calls (used for
 // render-only smoothing; does not affect simulation determinism).
@@ -247,10 +262,12 @@ void PerformSecureAction(int senderId, bool isCallback, int targetId, std::strin
 std::vector<Action> CapturePendingActions();
 void RestorePendingActions(const std::vector<Action> &actions);
 
-// Multiplayer rollback/replay support: capture/restore "state" attributes for
-// all grid objects (floors/items/stones) in the current world.
-void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states);
-void RestoreObjectStates(const std::vector<int> &ids, const std::vector<int> &states);
+// Multiplayer rollback/replay support: capture/restore runtime state for all
+// grid objects (floors/items/stones) in the current world.
+void CaptureObjectStates(std::vector<ObjectStateSnapshot> &states);
+void RestoreObjectStates(const std::vector<ObjectStateSnapshot> &states);
+void CaptureOtherStates(std::vector<OtherStateSnapshot> &states);
+void RestoreOtherStates(const std::vector<OtherStateSnapshot> &states);
 
 /* -------------------- Actors -------------------- */
 

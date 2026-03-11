@@ -81,9 +81,9 @@ struct Snapshot {
     double level_time = 0.0;
     Timer::Snapshot game_timer;
     std::vector<Action> pending_actions;
-    // GridObject "state" attribute snapshot for all floors/items/stones.
-    std::vector<int> object_state_ids;
-    std::vector<int> object_state_values;
+    // Runtime snapshot for all floors/items/stones.
+    std::vector<ObjectStateSnapshot> object_states;
+    std::vector<OtherStateSnapshot> other_states;
     struct MovableStone {
         int object_id = -1;
         uint16_t x = 0;

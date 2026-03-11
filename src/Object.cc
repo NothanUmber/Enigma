@@ -106,6 +106,43 @@ int Object::MpCaptureStateForSnapshot() const {
     return static_cast<int>(state);
 }
 
+uint32_t Object::MpCaptureFlagsForSnapshot() const {
+    return objFlags;
+}
+
+void Object::MpRestoreFlagsForSnapshot(uint32_t flags) {
+    objFlags = flags;
+}
+
+void Object::MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const {
+    attrs.clear();
+    for (AttribMap::const_iterator it = attribs.begin(); it != attribs.end(); ++it) {
+        if (!it->first.empty() && it->first[0] == '$')
+            attrs.push_back(*it);
+    }
+}
+
+void Object::MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) {
+    std::vector<std::string> remove_keys;
+    for (AttribMap::const_iterator it = attribs.begin(); it != attribs.end(); ++it) {
+        if (it->first.empty() || it->first[0] != '$')
+            continue;
+        bool keep = false;
+        for (MpAttrSnapshot::const_iterator jt = attrs.begin(); jt != attrs.end(); ++jt) {
+            if (jt->first == it->first) {
+                keep = true;
+                break;
+            }
+        }
+        if (!keep)
+            remove_keys.push_back(it->first);
+    }
+    for (std::vector<std::string>::const_iterator it = remove_keys.begin(); it != remove_keys.end(); ++it)
+        setAttr(*it, Value());
+    for (MpAttrSnapshot::const_iterator it = attrs.begin(); it != attrs.end(); ++it)
+        setAttr(it->first, it->second);
+}
+
 int Object::getId() const {
     return id;
 }

@@ -137,6 +137,50 @@ namespace enigma {
         return Other::message(m);
     }
 
+    void Rubberband::MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const {
+        Other::MpCaptureAttrsForSnapshot(attrs);
+        attrs.emplace_back("anchor1", Value(anchor1));
+        attrs.emplace_back("anchor2", Value(anchor2Object()));
+        attrs.emplace_back("strength", Value(strength));
+        attrs.emplace_back("length", Value(outerThreshold));
+        attrs.emplace_back("threshold", Value(innerThreshold));
+        attrs.emplace_back("min", Value(minLength));
+        attrs.emplace_back("max", Value(maxLength));
+    }
+
+    void Rubberband::MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) {
+        MpAttrSnapshot remaining;
+        remaining.reserve(attrs.size());
+
+        Value anchor1_value;
+        bool have_anchor1 = false;
+        Value anchor2_value;
+        bool have_anchor2 = false;
+
+        for (const auto &entry : attrs) {
+            if (entry.first == "anchor1") {
+                anchor1_value = entry.second;
+                have_anchor1 = true;
+            } else if (entry.first == "anchor2") {
+                anchor2_value = entry.second;
+                have_anchor2 = true;
+            } else if (entry.first == "strength" || entry.first == "length" ||
+                       entry.first == "threshold" || entry.first == "min" ||
+                       entry.first == "max") {
+                setAttr(entry.first, entry.second);
+            } else {
+                remaining.push_back(entry);
+            }
+        }
+
+        Other::MpRestoreAttrsForSnapshot(remaining);
+
+        if (have_anchor1)
+            setAttr("anchor1", anchor1_value);
+        if (have_anchor2)
+            setAttr("anchor2", anchor2_value);
+    }
+
     void Rubberband::postAddition() {
         ASSERT(anchor1 != NULL, XLevelRuntime, "Rubberband: 'anchor1' is no actor");
         ASSERT(anchor2.ac != NULL, XLevelRuntime, "Rubberband: 'anchor2' is neither actor nor stone");

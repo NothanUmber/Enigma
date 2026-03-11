@@ -46,6 +46,8 @@ namespace enigma {
         virtual void setAttr(const std::string &key, const Value &val) override;
         virtual Value getAttr(const std::string &key) const override;
         virtual Value message(const Message &m) override;
+        virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
+        virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
         
         // Other interface
         virtual void postAddition() override;

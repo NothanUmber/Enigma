@@ -714,19 +714,46 @@ void apply_resync_state(const protocol::ResyncState &state) {
         ai->last_contacts_count = 0;
     };
 
-    auto should_skip_actor = [](Actor *actor) -> bool {
+    auto should_skip_actor = [local_tick](Actor *actor, float auth_vx, float auth_vy) -> bool {
         if (!actor)
             return false;
         // In remote-control mode we *want* the local actor to be overwritten by the host.
         if (options::GetBool("MultiplayerDebugRemoteControlLocalBall"))
             return false;
-        if (!options::GetBool("MultiplayerDebugSkipLocalResync"))
-            return false;
         if (!g_session.local_player_known)
             return false;
         if (g_session.local_player >= g_session.expected_players)
             return false;
-        return actor->controlled_by(static_cast<int>(g_session.local_player));
+        if (!actor->controlled_by(static_cast<int>(g_session.local_player)))
+            return false;
+        // Mixed-time visual prediction renders the local actor from locally replayed
+        // inputs. Periodic host resync of that same actor produces visible
+        // micro-stutters on the client while the player is still moving.
+        // Once the local actor and the authoritative snapshot have both settled,
+        // allow the resync through so actor-actor divergence can heal at rest.
+        if (options::GetBool("MultiplayerDebugVisualPrediction")) {
+            input::PlayerInput pending;
+            if (input::PeekLocalPending(g_session.local_player, pending) && !pending.empty())
+                return true;
+            for (const auto &kv : g_session.local_history) {
+                if (kv.first >= local_tick && !kv.second.empty())
+                    return true;
+            }
+            constexpr double kStillSpeedSq = 0.02 * 0.02;
+            const ActorInfo *ai = actor->get_actorinfo();
+            const double local_speed_sq =
+                static_cast<double>(ai->vel[0]) * static_cast<double>(ai->vel[0]) +
+                static_cast<double>(ai->vel[1]) * static_cast<double>(ai->vel[1]);
+            const double auth_speed_sq =
+                static_cast<double>(auth_vx) * static_cast<double>(auth_vx) +
+                static_cast<double>(auth_vy) * static_cast<double>(auth_vy);
+            if (local_speed_sq > kStillSpeedSq || auth_speed_sq > kStillSpeedSq)
+                return true;
+            return false;
+        }
+        if (!options::GetBool("MultiplayerDebugSkipLocalResync"))
+            return false;
+        return true;
     };
 
     unsigned applied = 0;
@@ -748,7 +775,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
         float d = std::sqrt(dx * dx + dy * dy);
         if (d > max_pos_delta)
             max_pos_delta = d;
-        if (!should_skip_actor(actor))
+        if (!should_skip_actor(actor, entry.vx, entry.vy))
             resync_teleport(actor, x, y, entry.vx, entry.vy);
         apply_resync_metadata(actor, entry.owner, entry.controllers, entry.color);
         used[actor] = true;
@@ -828,7 +855,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
             float d = std::sqrt(dx * dx + dy * dy);
             if (d > max_pos_delta)
                 max_pos_delta = d;
-            if (!should_skip_actor(best))
+            if (!should_skip_actor(best, s.vx, s.vy))
                 resync_teleport(best, x, y, s.vx, s.vy);
             apply_resync_metadata(best, s.owner, s.controllers, s.color);
             used[best] = true;
@@ -924,7 +951,7 @@ void apply_resync_state(const protocol::ResyncState &state) {
                 float d = std::sqrt(dx * dx + dy * dy);
                 if (d > max_pos_delta)
                     max_pos_delta = d;
-                if (!should_skip_actor(actor))
+                if (!should_skip_actor(actor, s.vx, s.vy))
                     resync_teleport(actor, x, y, s.vx, s.vy);
                 apply_resync_metadata(actor, s.owner, s.controllers, s.color);
                 used[actor] = true;

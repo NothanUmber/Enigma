@@ -2075,21 +2075,23 @@ void RestorePendingActions(const std::vector<Action> &actions) {
         level->actionList.push_back(a);
 }
 
-void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states) {
-    ids.clear();
+void CaptureObjectStates(std::vector<ObjectStateSnapshot> &states) {
     states.clear();
     if (!level)
         return;
-    ids.reserve(static_cast<size_t>(level->w) * static_cast<size_t>(level->h) * 3u);
-    states.reserve(ids.capacity());
+    states.reserve(static_cast<size_t>(level->w) * static_cast<size_t>(level->h) * 3u);
     for (int y = 0; y < level->h; ++y) {
         for (int x = 0; x < level->w; ++x) {
             Field &f = level->fields(x, y);
-            auto capture = [&ids, &states](GridObject *obj) {
+            auto capture = [&states](GridObject *obj) {
                 if (!obj)
                     return;
-                ids.push_back(obj->getId());
-                states.push_back(obj->MpCaptureStateForSnapshot());
+                ObjectStateSnapshot snap;
+                snap.object_id = obj->getId();
+                snap.state = obj->MpCaptureStateForSnapshot();
+                snap.flags = obj->MpCaptureFlagsForSnapshot();
+                obj->MpCaptureAttrsForSnapshot(snap.attrs);
+                states.push_back(std::move(snap));
             };
             capture(f.floor);
             capture(f.item);
@@ -2098,20 +2100,53 @@ void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states) {
     }
 }
 
-void RestoreObjectStates(const std::vector<int> &ids, const std::vector<int> &states) {
+void RestoreObjectStates(const std::vector<ObjectStateSnapshot> &states) {
     if (!level)
         return;
-    const size_t n = std::min(ids.size(), states.size());
-    for (size_t i = 0; i < n; ++i) {
-        Object *obj = Object::getObject(ids[i]);
+    for (std::vector<ObjectStateSnapshot>::const_iterator it = states.begin(); it != states.end(); ++it) {
+        Object *obj = Object::getObject(it->object_id);
         if (!obj)
             continue;
-        const int want = states[i];
+        obj->MpRestoreFlagsForSnapshot(it->flags);
+        obj->MpRestoreAttrsForSnapshot(it->attrs);
+        const int want = it->state;
         if (obj->MpRestoreStateForSnapshot(want))
             continue;
         const int have = static_cast<int>(obj->getAttr("state"));
         if (have != want)
             obj->setAttr("state", Value(want));
+    }
+}
+
+void CaptureOtherStates(std::vector<OtherStateSnapshot> &states) {
+    states.clear();
+    if (!level)
+        return;
+    states.reserve(level->others.size());
+    for (Other *other : level->others) {
+        if (!other)
+            continue;
+        OtherStateSnapshot snap;
+        snap.object_id = other->getId();
+        snap.state = other->MpCaptureStateForSnapshot();
+        snap.flags = other->MpCaptureFlagsForSnapshot();
+        other->MpCaptureAttrsForSnapshot(snap.attrs);
+        states.push_back(std::move(snap));
+    }
+}
+
+void RestoreOtherStates(const std::vector<OtherStateSnapshot> &states) {
+    for (const auto &snap : states) {
+        Other *other = dynamic_cast<Other *>(Object::getObject(snap.object_id));
+        if (!other)
+            continue;
+        other->MpRestoreFlagsForSnapshot(snap.flags);
+        other->MpRestoreAttrsForSnapshot(snap.attrs);
+        const int want = snap.state;
+        if (other->MpRestoreStateForSnapshot(want))
+            continue;
+        if (dynamic_cast<StateObject *>(other))
+            other->setAttr("state", Value(want));
     }
 }
 
@@ -2837,6 +2872,13 @@ void WorldTick(double dtime) {
     level->tick(dtime);
 }
 
+void RefreshRenderState(double dtime) {
+    for (auto &actor : level->actorlist)
+        actor->move_screen();
+    for (auto &other : level->others)
+        other->tick(dtime);
+}
+
 void TickFinished(double dtime) {
     // Use wall-clock time to drive render-only smoothing even when simulation
     // does not advance (e.g. lockstep stalls). Clamp to avoid extreme spikes
@@ -2851,10 +2893,7 @@ void TickFinished(double dtime) {
         g_render_frame_dtime = static_cast<double>(delta_ms) / 1000.0;
     }
     g_render_frame_last_ms = now_ms;
-    for (auto &actor : level->actorlist)
-        actor->move_screen();
-    for (auto &other : level->others)
-        other->tick(dtime);
+    RefreshRenderState(dtime);
 }
 
 double RenderFrameDtime() {

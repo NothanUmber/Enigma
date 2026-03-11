@@ -279,7 +279,8 @@ Snapshot Capture() {
     snap.level_time = server::LevelTime;
     snap.game_timer = GameTimer.snapshot();
     snap.pending_actions = CapturePendingActions();
-    CaptureObjectStates(snap.object_state_ids, snap.object_state_values);
+    CaptureObjectStates(snap.object_states);
+    CaptureOtherStates(snap.other_states);
 
     // Capture movable-stone layout for rollback correctness.
     {
@@ -348,7 +349,8 @@ void Restore(const Snapshot &snap) {
     server::LevelTime = snap.level_time;
     GameTimer.restore(snap.game_timer);
     RestorePendingActions(snap.pending_actions);
-    RestoreObjectStates(snap.object_state_ids, snap.object_state_values);
+    RestoreObjectStates(snap.object_states);
+    RestoreOtherStates(snap.other_states);
     restore_movable_stone_positions(snap.movable_stones);
     for (const auto &entry : snap.animated_grid_models) {
         if (!entry.model)
