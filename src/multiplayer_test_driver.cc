@@ -203,14 +203,28 @@ static bool resolve_driver_tick(const std::map<std::string, std::string> &kv, ui
     if (parse_u32(kv, "tick", tick))
         return true;
 
+    uint32_t base_tick = input::CurrentTick();
+    if (multiplayer::IsActive() && internal::g_session.active &&
+        internal::g_session.local_player_known && internal::g_session.next_local_tick != 0) {
+        base_tick = internal::g_session.next_local_tick;
+    }
+
     uint32_t ticks_ahead = 0;
     if (parse_u32(kv, "ticks_ahead", ticks_ahead)) {
-        tick = input::CurrentTick() + ticks_ahead;
+        tick = base_tick + ticks_ahead;
         return true;
     }
 
     err = "missing_tick";
     return false;
+}
+
+static uint32_t local_submission_tick() {
+    if (multiplayer::IsActive() && internal::g_session.active &&
+        internal::g_session.local_player_known && internal::g_session.next_local_tick != 0) {
+        return internal::g_session.next_local_tick;
+    }
+    return input::CurrentTick();
 }
 
 static void send_frame(const std::string &msg) {
@@ -343,7 +357,7 @@ static void maybe_apply_hold_mouse_force() {
         send_evt("HOLD_MOUSE_FORCE_DONE");
         return;
     }
-    const uint32_t tick = input::CurrentTick();
+    const uint32_t tick = local_submission_tick();
     if (tick == g_drv.hold_mouse_force_last_tick)
         return;
     g_drv.hold_mouse_force_last_tick = tick;
@@ -354,7 +368,7 @@ static void maybe_apply_hold_mouse_force() {
 static void maybe_apply_queued_mouse_forces() {
     if (!g_drv.enabled || g_drv.queued_mouse_forces.empty())
         return;
-    const uint32_t tick = input::CurrentTick();
+    const uint32_t tick = local_submission_tick();
     for (auto it = g_drv.queued_mouse_forces.begin(); it != g_drv.queued_mouse_forces.end();) {
         if (tick > it->tick) {
             it = g_drv.queued_mouse_forces.erase(it);
@@ -372,7 +386,7 @@ static void maybe_apply_queued_mouse_forces() {
 static void maybe_apply_queued_local_inputs() {
     if (!g_drv.enabled || g_drv.queued_local_inputs.empty())
         return;
-    const uint32_t tick = input::CurrentTick();
+    const uint32_t tick = local_submission_tick();
     for (auto it = g_drv.queued_local_inputs.begin(); it != g_drv.queued_local_inputs.end();) {
         if (tick > it->tick) {
             it = g_drv.queued_local_inputs.erase(it);
@@ -573,6 +587,7 @@ static bool handle_command(const std::string &line) {
            << " y=" << static_cast<double>(ai->pos[1])
            << " vx=" << static_cast<double>(ai->vel[0])
            << " vy=" << static_cast<double>(ai->vel[1]);
+        multiplayer::VisualPredictionInvalidate();
         send_ok("SET_ACTOR_POS", os.str());
         return true;
     }
@@ -603,6 +618,11 @@ static bool handle_command(const std::string &line) {
                 return std::string("-");
             return std::to_string(static_cast<int>(v));
         };
+        auto snapshot_state_or_dash = [](Object *obj) -> std::string {
+            if (!obj)
+                return std::string("-");
+            return std::to_string(obj->MpCaptureStateForSnapshot());
+        };
         std::ostringstream os;
         os << "x=" << x << " y=" << y
            << " fl=" << kind_or_dash(fl)
@@ -610,8 +630,59 @@ static bool handle_command(const std::string &line) {
            << " it=" << kind_or_dash(it)
            << " fl_state=" << state_or_dash(fl)
            << " st_state=" << state_or_dash(st)
-           << " it_state=" << state_or_dash(it);
+           << " it_state=" << state_or_dash(it)
+           << " fl_snap=" << snapshot_state_or_dash(fl)
+           << " st_snap=" << snapshot_state_or_dash(st)
+           << " it_snap=" << snapshot_state_or_dash(it);
         send_ok("GET_CELL", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_CELL_RENDER") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_CELL_RENDER", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_CELL_RENDER", "no_world");
+            return true;
+        }
+        multiplayer::VisualPredictionBeginRender();
+        GridPos p(x, y);
+        Object *fl = GetFloor(p);
+        Object *st = GetStone(p);
+        Object *it = GetItem(p);
+        auto kind_or_dash = [](Object *obj) -> std::string {
+            return obj ? obj->getKind() : std::string("-");
+        };
+        auto state_or_dash = [](Object *obj) -> std::string {
+            if (!obj)
+                return std::string("-");
+            Value v = obj->getAttr("state");
+            if (!v)
+                return std::string("-");
+            return std::to_string(static_cast<int>(v));
+        };
+        auto snapshot_state_or_dash = [](Object *obj) -> std::string {
+            if (!obj)
+                return std::string("-");
+            return std::to_string(obj->MpCaptureStateForSnapshot());
+        };
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " fl=" << kind_or_dash(fl)
+           << " st=" << kind_or_dash(st)
+           << " it=" << kind_or_dash(it)
+           << " fl_state=" << state_or_dash(fl)
+           << " st_state=" << state_or_dash(st)
+           << " it_state=" << state_or_dash(it)
+           << " fl_snap=" << snapshot_state_or_dash(fl)
+           << " st_snap=" << snapshot_state_or_dash(st)
+           << " it_snap=" << snapshot_state_or_dash(it);
+        multiplayer::VisualPredictionEndRender();
+        send_ok("GET_CELL_RENDER", os.str());
         return true;
     }
 
@@ -640,6 +711,7 @@ static bool handle_command(const std::string &line) {
         SetStone(GridPos(x, y), st);
         std::ostringstream os;
         os << "x=" << x << " y=" << y << " kind=" << kind << " id=" << st->getId();
+        multiplayer::VisualPredictionInvalidate();
         send_ok("SET_STONE", os.str());
         return true;
     }
@@ -670,6 +742,7 @@ static bool handle_command(const std::string &line) {
         os << "from_x=" << from_x << " from_y=" << from_y
            << " to_x=" << to_x << " to_y=" << to_y
            << " id=" << st->getId() << " kind=" << st->getKind();
+        multiplayer::VisualPredictionInvalidate();
         send_ok("MOVE_STONE", os.str());
         return true;
     }
@@ -690,6 +763,7 @@ static bool handle_command(const std::string &line) {
                 ++cleared;
             }
         }
+        multiplayer::VisualPredictionInvalidate();
         send_ok("CLEAR_MOVABLE_STONES", "count=" + std::to_string(cleared));
         return true;
     }
@@ -810,6 +884,51 @@ static bool handle_command(const std::string &line) {
                << " act=" << static_cast<unsigned>(chk.activate_count);
         }
         send_ok("INJECT_INPUT", os.str());
+        return true;
+    }
+
+    if (cmd == "ENQUEUE_INPUT") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("ENQUEUE_INPUT", "missing_player");
+            return true;
+        }
+        uint32_t tick = 0;
+        std::string tick_err;
+        if (!resolve_driver_tick(kv, tick, tick_err)) {
+            send_err("ENQUEUE_INPUT", tick_err);
+            return true;
+        }
+        float fx = 0.0f, fy = 0.0f;
+        if (!parse_f32(kv, "fx", fx) || !parse_f32(kv, "fy", fy)) {
+            send_err("ENQUEUE_INPUT", "missing_force");
+            return true;
+        }
+        int rot = 0;
+        int act = 0;
+        parse_i32(kv, "rot", rot);
+        parse_i32(kv, "act", act);
+        input::PlayerInput pi;
+        pi.mouse_force = ecl::V2(fx, fy);
+        pi.rotate_steps = rot;
+        pi.activate_count = act > 0 ? act : 0;
+        input::EnqueueInput(tick, static_cast<unsigned>(player_u32), pi);
+        rollback::RecordInput(tick, static_cast<unsigned>(player_u32), pi);
+        input::PlayerInput chk;
+        const bool present = input::PeekInput(tick, static_cast<unsigned>(player_u32), chk);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "tick=" << static_cast<unsigned>(tick)
+           << " player=" << static_cast<unsigned>(player_u32)
+           << " present=" << (present ? 1 : 0);
+        if (present) {
+            os << " fx=" << static_cast<double>(chk.mouse_force[0])
+               << " fy=" << static_cast<double>(chk.mouse_force[1])
+               << " rot=" << static_cast<int>(chk.rotate_steps)
+               << " act=" << static_cast<unsigned>(chk.activate_count);
+        }
+        send_ok("ENQUEUE_INPUT", os.str());
         return true;
     }
 
@@ -1201,6 +1320,7 @@ static bool handle_command(const std::string &line) {
             send_err("SETUP_LOAD_FILE", "restore_failed");
             return true;
         }
+        multiplayer::VisualPredictionInvalidate();
         send_ok("SETUP_LOAD_FILE", "path=" + path);
         return true;
     }
@@ -1242,6 +1362,14 @@ static bool handle_command(const std::string &line) {
     if (cmd == "STATE") {
         emit_state_snapshot();
         send_ok("STATE");
+        return true;
+    }
+
+    if (cmd == "STATE_RENDER") {
+        multiplayer::VisualPredictionBeginRender();
+        emit_state_snapshot();
+        multiplayer::VisualPredictionEndRender();
+        send_ok("STATE_RENDER");
         return true;
     }
 

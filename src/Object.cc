@@ -99,6 +99,13 @@ bool Object::MpRestoreStateForSnapshot(int state) {
     return false;
 }
 
+int Object::MpCaptureStateForSnapshot() const {
+    Value state = getAttr("state");
+    if (!state)
+        return 0;
+    return static_cast<int>(state);
+}
+
 int Object::getId() const {
     return id;
 }

@@ -94,6 +94,34 @@ Value ShogunStone::getAttr(const std::string &key) const {
             return Stone::message(m);
     }
 
+    int ShogunStone::MpCaptureStateForSnapshot() const {
+        return getHoles();
+    }
+
+    bool ShogunStone::MpRestoreStateForSnapshot(int snapshot_holes) {
+        if (snapshot_holes <= 0)
+            return true;
+        const bool needs_rebuild =
+            (snapshot_holes != getHoles()) || (chainHoles() != snapshot_holes);
+        objFlags &= ~OBJBIT_HOLES;
+        objFlags |= snapshot_holes << 24;
+        if (needs_rebuild)
+            rebuildSubChainForSnapshot();
+        init_model();
+        return true;
+    }
+
+    bool ShogunStone::MpRestoreToGridForSnapshot(GridPos pos) {
+        if (isDisplayable())
+            return get_pos() == pos;
+        if (superShogun != NULL && !yieldShogun())
+            return false;
+        if (GetStone(pos) != NULL)
+            return false;
+        SetStone(pos, this);
+        return true;
+    }
+
     void ShogunStone::setState(int extState) {
         // reject any write attempts
     }
@@ -227,6 +255,48 @@ Value ShogunStone::getAttr(const std::string &key) const {
         int hole = ownHole();
         objFlags &= ~OBJBIT_HOLES;
         objFlags |= hole <<24;
+    }
+
+    int ShogunStone::chainHoles() const {
+        return ownHole() + (subShogun ? subShogun->chainHoles() : 0);
+    }
+
+    void ShogunStone::clearSubChainForSnapshot() {
+        if (!subShogun)
+            return;
+        ShogunStone *old_sub = subShogun;
+        subShogun = NULL;
+        old_sub->superShogun = NULL;
+        old_sub->setOwnerPos(getOwnerPos());
+    }
+
+    void ShogunStone::rebuildSubChainForSnapshot() {
+        clearSubChainForSnapshot();
+        superShogun = NULL;
+        if (!isDisplayable())
+            return;
+
+        const GridPos owner = getOwnerPos();
+        int subHoles = getHoles() & ~ownHole();
+        ShogunStone *tail = this;
+        if (subHoles & M) {
+            ShogunStone *s = dynamic_cast<ShogunStone *>(MakeObject("st_shogun_m"));
+            if (s) {
+                tail->subShogun = s;
+                s->superShogun = tail;
+                s->setOwnerPos(owner);
+                tail = s;
+            }
+            subHoles &= ~M;
+        }
+        if (subHoles & S) {
+            ShogunStone *s = dynamic_cast<ShogunStone *>(MakeObject("st_shogun_s"));
+            if (s) {
+                tail->subShogun = s;
+                s->superShogun = tail;
+                s->setOwnerPos(owner);
+            }
+        }
     }
 
     bool ShogunStone::yieldShogun() {

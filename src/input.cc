@@ -160,6 +160,13 @@ PlayerInput DrainLocalPending(unsigned player) {
     return pending;
 }
 
+bool PeekLocalPending(unsigned player, PlayerInput &out) {
+    if (!valid_player(player))
+        return false;
+    out = g_local_pending[player];
+    return true;
+}
+
 void EnqueueInput(uint32_t tick, unsigned player, const PlayerInput &input) {
     if (!valid_player(player))
         return;

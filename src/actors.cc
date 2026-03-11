@@ -321,6 +321,12 @@ void Actor::move() {
 }
 
 	void Actor::move_screen() {
+	    if (multiplayer::VisualPredictionRenderActive()) {
+	        m_actorinfo.render_pos = m_actorinfo.pos;
+	        m_actorinfo.render_initialized = true;
+	        m_sprite.move(m_actorinfo.pos);
+	        return;
+	    }
 	    // Optional render-only smoothing to hide abrupt actor teleports caused by
 	    // multiplayer resyncs. This does not affect simulation state.
 	    if (!multiplayer::IsActive() || !options::GetBool("MultiplayerDebugSmoothRender")) {

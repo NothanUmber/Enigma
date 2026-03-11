@@ -74,7 +74,36 @@ namespace enigma {
     void Door::toggleState() {
         set_iState((state == OPEN || state == OPENING) ? CLOSING : OPENING);
     }
-        
+
+    int Door::MpCaptureStateForSnapshot() const {
+        return state;
+    }
+
+    bool Door::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < CLOSED || snapshot_state > OPENING)
+            return false;
+        state = snapshot_state;
+        if (!isDisplayable())
+            return true;
+
+        const std::string basename = model_basename();
+        switch (state) {
+        case CLOSED:
+            set_model(basename + "_closed");
+            break;
+        case OPEN:
+            set_model(basename + "_open");
+            break;
+        case OPENING:
+            set_anim(basename + "_opening");
+            break;
+        case CLOSING:
+            set_anim(basename + "_closing");
+            break;
+        }
+        return true;
+    }
+    
     void Door::init_model() {
         std::string mname = model_basename();
         if (state == CLOSED)

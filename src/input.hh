@@ -47,6 +47,7 @@ void SubmitRotateInventory(unsigned player, int dir);
 void SubmitActivateItem(unsigned player);
 
 PlayerInput DrainLocalPending(unsigned player);
+bool PeekLocalPending(unsigned player, PlayerInput &out);
 
 void EnqueueInput(uint32_t tick, unsigned player, const PlayerInput &input);
 bool HasInput(uint32_t tick, unsigned player);

@@ -79,6 +79,9 @@ namespace enigma {
          */
         virtual void setAttr(const std::string& key, const Value &val) override;
 
+        virtual int MpCaptureStateForSnapshot() const override;
+        virtual bool MpRestoreStateForSnapshot(int state) override;
+
         // Rollback/replay snapshot support.
         int snapshot_internal_state() const { return state; }
         void restore_internal_state(int internal_state) { state = internal_state; }

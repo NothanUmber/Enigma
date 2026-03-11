@@ -114,6 +114,7 @@ constexpr OverlayOptionDef kOverlayDebugOpts[] = {
 };
 
 constexpr OverlayOptionDef kOverlaySyncOpts[] = {
+    {"MultiplayerDebugVisualPrediction", true, 1, 0, 1, true},
     {"MultiplayerDebugZeroFillInputs", true, 1, 0, 1, true},
     {"MultiplayerDebugRollbackEnabled", true, 1, 0, 1, true},
     {"MultiplayerDebugRemoteControlLocalBall", true, 1, 0, 1, true},

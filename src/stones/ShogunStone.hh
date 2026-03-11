@@ -52,6 +52,9 @@ namespace enigma {
         virtual void setAttr(const std::string& key, const Value &val);
         virtual Value getAttr(const std::string &key) const;
         virtual Value message(const Message &m);
+        virtual int MpCaptureStateForSnapshot() const override;
+        virtual bool MpRestoreStateForSnapshot(int state) override;
+        bool MpRestoreToGridForSnapshot(GridPos pos);
         
         // StateObject interface
         virtual void setState(int extState);
@@ -76,6 +79,9 @@ namespace enigma {
         void removeSubHoles(int holes);
         void removeAllSubHoles();
         bool yieldShogun();
+        int chainHoles() const;
+        void clearSubChainForSnapshot();
+        void rebuildSubChainForSnapshot();
     };
 
 } // namespace enigma

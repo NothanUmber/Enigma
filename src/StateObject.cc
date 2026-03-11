@@ -69,6 +69,15 @@ namespace enigma {
         }
         Object::setAttr(key, val);
     }
+
+    int StateObject::MpCaptureStateForSnapshot() const {
+        return state;
+    }
+
+    bool StateObject::MpRestoreStateForSnapshot(int snapshot_state) {
+        state = snapshot_state;
+        return true;
+    }
     
     int StateObject::maxState() const {
         return 1;  // default 2 state

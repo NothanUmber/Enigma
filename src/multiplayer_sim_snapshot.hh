@@ -2,6 +2,7 @@
 #define MULTIPLAYER_SIM_SNAPSHOT_HH_INCLUDED
 
 #include "input.hh"
+#include "display.hh"
 #include "timer.hh"
 #include "world.hh"
 
@@ -9,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +62,20 @@ struct ActorSnapshot {
 };
 
 struct Snapshot {
+    struct AnimatedGridModel {
+        GridLayer layer = GRID_FLOOR;
+        uint16_t x = 0;
+        uint16_t y = 0;
+        std::unique_ptr<::display::Model> model;
+
+        AnimatedGridModel() = default;
+        AnimatedGridModel(const AnimatedGridModel &other);
+        AnimatedGridModel &operator=(const AnimatedGridModel &other);
+        AnimatedGridModel(AnimatedGridModel &&) noexcept = default;
+        AnimatedGridModel &operator=(AnimatedGridModel &&) noexcept = default;
+        ~AnimatedGridModel();
+    };
+
     input::Snapshot input;
     int32_t random_state = 0;
     double level_time = 0.0;
@@ -76,6 +92,7 @@ struct Snapshot {
     // Positions of movable stones (puzzle stones, doors, etc). Needed so rollback/replay
     // does not "double apply" pushes/rotations that move stones during world ticks.
     std::vector<MovableStone> movable_stones;
+    std::vector<AnimatedGridModel> animated_grid_models;
     std::vector<ActorSnapshot> actors;
 };
 

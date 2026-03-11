@@ -61,6 +61,7 @@ public:
     virtual void remove(ModelLayer * /*ml*/) {}
 
     virtual Model *clone() = 0;
+    virtual bool needs_runtime_snapshot() const { return false; }
     virtual void get_extension(ecl::Rect &r);
 };
 

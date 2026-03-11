@@ -1274,7 +1274,9 @@ void Client::tick(double dtime) {
                 display::Tick(timestep);
             }
         }
+        multiplayer::VisualPredictionBeginRender();
         display::Redraw(video_engine->GetScreen());
+        multiplayer::VisualPredictionEndRender();
         handle_events();
         break;
     }

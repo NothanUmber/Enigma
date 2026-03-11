@@ -2261,8 +2261,6 @@ void send_local_inputs() {
 	    input::PlayerInput pending;
 	    if (ticks_to_fill)
 	        pending = input::DrainLocalPending(g_session.local_player);
-        if (ticks_to_fill)
-            multiplayer::scriptrecorder::RecordLocalPending(current_tick, g_session.local_player, pending);
 	    // Local pending inputs are accumulated across frames. If we need to fill
 	    // multiple ticks at once (e.g. after a stall), distribute the accumulated
 	    // mouse-force impulse across those ticks so physics stays consistent.
@@ -2282,6 +2280,9 @@ void send_local_inputs() {
             send.activate_count = 0;
         }
         if (!send.empty()) {
+            multiplayer::scriptrecorder::RecordLocalInputTick(g_session.next_local_tick,
+                                                              g_session.local_player,
+                                                              send);
             float fx = static_cast<float>(send.mouse_force[0]);
             float fy = static_cast<float>(send.mouse_force[1]);
             send.mouse_force = ecl::V2(fx, fy);

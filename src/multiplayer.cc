@@ -39,10 +39,12 @@ void NotifyStartRequested() {
 
 void NotifyRestart(bool level_restart) {
     internal::SessionNotifyRestart(level_restart);
+    VisualPredictionInvalidate();
 }
 
 void NotifyLoadLevel(const std::string &pack_name, const std::string &level_id) {
     internal::SessionNotifyLoadLevel(pack_name, level_id);
+    VisualPredictionInvalidate();
 }
 
 bool IsPaused() {
@@ -79,6 +81,7 @@ void SetupExtraPlayerStartPositions() {
 
 void PrimeInputQueueForNewLevel() {
     internal::SessionPrimeInputQueueForNewLevel();
+    VisualPredictionInvalidate();
 }
 
 TransportKind ActiveTransport() {

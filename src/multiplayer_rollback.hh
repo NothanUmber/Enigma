@@ -24,6 +24,7 @@ void Reset();
 // Record a (tick, player) input sample as received/known. If this input arrives
 // for an already simulated tick, rollback may be requested.
 void RecordInput(uint32_t tick, unsigned player, const input::PlayerInput &pi);
+bool GetRecordedInput(uint32_t tick, unsigned player, input::PlayerInput &out);
 
 // Capture a pre-tick snapshot for the given simulation tick.
 void OnBeforeSimTick(uint32_t tick);

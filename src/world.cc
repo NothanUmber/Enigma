@@ -2089,7 +2089,7 @@ void CaptureObjectStates(std::vector<int> &ids, std::vector<int> &states) {
                 if (!obj)
                     return;
                 ids.push_back(obj->getId());
-                states.push_back(static_cast<int>(obj->getAttr("state")));
+                states.push_back(obj->MpCaptureStateForSnapshot());
             };
             capture(f.floor);
             capture(f.item);
@@ -2107,6 +2107,8 @@ void RestoreObjectStates(const std::vector<int> &ids, const std::vector<int> &st
         if (!obj)
             continue;
         const int want = states[i];
+        if (obj->MpRestoreStateForSnapshot(want))
+            continue;
         const int have = static_cast<int>(obj->getAttr("state"));
         if (have != want)
             obj->setAttr("state", Value(want));

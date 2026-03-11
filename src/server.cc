@@ -289,7 +289,9 @@ void gametick(double dtime) {
             break;
         time_accu -= timestep;
         multiplayer::rollback::OnBeforeSimTick(input::CurrentTick());
+        multiplayer::VisualPredictionOnBeforeSimTick(timestep);
         SimulateOneTick(timestep);
+        multiplayer::VisualPredictionOnAfterSimTick();
         count++;
     }
     display::GetStatusBar()->set_counter(server::GetMoveCounter());

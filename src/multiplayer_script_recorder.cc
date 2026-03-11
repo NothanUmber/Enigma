@@ -47,8 +47,7 @@ std::string kind_or_none(Object *obj) {
 int state_or_zero(Object *obj) {
     if (!obj)
         return 0;
-    Value state = obj->getAttr("state");
-    return state ? static_cast<int>(state) : 0;
+    return obj->MpCaptureStateForSnapshot();
 }
 
 bool restore_layer_object(const GridPos &pos, GridLayer layer, const std::string &want_kind, int want_state) {
@@ -263,6 +262,14 @@ namespace scriptrecorder {
 
 namespace {
 
+uint32_t recorder_tick_base() {
+    if (multiplayer::IsActive() && internal::g_session.active && internal::g_session.local_player_known &&
+        internal::g_session.next_local_tick != 0) {
+        return internal::g_session.next_local_tick;
+    }
+    return input::CurrentTick();
+}
+
 struct RecorderState {
     bool recording = false;
     uint32_t base_tick = 0;
@@ -320,6 +327,7 @@ void build_script_header() {
     g_recorder.header_lines.push_back("# Recorded by the in-game multiplayer script recorder.");
     g_recorder.header_lines.push_back("# Use Shift+F11 while recording to refresh the setup snapshot.");
     append_bool_option("MultiplayerAutoDetectConnectivity");
+    append_bool_option("MultiplayerDebugVisualPrediction");
     append_bool_option("MultiplayerDebugZeroFillInputs");
     append_bool_option("MultiplayerDebugNetSimEnabled");
     append_bool_option("MultiplayerDebugNetSimAll");
@@ -424,7 +432,7 @@ bool Toggle() {
     }
 
     g_recorder.recording = true;
-    g_recorder.base_tick = input::CurrentTick();
+    g_recorder.base_tick = recorder_tick_base();
     g_recorder.local_player = multiplayer::LocalPlayer();
     g_recorder.host = multiplayer::IsHost();
     g_recorder.inputs.clear();
@@ -457,25 +465,25 @@ bool CaptureSetupSnapshot() {
     }
 
     g_recorder.setup_snapshot.valid = true;
-    g_recorder.setup_snapshot.tick = input::CurrentTick();
+    g_recorder.setup_snapshot.tick = recorder_tick_base();
     g_recorder.setup_snapshot.snapshot = setupsnapshot::Capture();
     g_recorder.setup_snapshot.file_path = "local/last_mp_recording_setup.mpsetup";
     g_recorder.status_message = "MP setup snapshot captured";
     return true;
 }
 
-void RecordLocalPending(uint32_t current_tick, unsigned local_player, const input::PlayerInput &pending) {
+void RecordLocalInputTick(uint32_t tick, unsigned local_player, const input::PlayerInput &pending) {
     if (!g_recorder.recording)
         return;
     if (local_player != g_recorder.local_player)
         return;
     if (pending.empty())
         return;
-    if (current_tick < g_recorder.base_tick)
+    if (tick < g_recorder.base_tick)
         return;
 
     RecorderState::RecordedInput entry;
-    entry.tick = current_tick;
+    entry.tick = tick;
     entry.player = local_player;
     entry.value = pending;
     g_recorder.inputs.push_back(entry);

@@ -19,7 +19,9 @@
 
 #include "actors.hh"
 #include "actors/Balls.hh"
+#include "d_models.hh"
 #include "server.hh"
+#include "stones/ShogunStone.hh"
 #include "world.hh"
 
 #include <cmath>
@@ -98,8 +100,6 @@ void restore_actorinfo(Actor &actor, const ActorInfoSnapshot &s) {
 }
 
 void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &wanted) {
-    if (wanted.empty())
-        return;
     const int w = Width();
     const int h = Height();
     if (w <= 0 || h <= 0)
@@ -114,16 +114,47 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
         return GridPos(x, y);
     };
 
+    std::unordered_map<uint32_t, uint32_t> wanted_pos_by_id;
+    wanted_pos_by_id.reserve(wanted.size() * 2);
+    for (const auto &e : wanted) {
+        if (e.object_id < 0)
+            continue;
+        wanted_pos_by_id[static_cast<uint32_t>(e.object_id)] =
+            key(static_cast<int>(e.x), static_cast<int>(e.y));
+    }
+
     std::unordered_map<uint32_t, uint32_t> current_pos_by_id;
-    current_pos_by_id.reserve(wanted.size() * 2);
+    current_pos_by_id.reserve(std::max<size_t>(wanted.size() * 2, 32));
+    std::vector<uint32_t> extra_ids_on_grid;
+    extra_ids_on_grid.reserve(8);
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             GridPos p(x, y);
             Stone *st = GetStone(p);
             if (!st || !st->is_movable())
                 continue;
-            current_pos_by_id[static_cast<uint32_t>(st->getId())] = key(x, y);
+            const uint32_t object_id = static_cast<uint32_t>(st->getId());
+            current_pos_by_id[object_id] = key(x, y);
+            if (wanted_pos_by_id.find(object_id) == wanted_pos_by_id.end())
+                extra_ids_on_grid.push_back(object_id);
         }
+    }
+
+    for (const auto &e : wanted) {
+        if (e.object_id < 0)
+            continue;
+        const uint32_t object_id = static_cast<uint32_t>(e.object_id);
+        if (current_pos_by_id.find(object_id) != current_pos_by_id.end())
+            continue;
+        GridPos dst(static_cast<int>(e.x), static_cast<int>(e.y));
+        if (GetStone(dst) != nullptr)
+            continue;
+        ShogunStone *hidden = dynamic_cast<ShogunStone *>(Object::getObject(e.object_id));
+        if (!hidden)
+            continue;
+        if (!hidden->MpRestoreToGridForSnapshot(dst))
+            continue;
+        current_pos_by_id[object_id] = key(dst.x, dst.y);
     }
 
     std::unordered_map<uint32_t, uint32_t> src_to_dst;
@@ -199,9 +230,47 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
             src_to_dst.erase(start_src);
         }
     }
+
+    // Predicted replay can temporarily materialize movable stones that are hidden in the
+    // authoritative world (e.g. sub-shoguns yielded from a stack). If the truth snapshot
+    // does not contain that stone on any grid cell, remove the predicted-only grid
+    // instance again so object-state restoration can rebuild the authoritative topology.
+    for (uint32_t object_id : extra_ids_on_grid) {
+        auto it = current_pos_by_id.find(object_id);
+        if (it == current_pos_by_id.end())
+            continue;
+        GridPos pos = key_to_pos(it->second);
+        Stone *st = GetStone(pos);
+        if (!st || !st->is_movable() || static_cast<uint32_t>(st->getId()) != object_id)
+            continue;
+        Stone *extra = YieldStone(pos);
+        if (!extra)
+            continue;
+        extra->setOwnerPos(GridPos(-1, -1));
+        DisposeObject(extra);
+    }
 }
 
 }  // namespace
+
+Snapshot::AnimatedGridModel::AnimatedGridModel(const AnimatedGridModel &other)
+: layer(other.layer),
+  x(other.x),
+  y(other.y),
+  model(other.model ? std::unique_ptr<::display::Model>(other.model->clone()) : nullptr) {
+}
+
+Snapshot::AnimatedGridModel &Snapshot::AnimatedGridModel::operator=(const AnimatedGridModel &other) {
+    if (this == &other)
+        return *this;
+    layer = other.layer;
+    x = other.x;
+    y = other.y;
+    model.reset(other.model ? other.model->clone() : nullptr);
+    return *this;
+}
+
+Snapshot::AnimatedGridModel::~AnimatedGridModel() = default;
 
 Snapshot Capture() {
     Snapshot snap;
@@ -219,6 +288,7 @@ Snapshot Capture() {
         if (w > 0 && h > 0) {
             snap.movable_stones.clear();
             snap.movable_stones.reserve(64);
+            snap.animated_grid_models.clear();
             for (int y = 0; y < h; ++y) {
                 for (int x = 0; x < w; ++x) {
                     GridPos p(x, y);
@@ -230,6 +300,28 @@ Snapshot Capture() {
                     ms.x = static_cast<uint16_t>(x);
                     ms.y = static_cast<uint16_t>(y);
                     snap.movable_stones.push_back(ms);
+                }
+            }
+
+            const GridLayer layers[] = {GRID_FLOOR, GRID_ITEMS, GRID_STONES};
+            for (GridLayer layer : layers) {
+                for (int y = 0; y < h; ++y) {
+                    for (int x = 0; x < w; ++x) {
+                        if (layer == GRID_STONES) {
+                            Stone *st = GetStone(GridPos(x, y));
+                            if (st && st->is_movable())
+                                continue;
+                        }
+                        ::display::Model *model = ::display::GetModel(GridLoc(layer, GridPos(x, y)));
+                        if (!model || !model->needs_runtime_snapshot())
+                            continue;
+                        Snapshot::AnimatedGridModel entry;
+                        entry.layer = layer;
+                        entry.x = static_cast<uint16_t>(x);
+                        entry.y = static_cast<uint16_t>(y);
+                        entry.model.reset(model ? model->clone() : nullptr);
+                        snap.animated_grid_models.push_back(std::move(entry));
+                    }
                 }
             }
         }
@@ -258,6 +350,12 @@ void Restore(const Snapshot &snap) {
     RestorePendingActions(snap.pending_actions);
     RestoreObjectStates(snap.object_state_ids, snap.object_state_values);
     restore_movable_stone_positions(snap.movable_stones);
+    for (const auto &entry : snap.animated_grid_models) {
+        if (!entry.model)
+            continue;
+        ::display::SetModel(GridLoc(entry.layer, GridPos(static_cast<int>(entry.x), static_cast<int>(entry.y))),
+                            entry.model->clone());
+    }
 
     std::unordered_map<int, ActorSnapshot> by_id;
     by_id.reserve(snap.actors.size());

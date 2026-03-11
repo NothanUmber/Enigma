@@ -1181,10 +1181,12 @@ public:
 	                    } else {
 	                        add_row(N_("Defaults:"), make_locked_value(_("Locked")));
 	                    }
-	                } else if (new_page == OPTIONS_DEBUG2) {
-	                    add_row(N_("MP zerofill"),
-	                            make_toggle_or_locked("MultiplayerDebugZeroFillInputs", true));
-	                    add_row(N_("MP rollback"),
+		                } else if (new_page == OPTIONS_DEBUG2) {
+		                    add_row(N_("MP visual prediction"),
+		                            make_toggle_or_locked("MultiplayerDebugVisualPrediction", true));
+		                    add_row(N_("MP zerofill"),
+		                            make_toggle_or_locked("MultiplayerDebugZeroFillInputs", true));
+		                    add_row(N_("MP rollback"),
 	                            make_toggle_or_locked("MultiplayerDebugRollbackEnabled", true));
 	                    add_row(N_("MP remote local ball"),
 	                            make_toggle_or_locked("MultiplayerDebugRemoteControlLocalBall", true));
@@ -1688,10 +1690,11 @@ public:
 		        invalidate_all();
 		    }
 
-		    void OptionsMenu::reset_mp_sync_defaults() {
-		        app.prefs->setProperty("MultiplayerDebugZeroFillInputs", false);
-		        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", false);
-		        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", false);
+			    void OptionsMenu::reset_mp_sync_defaults() {
+			        app.prefs->setProperty("MultiplayerDebugVisualPrediction", false);
+			        app.prefs->setProperty("MultiplayerDebugZeroFillInputs", false);
+			        app.prefs->setProperty("MultiplayerDebugRollbackEnabled", false);
+			        app.prefs->setProperty("MultiplayerDebugRemoteControlLocalBall", false);
 		        app.prefs->setProperty("MultiplayerDebugClientAuthBallPos", false);
 		        app.prefs->setProperty("MultiplayerDebugHostOnlyWorldInteractions", false);
 		        app.prefs->setProperty("MultiplayerDebugPredictMissingMouseTicks", 0.0);

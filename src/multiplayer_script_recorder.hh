@@ -49,7 +49,7 @@ bool Toggle();
 bool IsRecording();
 std::string StatusMessage();
 bool CaptureSetupSnapshot();
-void RecordLocalPending(uint32_t current_tick, unsigned local_player, const input::PlayerInput &pending);
+void RecordLocalInputTick(uint32_t tick, unsigned local_player, const input::PlayerInput &input);
 
 }  // namespace scriptrecorder
 }  // namespace multiplayer

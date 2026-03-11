@@ -470,6 +470,21 @@ Model *AliasModel::clone() {
 Anim2d::Anim2d(bool loop) : rep(new AnimRep(loop)) {
 }
 
+Anim2d::Anim2d(AnimRep *r, ecl::Rect &ext_r, unsigned frame, double frame_time, bool finished,
+               bool changed, bool reverse, ModelCallback *cb)
+: rep(r),
+  curframe(frame),
+  frametime(frame_time),
+  finishedp(finished),
+  changedp(changed),
+  reversep(reverse),
+  videox(0),
+  videoy(0),
+  callback(cb),
+  extension(ext_r) {
+    rep->refcount++;
+}
+
 Anim2d::Anim2d(AnimRep *r, ecl::Rect &ext_r)
 : rep(r),
   curframe(0),
@@ -520,6 +535,10 @@ void Anim2d::draw_shadow(ecl::GC &gc, int x, int y) {
         AnimFrame *f = rep->frames[curframe];
         f->model->draw_shadow(gc, x, y);
     }
+}
+
+Model *Anim2d::clone() {
+    return new Anim2d(rep, extension, curframe, frametime, finishedp, changedp, reversep, callback);
 }
 
 void Anim2d::expose(ModelLayer *ml, int vx, int vy) {

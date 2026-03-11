@@ -24,6 +24,14 @@ void RequestPause(bool paused);
 void SetMenuOpen(bool open);
 void RequestAbort();
 void SetInputClockFrozen(bool frozen);
+void VisualPredictionOnBeforeSimTick(double timestep);
+void VisualPredictionOnAfterSimTick();
+void VisualPredictionBeginRender();
+void VisualPredictionEndRender();
+bool VisualPredictionRenderActive();
+bool VisualPredictionSimulationActive();
+void VisualPredictionInvalidate();
+bool VisualPredictionEnabled();
 
 }  // namespace multiplayer
 }  // namespace enigma

@@ -117,6 +117,14 @@ bool should_enable() {
     return true;
 }
 
+bool should_track_inputs() {
+    if (!multiplayer::IsActive())
+        return false;
+    if (!input::IsNetworked())
+        return false;
+    return true;
+}
+
 const Frame *find_frame_ptr(uint32_t tick) {
     for (auto it = g_frames.rbegin(); it != g_frames.rend(); ++it) {
         if (it->tick == tick)
@@ -402,7 +410,7 @@ bool TryQueueReconcileResyncState(const protocol::ResyncState &state) {
 }
 
 void RecordInput(uint32_t tick, unsigned player, const input::PlayerInput &pi) {
-    if (!should_enable())
+    if (!should_track_inputs())
         return;
     if (g_replaying)
         return;
@@ -428,6 +436,18 @@ void RecordInput(uint32_t tick, unsigned player, const input::PlayerInput &pi) {
     // Do not roll back on late inputs: under lossy/jittery links this causes the
     // host (and clients) to constantly rewrite history and "jump around". Instead,
     // reconcile only when authoritative snapshots arrive (g_pending_resync).
+}
+
+bool GetRecordedInput(uint32_t tick, unsigned player, input::PlayerInput &out) {
+    if (player >= input::kMaxPlayers)
+        return false;
+    auto it = g_history.find(tick);
+    if (it == g_history.end())
+        return false;
+    if (!it->second.present.test(player))
+        return false;
+    out = it->second.inputs[player];
+    return true;
 }
 
 void OnBeforeSimTick(uint32_t tick) {

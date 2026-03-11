@@ -103,6 +103,7 @@ enigma_SOURCES = 		\
 			multiplayer_script_recorder.hh \
 			multiplayer_sim_snapshot.cc \
 			multiplayer_sim_snapshot.hh \
+			multiplayer_visual_prediction.cc \
 			multiplayer_state.hh	\
 			multiplayer_transport.cc \
 			multiplayer_transport.hh \

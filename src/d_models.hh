@@ -84,6 +84,7 @@ public:
     void draw_shadow(ecl::GC &gc, int x, int y) override;
     Model *get_shadow() const override;
     Model *clone() override;
+    bool needs_runtime_snapshot() const override { return true; }
 
     void get_extension(ecl::Rect &r) override;
 
@@ -129,6 +130,7 @@ public:
         bg->draw_shadow(gc, x, y);
     }
     Model *clone() override { return new CompositeModel(bg->clone(), fg->clone()); }
+    bool needs_runtime_snapshot() const override { return true; }
 
     void get_extension(ecl::Rect &r) override {
         fg->get_extension(r);
@@ -192,7 +194,8 @@ public:
     /* ---------- Model interface ---------- */
     void draw(ecl::GC &gc, int x, int y) override;
     void draw_shadow(ecl::GC &gc, int x, int y) override;
-    Model *clone() override { return new Anim2d(rep, extension); }
+    Model *clone() override;
+    bool needs_runtime_snapshot() const override { return true; }
     void reverse() override { reversep = !reversep; }
     void restart() override;
 
@@ -207,6 +210,8 @@ public:
     void get_extension(ecl::Rect &r) override;
 
 private:
+    Anim2d(AnimRep *r, ecl::Rect &ext_r, unsigned frame, double frame_time, bool finished,
+           bool changed, bool reverse, ModelCallback *cb);
     Anim2d(AnimRep *r, ecl::Rect &ext_r);
 
     /* ---------- Variables ---------- */

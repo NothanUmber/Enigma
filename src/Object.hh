@@ -186,6 +186,7 @@ public:
 
     virtual Object *clone() = 0;
     virtual void dispose() = 0;
+    virtual int MpCaptureStateForSnapshot() const;
     virtual bool MpRestoreStateForSnapshot(int state);
 
     virtual void warning(const char *format, ...) const;
