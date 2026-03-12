@@ -857,6 +857,41 @@ namespace enigma {
         return "st_oxyd";
     }
 
+    bool OxydStone::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < CLOSED || snapshot_state > OPEN_SINGLE)
+            return false;
+        state = snapshot_state;
+        if (!isDisplayable())
+            return true;
+
+        const std::string flavor(getDefaultedAttr("flavor", "a"));
+        const std::string color = ecl::strf("%d", (int)getDefaultedAttr("oxydcolor", 0));
+        const std::string basemodelname = std::string("st_oxyd") + flavor;
+        const std::string modelname = basemodelname + color;
+
+        switch (state) {
+        case CLOSED:
+            setClosedModel(false);
+            break;
+        case OPEN_PAIR:
+            set_model(modelname + "_open");
+            break;
+        case OPENING:
+            set_anim(modelname + "_opening");
+            break;
+        case CLOSING:
+            set_anim(modelname + "_closing");
+            break;
+        case OPEN_SINGLE:
+            if ((int)getAttr("oxydcolor") <= QUAKE)
+                set_anim(basemodelname + "_pseudo" + color);
+            else
+                set_model(modelname + "_blink");
+            break;
+        }
+        return true;
+    }
+
     void OxydStone::MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const {
         Stone::MpCaptureAttrsForSnapshot(attrs);
         attrs.push_back(std::make_pair(std::string("oxydcolor"), getAttr("oxydcolor")));
@@ -872,6 +907,30 @@ namespace enigma {
                 runtime_attrs.push_back(*it);
         }
         Stone::MpRestoreAttrsForSnapshot(runtime_attrs);
+    }
+
+    void OxydStone::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        semantic.logical_state = MpCaptureStateForSnapshot();
+        semantic.flags = MpCaptureFlagsForSnapshot();
+        semantic.fields.clear();
+    }
+
+    bool OxydStone::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        (void)ctx;
+        MpRestoreFlagsForSnapshot(semantic.flags);
+        return MpRestoreStateForSnapshot(semantic.logical_state);
+    }
+
+    bool OxydStone::MpNeedsSemanticWorldResync() const {
+        return true;
+    }
+
+    int OxydStone::MpDebugInternalState() const {
+        return state;
+    }
+
+    void OxydStone::MpDebugForceInternalState(int internal_state) {
+        state = internal_state;
     }
 
     OxydStone * OxydStone::clone() { 

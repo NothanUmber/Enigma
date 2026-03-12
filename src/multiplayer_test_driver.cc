@@ -16,6 +16,7 @@
 #include "player.hh"
 #include "Inventory.hh"
 #include "server.hh"
+#include "stones/OxydStone.hh"
 #include "stones/ShogunStone.hh"
 #include "world.hh"
 
@@ -774,6 +775,65 @@ static bool handle_command(const std::string &line) {
            << " holes=" << shogun->MpCaptureStateForSnapshot()
            << " chain=" << shogun->MpDebugChainHoles();
         send_ok("BREAK_SHOGUN_CHAIN", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_OXYD_STATE") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_OXYD_STATE", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_OXYD_STATE", "no_world");
+            return true;
+        }
+        OxydStone *oxyd = dynamic_cast<OxydStone *>(GetStone(GridPos(x, y)));
+        if (!oxyd) {
+            send_err("GET_OXYD_STATE", "no_oxyd");
+            return true;
+        }
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << oxyd->getKind()
+           << " internal=" << oxyd->MpDebugInternalState()
+           << " external=" << static_cast<int>(oxyd->getAttr("state"))
+           << " color=" << static_cast<int>(oxyd->getAttr("oxydcolor"));
+        send_ok("GET_OXYD_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_OXYD_STATE") {
+        int x = 0;
+        int y = 0;
+        int state = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("FORCE_OXYD_STATE", "missing_xy");
+            return true;
+        }
+        if (!parse_i32(kv, "state", state)) {
+            send_err("FORCE_OXYD_STATE", "missing_state");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_OXYD_STATE", "no_world");
+            return true;
+        }
+        OxydStone *oxyd = dynamic_cast<OxydStone *>(GetStone(GridPos(x, y)));
+        if (!oxyd) {
+            send_err("FORCE_OXYD_STATE", "no_oxyd");
+            return true;
+        }
+        oxyd->MpDebugForceInternalState(state);
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << oxyd->getKind()
+           << " internal=" << oxyd->MpDebugInternalState()
+           << " external=" << static_cast<int>(oxyd->getAttr("state"))
+           << " color=" << static_cast<int>(oxyd->getAttr("oxydcolor"));
+        send_ok("FORCE_OXYD_STATE", os.str());
         return true;
     }
 

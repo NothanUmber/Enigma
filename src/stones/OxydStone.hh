@@ -88,8 +88,14 @@ namespace enigma {
         virtual void dispose() override;
         virtual Value message(const Message &m) override;
         virtual void setAttr(const std::string& key, const Value &val) override;
+        virtual bool MpRestoreStateForSnapshot(int state) override;
         virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
         virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
+        int MpDebugInternalState() const;
+        void MpDebugForceInternalState(int internal_state);
 
         // StateObject interface
         virtual int maxState() const override;
