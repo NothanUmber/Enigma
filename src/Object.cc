@@ -147,6 +147,7 @@ void Object::MpCaptureSemanticState(MpSemanticState &state) const {
     state.logical_state = MpCaptureStateForSnapshot();
     state.flags = MpCaptureFlagsForSnapshot();
     state.fields.clear();
+    state.refs.clear();
     MpCaptureAttrsForSnapshot(state.fields);
 }
 

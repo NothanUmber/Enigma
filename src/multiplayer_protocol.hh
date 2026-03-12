@@ -205,6 +205,30 @@ struct WorldStatePacket {
         std::vector<SemanticField> fields;
     };
     std::vector<SemanticFieldState> semantic_field_states;
+    enum SemanticRefType : Uint8 {
+        SEM_REF_NONE = 0,
+        SEM_REF_GRID_FLOOR = 1,
+        SEM_REF_GRID_ITEM = 2,
+        SEM_REF_GRID_STONE = 3,
+        SEM_REF_ACTOR_OBJECT = 4,
+        SEM_REF_OTHER_NAME = 5,
+    };
+    struct SemanticRef {
+        std::string key;
+        Uint8 type = SEM_REF_NONE;
+        Uint16 x = 0;
+        Uint16 y = 0;
+        Uint32 object_id = 0;
+        std::string name;
+    };
+    struct OtherSemanticState {
+        Uint32 object_id = 0;
+        Uint32 logical_state = 0;
+        Uint32 flags = 0;
+        std::vector<SemanticField> fields;
+        std::vector<SemanticRef> refs;
+    };
+    std::vector<OtherSemanticState> other_semantic_states;
 };
 
 struct WorldStateRequest {
@@ -394,6 +418,60 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
             }
         }
     }
+    if (!msg.other_semantic_states.empty()) {
+        buf << Uint8(5);
+        Uint16 ocount =
+            static_cast<Uint16>(std::min<size_t>(msg.other_semantic_states.size(), 0xFFFF));
+        buf << ocount;
+        for (Uint16 i = 0; i < ocount; ++i) {
+            const auto &entry = msg.other_semantic_states[i];
+            buf << Uint32(entry.object_id) << Uint32(entry.logical_state) << Uint32(entry.flags);
+            Uint16 fcount = static_cast<Uint16>(std::min<size_t>(entry.fields.size(), 0xFFFF));
+            buf << fcount;
+            for (Uint16 j = 0; j < fcount; ++j) {
+                const auto &field = entry.fields[j];
+                buf << field.key << Uint8(field.type);
+                switch (field.type) {
+                case WorldStatePacket::SEM_FIELD_NIL:
+                    break;
+                case WorldStatePacket::SEM_FIELD_BOOL:
+                    buf << Uint8(field.bool_value);
+                    break;
+                case WorldStatePacket::SEM_FIELD_DOUBLE:
+                    buf << field.double_value;
+                    break;
+                case WorldStatePacket::SEM_FIELD_STRING:
+                    buf << field.string_value;
+                    break;
+                default:
+                    break;
+                }
+            }
+            Uint16 rcount = static_cast<Uint16>(std::min<size_t>(entry.refs.size(), 0xFFFF));
+            buf << rcount;
+            for (Uint16 j = 0; j < rcount; ++j) {
+                const auto &ref = entry.refs[j];
+                buf << ref.key << Uint8(ref.type);
+                switch (ref.type) {
+                case WorldStatePacket::SEM_REF_NONE:
+                    break;
+                case WorldStatePacket::SEM_REF_GRID_FLOOR:
+                case WorldStatePacket::SEM_REF_GRID_ITEM:
+                case WorldStatePacket::SEM_REF_GRID_STONE:
+                    buf << Uint16(ref.x) << Uint16(ref.y);
+                    break;
+                case WorldStatePacket::SEM_REF_ACTOR_OBJECT:
+                    buf << Uint32(ref.object_id);
+                    break;
+                case WorldStatePacket::SEM_REF_OTHER_NAME:
+                    buf << ref.name;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
 }
 
 inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
@@ -458,8 +536,10 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
     msg.item_kind.clear();
     msg.semantic_states.clear();
     msg.semantic_field_states.clear();
+    msg.other_semantic_states.clear();
     // Optional extensions: kinds (v1), oxyd colors (v2), semantic states (v3),
-    // and semantic scalar fields (v4). Older decoders ignore trailing bytes.
+    // semantic scalar fields (v4), and semantic `Other` records (v5).
+    // Older decoders ignore trailing bytes.
     // Newer decoders support multiple extension blocks in sequence.
     while (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
         const size_t rpos = static_cast<size_t>(buf.get_rpos());
@@ -567,6 +647,76 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
                     entry.fields.push_back(field);
                 }
                 msg.semantic_field_states.push_back(entry);
+            }
+            continue;
+        }
+        if (ext == 5) {
+            Uint8 consumed_ext = 0;
+            Uint16 ocount = 0;
+            if (!(buf >> consumed_ext >> ocount))
+                return false;
+            msg.other_semantic_states.reserve(ocount);
+            for (Uint16 i = 0; i < ocount; ++i) {
+                WorldStatePacket::OtherSemanticState entry;
+                Uint16 fcount = 0;
+                Uint16 rcount = 0;
+                if (!(buf >> entry.object_id >> entry.logical_state >> entry.flags >> fcount))
+                    return false;
+                entry.fields.reserve(fcount);
+                for (Uint16 j = 0; j < fcount; ++j) {
+                    WorldStatePacket::SemanticField field;
+                    if (!(buf >> field.key >> field.type))
+                        return false;
+                    switch (field.type) {
+                    case WorldStatePacket::SEM_FIELD_NIL:
+                        break;
+                    case WorldStatePacket::SEM_FIELD_BOOL:
+                        if (!(buf >> field.bool_value))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_FIELD_DOUBLE:
+                        if (!(buf >> field.double_value))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_FIELD_STRING:
+                        if (!(buf >> field.string_value))
+                            return false;
+                        break;
+                    default:
+                        return false;
+                    }
+                    entry.fields.push_back(field);
+                }
+                if (!(buf >> rcount))
+                    return false;
+                entry.refs.reserve(rcount);
+                for (Uint16 j = 0; j < rcount; ++j) {
+                    WorldStatePacket::SemanticRef ref;
+                    if (!(buf >> ref.key >> ref.type))
+                        return false;
+                    switch (ref.type) {
+                    case WorldStatePacket::SEM_REF_NONE:
+                        break;
+                    case WorldStatePacket::SEM_REF_GRID_FLOOR:
+                    case WorldStatePacket::SEM_REF_GRID_ITEM:
+                    case WorldStatePacket::SEM_REF_GRID_STONE:
+                        if (!(buf >> ref.x >> ref.y))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_REF_ACTOR_OBJECT:
+                        if (!(buf >> ref.object_id))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_REF_OTHER_NAME:
+                        if (!(buf >> ref.name))
+                            return false;
+                        break;
+                    default:
+                        return false;
+                    }
+                    entry.refs.push_back(ref);
+                }
+                msg.other_semantic_states.push_back(entry);
             }
             continue;
         }

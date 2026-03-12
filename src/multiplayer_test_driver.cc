@@ -12,6 +12,7 @@
 #include "input.hh"
 #include "lev/Proxy.hh"
 #include "main.hh"
+#include "others/Wire.hh"
 #include "options.hh"
 #include "player.hh"
 #include "Inventory.hh"
@@ -415,6 +416,36 @@ static void maybe_apply_queued_local_inputs() {
 
 static bool world_accessible() {
     return server::WorldInitialized && Width() > 0 && Height() > 0;
+}
+
+static std::vector<Wire *> sorted_wires() {
+    std::vector<Wire *> wires;
+    std::vector<Other *> others;
+    GetOthers(others);
+    for (Other *other : others) {
+        if (Wire *wire = dynamic_cast<Wire *>(other))
+            wires.push_back(wire);
+    }
+    return wires;
+}
+
+static std::string object_debug_label(Object *obj) {
+    if (!obj)
+        return "(none)";
+    if (Value name = obj->getAttr("name")) {
+        const std::string str = name.to_string();
+        if (!str.empty())
+            return str;
+    }
+    if (Stone *stone = dynamic_cast<Stone *>(obj)) {
+        const GridPos pos = stone->getOwnerPos();
+        std::ostringstream os;
+        os << "@" << pos.x << "," << pos.y;
+        return os.str();
+    }
+    std::ostringstream os;
+    os << "#" << obj->getId();
+    return os.str();
 }
 
 static void emit_state_snapshot() {
@@ -867,6 +898,89 @@ static bool handle_command(const std::string &line) {
            << " external=" << static_cast<int>(oxyd->getAttr("state"))
            << " color=" << static_cast<int>(oxyd->getAttr("oxydcolor"));
         send_ok("FORCE_OXYD_COLOR", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_WIRE_STATE") {
+        int index = 0;
+        if (!parse_i32(kv, "index", index)) {
+            send_err("GET_WIRE_STATE", "missing_index");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_WIRE_STATE", "no_world");
+            return true;
+        }
+        const std::vector<Wire *> wires = sorted_wires();
+        if (index < 0 || static_cast<size_t>(index) >= wires.size()) {
+            send_err("GET_WIRE_STATE", "bad_index");
+            return true;
+        }
+        Wire *wire = wires[static_cast<size_t>(index)];
+        Object *anchor1 = wire->getAttr("anchor1");
+        Object *anchor2 = wire->getAttr("anchor2");
+        ObjectList anchor1_wires;
+        ObjectList anchor2_wires;
+        ObjectList anchor1_fellows;
+        ObjectList anchor2_fellows;
+        if (anchor1) {
+            anchor1_wires = anchor1->getAttr("wires");
+            anchor1_fellows = anchor1->getAttr("fellows");
+        }
+        if (anchor2) {
+            anchor2_wires = anchor2->getAttr("wires");
+            anchor2_fellows = anchor2->getAttr("fellows");
+        }
+        std::ostringstream os;
+        os << "index=" << index
+           << " id=" << wire->getId()
+           << " anchor1=" << object_debug_label(anchor1)
+           << " anchor2=" << object_debug_label(anchor2)
+           << " anchor1_wires=" << anchor1_wires.size()
+           << " anchor2_wires=" << anchor2_wires.size()
+           << " anchor1_fellows=" << anchor1_fellows.size()
+           << " anchor2_fellows=" << anchor2_fellows.size();
+        send_ok("GET_WIRE_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_WIRE_ANCHORS") {
+        int index = 0;
+        if (!parse_i32(kv, "index", index)) {
+            send_err("FORCE_WIRE_ANCHORS", "missing_index");
+            return true;
+        }
+        const auto it_anchor1 = kv.find("anchor1");
+        const auto it_anchor2 = kv.find("anchor2");
+        if (it_anchor1 == kv.end() || it_anchor2 == kv.end()) {
+            send_err("FORCE_WIRE_ANCHORS", "missing_anchor");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_WIRE_ANCHORS", "no_world");
+            return true;
+        }
+        const std::vector<Wire *> wires = sorted_wires();
+        if (index < 0 || static_cast<size_t>(index) >= wires.size()) {
+            send_err("FORCE_WIRE_ANCHORS", "bad_index");
+            return true;
+        }
+        Stone *anchor1 = dynamic_cast<Stone *>(GetNamedObject(it_anchor1->second));
+        Stone *anchor2 = dynamic_cast<Stone *>(GetNamedObject(it_anchor2->second));
+        if (!anchor1 || !anchor2) {
+            send_err("FORCE_WIRE_ANCHORS", "bad_anchor");
+            return true;
+        }
+        Wire *wire = wires[static_cast<size_t>(index)];
+        wire->setAttr("anchor1", Value(static_cast<Object *>(anchor1)));
+        wire->setAttr("anchor2", Value(static_cast<Object *>(anchor2)));
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "index=" << index
+           << " id=" << wire->getId()
+           << " anchor1=" << object_debug_label(anchor1)
+           << " anchor2=" << object_debug_label(anchor2);
+        send_ok("FORCE_WIRE_ANCHORS", os.str());
         return true;
     }
 

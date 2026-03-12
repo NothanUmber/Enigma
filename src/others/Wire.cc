@@ -23,6 +23,26 @@
 #include "world.hh"
 
 namespace enigma {
+    namespace {
+        bool capture_wire_anchor_ref(Stone *stone, Object::MpObjectRef &ref) {
+            if (!stone)
+                return false;
+            const GridPos pos = stone->getOwnerPos();
+            if (GetStone(pos) != stone)
+                return false;
+            ref = Object::MpObjectRef();
+            ref.kind = Object::MpObjectRef::GRID_STONE;
+            ref.pos = pos;
+            return true;
+        }
+
+        Stone *resolve_wire_anchor_ref(const Object::MpObjectRef &ref) {
+            if (ref.kind != Object::MpObjectRef::GRID_STONE)
+                return NULL;
+            return GetStone(ref.pos);
+        }
+    }  // namespace
+
     Wire::Wire() : Other(), anchor1 (NULL), anchor2 (NULL), model (NULL) {
     }
     
@@ -104,6 +124,49 @@ namespace enigma {
             setAttr("anchor1", anchor1_value);
         if (have_anchor2)
             setAttr("anchor2", anchor2_value);
+    }
+
+    void Wire::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        semantic.logical_state = MpCaptureStateForSnapshot();
+        semantic.flags = MpCaptureFlagsForSnapshot();
+        semantic.fields.clear();
+        semantic.refs.clear();
+
+        Object::MpObjectRef ref;
+        if (capture_wire_anchor_ref(anchor1, ref))
+            semantic.refs.emplace_back("anchor1", ref);
+        if (capture_wire_anchor_ref(anchor2, ref))
+            semantic.refs.emplace_back("anchor2", ref);
+    }
+
+    bool Wire::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        (void)ctx;
+        Stone *resolved_anchor1 = NULL;
+        Stone *resolved_anchor2 = NULL;
+        bool have_anchor1 = false;
+        bool have_anchor2 = false;
+        for (const auto &entry : semantic.refs) {
+            if (entry.first == "anchor1") {
+                resolved_anchor1 = resolve_wire_anchor_ref(entry.second);
+                have_anchor1 = resolved_anchor1 != NULL;
+            } else if (entry.first == "anchor2") {
+                resolved_anchor2 = resolve_wire_anchor_ref(entry.second);
+                have_anchor2 = resolved_anchor2 != NULL;
+            }
+        }
+        if (!have_anchor1 || !have_anchor2)
+            return false;
+
+        MpAttrSnapshot attrs;
+        attrs.emplace_back("anchor1", Value(static_cast<Object *>(resolved_anchor1)));
+        attrs.emplace_back("anchor2", Value(static_cast<Object *>(resolved_anchor2)));
+        MpRestoreFlagsForSnapshot(semantic.flags);
+        MpRestoreAttrsForSnapshot(attrs);
+        return true;
+    }
+
+    bool Wire::MpNeedsSemanticWorldResync() const {
+        return true;
     }
 
     void Wire::postAddition() {

@@ -41,6 +41,9 @@ namespace enigma {
         virtual Value message(const Message &m);
         virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
         virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         
         // Other interface
         virtual void postAddition();

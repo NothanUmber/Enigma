@@ -87,10 +87,36 @@ public:
 
     typedef ecl::AssocList<std::string, Value> AttribMap;
     typedef std::vector<std::pair<std::string, Value>> MpAttrSnapshot;
+    struct MpObjectRef {
+        enum Kind {
+            NONE = 0,
+            GRID_FLOOR,
+            GRID_ITEM,
+            GRID_STONE,
+            ACTOR_OBJECT,
+            OTHER_BY_NAME
+        };
+
+        Kind kind = NONE;
+        GridPos pos = GridPos(-1, -1);
+        uint32_t object_id = 0;
+        std::string name;
+
+        bool operator==(const MpObjectRef &other) const {
+            return kind == other.kind && pos == other.pos && object_id == other.object_id &&
+                   name == other.name;
+        }
+
+        bool operator!=(const MpObjectRef &other) const {
+            return !(*this == other);
+        }
+    };
+    typedef std::vector<std::pair<std::string, MpObjectRef>> MpRefSnapshot;
     struct MpSemanticState {
         int logical_state = 0;
         uint32_t flags = 0;
         MpAttrSnapshot fields;
+        MpRefSnapshot refs;
     };
     enum class MpApplyContext {
         SnapshotRestore,

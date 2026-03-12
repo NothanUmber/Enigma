@@ -2273,6 +2273,15 @@ void KillOther(Other *o) {
     }
 }
 
+void GetOthers(std::vector<Other *> &out) {
+    out.clear();
+    if (!level)
+        return;
+    out.assign(level->others.begin(), level->others.end());
+    std::sort(out.begin(), out.end(),
+              [](const Other *a, const Other *b) { return a->getId() < b->getId(); });
+}
+
 void GetRubberbands(std::vector<Rubberband *> &out) {
     out.clear();
     if (!level)

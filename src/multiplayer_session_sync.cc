@@ -125,6 +125,42 @@ bool encode_semantic_field(const std::pair<std::string, Value> &src,
     }
 }
 
+bool encode_semantic_ref(const std::pair<std::string, Object::MpObjectRef> &src,
+                         protocol::WorldStatePacket::SemanticRef &dst) {
+    dst = protocol::WorldStatePacket::SemanticRef();
+    dst.key = src.first;
+    switch (src.second.kind) {
+    case Object::MpObjectRef::NONE:
+        dst.type = protocol::WorldStatePacket::SEM_REF_NONE;
+        return true;
+    case Object::MpObjectRef::GRID_FLOOR:
+        dst.type = protocol::WorldStatePacket::SEM_REF_GRID_FLOOR;
+        dst.x = static_cast<Uint16>(src.second.pos.x);
+        dst.y = static_cast<Uint16>(src.second.pos.y);
+        return true;
+    case Object::MpObjectRef::GRID_ITEM:
+        dst.type = protocol::WorldStatePacket::SEM_REF_GRID_ITEM;
+        dst.x = static_cast<Uint16>(src.second.pos.x);
+        dst.y = static_cast<Uint16>(src.second.pos.y);
+        return true;
+    case Object::MpObjectRef::GRID_STONE:
+        dst.type = protocol::WorldStatePacket::SEM_REF_GRID_STONE;
+        dst.x = static_cast<Uint16>(src.second.pos.x);
+        dst.y = static_cast<Uint16>(src.second.pos.y);
+        return true;
+    case Object::MpObjectRef::ACTOR_OBJECT:
+        dst.type = protocol::WorldStatePacket::SEM_REF_ACTOR_OBJECT;
+        dst.object_id = static_cast<Uint32>(src.second.object_id);
+        return true;
+    case Object::MpObjectRef::OTHER_BY_NAME:
+        dst.type = protocol::WorldStatePacket::SEM_REF_OTHER_NAME;
+        dst.name = src.second.name;
+        return true;
+    default:
+        return false;
+    }
+}
+
 Actor *sync_reference_actor(unsigned player, uint32_t tick);
 
 struct ActorSortKey {
@@ -492,6 +528,8 @@ void broadcast_world_state_snapshot(bool reliable) {
     pkt.stone_kind.assign(count, 0);
     pkt.item_kind.assign(count, 0);
     pkt.semantic_states.clear();
+    pkt.semantic_field_states.clear();
+    pkt.other_semantic_states.clear();
 
     auto encode_state = [](Object *obj) -> Uint16 {
         if (!obj)
@@ -578,6 +616,44 @@ void broadcast_world_state_snapshot(bool reliable) {
             pkt.semantic_field_states.push_back(std::move(field_state));
     };
 
+    auto append_other_semantic_state = [&pkt](Other *obj) {
+        if (!obj || !obj->MpNeedsSemanticWorldResync())
+            return;
+        Object::MpSemanticState semantic;
+        obj->MpCaptureSemanticState(semantic);
+        protocol::WorldStatePacket::OtherSemanticState entry;
+        entry.object_id = static_cast<Uint32>(obj->getId());
+        entry.logical_state = static_cast<Uint32>(semantic.logical_state);
+        entry.flags = static_cast<Uint32>(semantic.flags);
+        entry.fields.reserve(semantic.fields.size());
+        for (const auto &field : semantic.fields) {
+            protocol::WorldStatePacket::SemanticField encoded;
+            if (!encode_semantic_field(field, encoded)) {
+                if (debug_enabled()) {
+                    debug_log("mp world-state semantic field dropped for other %s id=%d: key=%s type=%d",
+                              obj->getKind().c_str(), obj->getId(), field.first.c_str(),
+                              static_cast<int>(field.second.getType()));
+                }
+                continue;
+            }
+            entry.fields.push_back(std::move(encoded));
+        }
+        entry.refs.reserve(semantic.refs.size());
+        for (const auto &ref : semantic.refs) {
+            protocol::WorldStatePacket::SemanticRef encoded;
+            if (!encode_semantic_ref(ref, encoded)) {
+                if (debug_enabled()) {
+                    debug_log("mp world-state semantic ref dropped for other %s id=%d: key=%s kind=%d",
+                              obj->getKind().c_str(), obj->getId(), ref.first.c_str(),
+                              static_cast<int>(ref.second.kind));
+                }
+                continue;
+            }
+            entry.refs.push_back(std::move(encoded));
+        }
+        pkt.other_semantic_states.push_back(std::move(entry));
+    };
+
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             GridPos p(x, y);
@@ -586,6 +662,11 @@ void broadcast_world_state_snapshot(bool reliable) {
             append_semantic_state(GRID_STONES, x, y, GetStone(p));
         }
     }
+
+    std::vector<Other *> others;
+    GetOthers(others);
+    for (Other *other : others)
+        append_other_semantic_state(other);
 
     pkt.movable_stones.clear();
     for (int y = 0; y < h; ++y) {

@@ -1744,17 +1744,23 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
                                     const Object::MpSemanticState &incoming) -> bool {
         if (current.logical_state != incoming.logical_state || current.flags != incoming.flags)
             return false;
-        // The current wire format does not always carry semantic fields yet. If the sender
-        // sent none, treat logical_state/flags as the whole comparison so unchanged semantic
-        // animations are not restarted every broadcast tick.
-        if (incoming.fields.empty())
-            return true;
-        if (current.fields.size() != incoming.fields.size())
-            return false;
-        for (size_t i = 0; i < incoming.fields.size(); ++i) {
-            if (current.fields[i].first != incoming.fields[i].first ||
-                current.fields[i].second != incoming.fields[i].second)
+        if (!incoming.fields.empty()) {
+            if (current.fields.size() != incoming.fields.size())
                 return false;
+            for (size_t i = 0; i < incoming.fields.size(); ++i) {
+                if (current.fields[i].first != incoming.fields[i].first ||
+                    current.fields[i].second != incoming.fields[i].second)
+                    return false;
+            }
+        }
+        if (!incoming.refs.empty()) {
+            if (current.refs.size() != incoming.refs.size())
+                return false;
+            for (size_t i = 0; i < incoming.refs.size(); ++i) {
+                if (current.refs[i].first != incoming.refs[i].first ||
+                    current.refs[i].second != incoming.refs[i].second)
+                    return false;
+            }
         }
         return true;
     };
@@ -1773,6 +1779,38 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             return true;
         case protocol::WorldStatePacket::SEM_FIELD_STRING:
             out.second = Value(field.string_value);
+            return true;
+        default:
+            return false;
+        }
+    };
+    auto decode_semantic_ref = [](const protocol::WorldStatePacket::SemanticRef &ref,
+                                  std::pair<std::string, Object::MpObjectRef> &out) -> bool {
+        out.first = ref.key;
+        out.second = Object::MpObjectRef();
+        switch (ref.type) {
+        case protocol::WorldStatePacket::SEM_REF_NONE:
+            out.second.kind = Object::MpObjectRef::NONE;
+            return true;
+        case protocol::WorldStatePacket::SEM_REF_GRID_FLOOR:
+            out.second.kind = Object::MpObjectRef::GRID_FLOOR;
+            out.second.pos = GridPos(static_cast<int>(ref.x), static_cast<int>(ref.y));
+            return true;
+        case protocol::WorldStatePacket::SEM_REF_GRID_ITEM:
+            out.second.kind = Object::MpObjectRef::GRID_ITEM;
+            out.second.pos = GridPos(static_cast<int>(ref.x), static_cast<int>(ref.y));
+            return true;
+        case protocol::WorldStatePacket::SEM_REF_GRID_STONE:
+            out.second.kind = Object::MpObjectRef::GRID_STONE;
+            out.second.pos = GridPos(static_cast<int>(ref.x), static_cast<int>(ref.y));
+            return true;
+        case protocol::WorldStatePacket::SEM_REF_ACTOR_OBJECT:
+            out.second.kind = Object::MpObjectRef::ACTOR_OBJECT;
+            out.second.object_id = ref.object_id;
+            return true;
+        case protocol::WorldStatePacket::SEM_REF_OTHER_NAME:
+            out.second.kind = Object::MpObjectRef::OTHER_BY_NAME;
+            out.second.name = ref.name;
             return true;
         default:
             return false;
@@ -1804,6 +1842,34 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         if (semantic_matches_wire(current, semantic))
             continue;
         if (obj->MpApplySemanticState(semantic, Object::MpApplyContext::WorldResync))
+            applied_semantic_changes += 1;
+    }
+    for (const auto &entry : pkt.other_semantic_states) {
+        Other *other = dynamic_cast<Other *>(Object::getObject(static_cast<int>(entry.object_id)));
+        if (!other)
+            continue;
+        Object::MpSemanticState semantic;
+        semantic.logical_state = static_cast<int>(entry.logical_state);
+        semantic.flags = entry.flags;
+        semantic.fields.reserve(entry.fields.size());
+        for (const auto &wire_field : entry.fields) {
+            std::pair<std::string, Value> field;
+            if (!decode_semantic_field(wire_field, field))
+                continue;
+            semantic.fields.push_back(std::move(field));
+        }
+        semantic.refs.reserve(entry.refs.size());
+        for (const auto &wire_ref : entry.refs) {
+            std::pair<std::string, Object::MpObjectRef> ref;
+            if (!decode_semantic_ref(wire_ref, ref))
+                continue;
+            semantic.refs.push_back(std::move(ref));
+        }
+        Object::MpSemanticState current;
+        other->MpCaptureSemanticState(current);
+        if (semantic_matches_wire(current, semantic))
+            continue;
+        if (other->MpApplySemanticState(semantic, Object::MpApplyContext::WorldResync))
             applied_semantic_changes += 1;
     }
     if (debug_enabled()) {

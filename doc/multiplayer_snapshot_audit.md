@@ -74,7 +74,7 @@ These classes already need and already have custom snapshot treatment:
 | `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
 | `OxydStone` | Yes | Yes | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, and `oxydcolor` now rides the same semantic field path instead of the ad hoc color transport. |
 | `Rubberband` | Yes | No | Snapshot path restores anchors and runtime parameters; world resync does not serialize `Other` objects yet. |
-| `Wire` | Yes | No | Snapshot path restores anchor references; world resync does not serialize `Other` objects yet. |
+| `Wire` | Yes | Yes | World resync now carries semantic `Other` records for `Wire`, so same-kind repairs reconnect both stone anchors and rebuild the corresponding fellows/wires lists. |
 
 ## High-confidence candidates for custom hooks
 
@@ -229,4 +229,3 @@ the following larger tasks are still open:
    - `ShogunDot`
    - `ShogunStone`
    - `Rubberband`
-   - `Wire`

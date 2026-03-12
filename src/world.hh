@@ -223,6 +223,7 @@ ecl::V2 GetGlobalForce();
 
 void AddOther(Other *o);
 void KillOther(Other *o);
+void GetOthers(std::vector<Other *> &out);
 void GetRubberbands(std::vector<Rubberband *> &out);
 
 /* -------------------- Meditation Control ---------------------- */
