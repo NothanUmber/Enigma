@@ -26,7 +26,6 @@
 #include "options.hh"
 #include "player.hh"
 #include "server.hh"
-#include "stones/OxydStone.hh"
 #include "stones/PuzzleStone.hh"
 #include "world.hh"
 
@@ -99,6 +98,31 @@ uint32_t stable_name_hash(Actor *actor) {
         h *= 16777619u;
     }
     return h ? h : 1u;
+}
+
+bool encode_semantic_field(const std::pair<std::string, Value> &src,
+                           protocol::WorldStatePacket::SemanticField &dst) {
+    dst = protocol::WorldStatePacket::SemanticField();
+    dst.key = src.first;
+    switch (src.second.getType()) {
+    case Value::NIL:
+        dst.type = protocol::WorldStatePacket::SEM_FIELD_NIL;
+        return true;
+    case Value::BOOL:
+        dst.type = protocol::WorldStatePacket::SEM_FIELD_BOOL;
+        dst.bool_value = src.second.to_bool() ? 1 : 0;
+        return true;
+    case Value::DOUBLE:
+        dst.type = protocol::WorldStatePacket::SEM_FIELD_DOUBLE;
+        dst.double_value = static_cast<double>(src.second);
+        return true;
+    case Value::STRING:
+        dst.type = protocol::WorldStatePacket::SEM_FIELD_STRING;
+        dst.string_value = src.second.to_string();
+        return true;
+    default:
+        return false;
+    }
 }
 
 Actor *sync_reference_actor(unsigned player, uint32_t tick);
@@ -510,33 +534,20 @@ void broadcast_world_state_snapshot(bool reliable) {
 	            Object *fl = GetFloor(p);
 	            Object *st = GetStone(p);
 	            Object *it = GetItem(p);
-	            pkt.floor_state[idx] = encode_state(fl);
-	            pkt.stone_state[idx] = encode_state(st);
-	            pkt.item_state[idx] = encode_state(it);
-	            pkt.floor_kind[idx] = kind_id(fl);
-	            pkt.stone_kind[idx] = kind_id(st);
-	            pkt.item_kind[idx] = kind_id(it);
-	            if (OxydStone *ox = dynamic_cast<OxydStone *>(st)) {
-	                const int c = static_cast<int>(ox->getAttr("oxydcolor"));
-	                const int16_t cs = static_cast<int16_t>(c);
-	                protocol::WorldStatePacket::OxydColor e;
-	                e.x = static_cast<Uint16>(x);
-	                e.y = static_cast<Uint16>(y);
-	                e.color_raw = static_cast<Uint16>(static_cast<uint16_t>(cs));
-	                pkt.oxyd_colors.push_back(e);
-	            }
-	        }
-	    }
+            pkt.floor_state[idx] = encode_state(fl);
+            pkt.stone_state[idx] = encode_state(st);
+            pkt.item_state[idx] = encode_state(it);
+            pkt.floor_kind[idx] = kind_id(fl);
+            pkt.stone_kind[idx] = kind_id(st);
+            pkt.item_kind[idx] = kind_id(it);
+        }
+    }
 
     auto append_semantic_state = [&pkt](GridLayer layer, int x, int y, Object *obj) {
         if (!obj || !obj->MpNeedsSemanticWorldResync())
             return;
         Object::MpSemanticState semantic;
         obj->MpCaptureSemanticState(semantic);
-        if (!semantic.fields.empty() && debug_enabled()) {
-            debug_log("mp world-state semantic fields dropped for %s at (%d,%d)",
-                      obj->getKind().c_str(), x, y);
-        }
         protocol::WorldStatePacket::SemanticState entry;
         entry.layer = static_cast<Uint8>(layer);
         entry.x = static_cast<Uint16>(x);
@@ -544,6 +555,27 @@ void broadcast_world_state_snapshot(bool reliable) {
         entry.logical_state = static_cast<Uint32>(semantic.logical_state);
         entry.flags = static_cast<Uint32>(semantic.flags);
         pkt.semantic_states.push_back(entry);
+        if (semantic.fields.empty())
+            return;
+        protocol::WorldStatePacket::SemanticFieldState field_state;
+        field_state.layer = entry.layer;
+        field_state.x = entry.x;
+        field_state.y = entry.y;
+        field_state.fields.reserve(semantic.fields.size());
+        for (const auto &field : semantic.fields) {
+            protocol::WorldStatePacket::SemanticField encoded;
+            if (!encode_semantic_field(field, encoded)) {
+                if (debug_enabled()) {
+                    debug_log("mp world-state semantic field dropped for %s at (%d,%d): key=%s type=%d",
+                              obj->getKind().c_str(), x, y, field.first.c_str(),
+                              static_cast<int>(field.second.getType()));
+                }
+                continue;
+            }
+            field_state.fields.push_back(std::move(encoded));
+        }
+        if (!field_state.fields.empty())
+            pkt.semantic_field_states.push_back(std::move(field_state));
     };
 
     for (int y = 0; y < h; ++y) {

@@ -292,6 +292,9 @@ internally.
 Keep the current visible world-state packet, but add semantic records for the
 objects that need more than visible `kind/state`.
 
+Scalar semantic fields are now on that wire path for current users such as
+`OxydStone` `oxydcolor`; reference transport for `Other` objects is still open.
+
 ### Phase 4: retire ad hoc world-resync special cases
 
 Once semantic payloads are in place, remove special one-off handling where it

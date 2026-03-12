@@ -913,10 +913,16 @@ namespace enigma {
         semantic.logical_state = MpCaptureStateForSnapshot();
         semantic.flags = MpCaptureFlagsForSnapshot();
         semantic.fields.clear();
+        semantic.fields.emplace_back("oxydcolor", getAttr("oxydcolor"));
     }
 
     bool OxydStone::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
         (void)ctx;
+        for (const auto &field : semantic.fields) {
+            if (field.first != "oxydcolor")
+                continue;
+            MpForceOxydColor(static_cast<int>(field.second));
+        }
         MpRestoreFlagsForSnapshot(semantic.flags);
         return MpRestoreStateForSnapshot(semantic.logical_state);
     }

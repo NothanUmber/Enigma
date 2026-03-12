@@ -1484,6 +1484,13 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
                                              static_cast<int>(entry.y)),
                                 entry);
     }
+    std::unordered_map<uint32_t, protocol::WorldStatePacket::SemanticFieldState> semantic_field_states;
+    semantic_field_states.reserve(pkt.semantic_field_states.size());
+    for (const auto &entry : pkt.semantic_field_states) {
+        semantic_field_states.emplace(semantic_key(entry.layer, static_cast<int>(entry.x),
+                                                   static_cast<int>(entry.y)),
+                                      entry);
+    }
 
 	    // Reconcile positions of movable stones (puzzle stones, doors, etc) before applying
 	    // per-tile kind/state. This avoids destructive kill/recreate moves for movable stones.
@@ -1733,6 +1740,45 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             return nullptr;
         }
     };
+    auto semantic_matches_wire = [](const Object::MpSemanticState &current,
+                                    const Object::MpSemanticState &incoming) -> bool {
+        if (current.logical_state != incoming.logical_state || current.flags != incoming.flags)
+            return false;
+        // The current wire format does not always carry semantic fields yet. If the sender
+        // sent none, treat logical_state/flags as the whole comparison so unchanged semantic
+        // animations are not restarted every broadcast tick.
+        if (incoming.fields.empty())
+            return true;
+        if (current.fields.size() != incoming.fields.size())
+            return false;
+        for (size_t i = 0; i < incoming.fields.size(); ++i) {
+            if (current.fields[i].first != incoming.fields[i].first ||
+                current.fields[i].second != incoming.fields[i].second)
+                return false;
+        }
+        return true;
+    };
+    auto decode_semantic_field = [](const protocol::WorldStatePacket::SemanticField &field,
+                                    std::pair<std::string, Value> &out) -> bool {
+        out.first = field.key;
+        switch (field.type) {
+        case protocol::WorldStatePacket::SEM_FIELD_NIL:
+            out.second = Value(Value::NIL);
+            return true;
+        case protocol::WorldStatePacket::SEM_FIELD_BOOL:
+            out.second = Value(field.bool_value != 0);
+            return true;
+        case protocol::WorldStatePacket::SEM_FIELD_DOUBLE:
+            out.second = Value(field.double_value);
+            return true;
+        case protocol::WorldStatePacket::SEM_FIELD_STRING:
+            out.second = Value(field.string_value);
+            return true;
+        default:
+            return false;
+        }
+    };
+
     int applied_semantic_changes = 0;
     for (const auto &entry : pkt.semantic_states) {
         GridPos p(static_cast<int>(entry.x), static_cast<int>(entry.y));
@@ -1742,6 +1788,21 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         Object::MpSemanticState semantic;
         semantic.logical_state = static_cast<int>(entry.logical_state);
         semantic.flags = entry.flags;
+        auto fields_it = semantic_field_states.find(
+            semantic_key(entry.layer, static_cast<int>(entry.x), static_cast<int>(entry.y)));
+        if (fields_it != semantic_field_states.end()) {
+            semantic.fields.reserve(fields_it->second.fields.size());
+            for (const auto &wire_field : fields_it->second.fields) {
+                std::pair<std::string, Value> field;
+                if (!decode_semantic_field(wire_field, field))
+                    continue;
+                semantic.fields.push_back(std::move(field));
+            }
+        }
+        Object::MpSemanticState current;
+        obj->MpCaptureSemanticState(current);
+        if (semantic_matches_wire(current, semantic))
+            continue;
         if (obj->MpApplySemanticState(semantic, Object::MpApplyContext::WorldResync))
             applied_semantic_changes += 1;
     }

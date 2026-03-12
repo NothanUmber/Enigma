@@ -837,6 +837,39 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "FORCE_OXYD_COLOR") {
+        int x = 0;
+        int y = 0;
+        int color = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("FORCE_OXYD_COLOR", "missing_xy");
+            return true;
+        }
+        if (!parse_i32(kv, "color", color)) {
+            send_err("FORCE_OXYD_COLOR", "missing_color");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_OXYD_COLOR", "no_world");
+            return true;
+        }
+        OxydStone *oxyd = dynamic_cast<OxydStone *>(GetStone(GridPos(x, y)));
+        if (!oxyd) {
+            send_err("FORCE_OXYD_COLOR", "no_oxyd");
+            return true;
+        }
+        oxyd->MpForceOxydColor(color);
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << oxyd->getKind()
+           << " internal=" << oxyd->MpDebugInternalState()
+           << " external=" << static_cast<int>(oxyd->getAttr("state"))
+           << " color=" << static_cast<int>(oxyd->getAttr("oxydcolor"));
+        send_ok("FORCE_OXYD_COLOR", os.str());
+        return true;
+    }
+
     if (cmd == "MOVE_STONE") {
         int from_x = 0;
         int from_y = 0;

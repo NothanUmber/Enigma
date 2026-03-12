@@ -72,7 +72,7 @@ These classes already need and already have custom snapshot treatment:
 | `Door` | Yes | Yes | `NET_WORLD_STATE` now carries a semantic override record for `Door`, and focused probes verified that `OPENING` / `OPEN` are restored on both peers. |
 | `ShogunDot` | Yes | Yes | World resync now carries the same ON/OFF logical state through the semantic override path, matching snapshot restore without replaying target actions. |
 | `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
-| `OxydStone` | Yes | Partial | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, while `oxydcolor` still rides the ad hoc color path; runtime attrs/registry are still not fully encoded. |
+| `OxydStone` | Yes | Yes | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, and `oxydcolor` now rides the same semantic field path instead of the ad hoc color transport. |
 | `Rubberband` | Yes | No | Snapshot path restores anchors and runtime parameters; world resync does not serialize `Other` objects yet. |
 | `Wire` | Yes | No | Snapshot path restores anchor references; world resync does not serialize `Other` objects yet. |
 
@@ -228,6 +228,5 @@ the following larger tasks are still open:
    - `Door`
    - `ShogunDot`
    - `ShogunStone`
-   - `OxydStone`
    - `Rubberband`
    - `Wire`

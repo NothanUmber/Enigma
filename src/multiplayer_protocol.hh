@@ -185,6 +185,26 @@ struct WorldStatePacket {
         Uint32 flags = 0;
     };
     std::vector<SemanticState> semantic_states;
+    enum SemanticFieldType : Uint8 {
+        SEM_FIELD_NIL = 0,
+        SEM_FIELD_BOOL = 1,
+        SEM_FIELD_DOUBLE = 2,
+        SEM_FIELD_STRING = 3,
+    };
+    struct SemanticField {
+        std::string key;
+        Uint8 type = SEM_FIELD_NIL;
+        Uint8 bool_value = 0;
+        double double_value = 0.0;
+        std::string string_value;
+    };
+    struct SemanticFieldState {
+        Uint8 layer = 0;
+        Uint16 x = 0;
+        Uint16 y = 0;
+        std::vector<SemanticField> fields;
+    };
+    std::vector<SemanticFieldState> semantic_field_states;
 };
 
 struct WorldStateRequest {
@@ -342,6 +362,38 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
                 << Uint32(e.logical_state) << Uint32(e.flags);
         }
     }
+    if (!msg.semantic_field_states.empty()) {
+        buf << Uint8(4);
+        Uint16 fcount =
+            static_cast<Uint16>(std::min<size_t>(msg.semantic_field_states.size(), 0xFFFF));
+        buf << fcount;
+        for (Uint16 i = 0; i < fcount; ++i) {
+            const auto &entry = msg.semantic_field_states[i];
+            buf << Uint8(entry.layer) << Uint16(entry.x) << Uint16(entry.y);
+            Uint16 ecount =
+                static_cast<Uint16>(std::min<size_t>(entry.fields.size(), 0xFFFF));
+            buf << ecount;
+            for (Uint16 j = 0; j < ecount; ++j) {
+                const auto &field = entry.fields[j];
+                buf << field.key << Uint8(field.type);
+                switch (field.type) {
+                case WorldStatePacket::SEM_FIELD_NIL:
+                    break;
+                case WorldStatePacket::SEM_FIELD_BOOL:
+                    buf << Uint8(field.bool_value);
+                    break;
+                case WorldStatePacket::SEM_FIELD_DOUBLE:
+                    buf << field.double_value;
+                    break;
+                case WorldStatePacket::SEM_FIELD_STRING:
+                    buf << field.string_value;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
 }
 
 inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
@@ -405,7 +457,9 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
     msg.stone_kind.clear();
     msg.item_kind.clear();
     msg.semantic_states.clear();
-    // Optional extensions: kinds (v1) and oxyd colors (v2). Older decoders ignore trailing bytes.
+    msg.semantic_field_states.clear();
+    // Optional extensions: kinds (v1), oxyd colors (v2), semantic states (v3),
+    // and semantic scalar fields (v4). Older decoders ignore trailing bytes.
     // Newer decoders support multiple extension blocks in sequence.
     while (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
         const size_t rpos = static_cast<size_t>(buf.get_rpos());
@@ -473,6 +527,46 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
                 if (!(buf >> e.layer >> e.x >> e.y >> e.logical_state >> e.flags))
                     return false;
                 msg.semantic_states.push_back(e);
+            }
+            continue;
+        }
+        if (ext == 4) {
+            Uint8 consumed_ext = 0;
+            Uint16 fcount = 0;
+            if (!(buf >> consumed_ext >> fcount))
+                return false;
+            msg.semantic_field_states.reserve(fcount);
+            for (Uint16 i = 0; i < fcount; ++i) {
+                WorldStatePacket::SemanticFieldState entry;
+                Uint16 ecount = 0;
+                if (!(buf >> entry.layer >> entry.x >> entry.y >> ecount))
+                    return false;
+                entry.fields.reserve(ecount);
+                for (Uint16 j = 0; j < ecount; ++j) {
+                    WorldStatePacket::SemanticField field;
+                    if (!(buf >> field.key >> field.type))
+                        return false;
+                    switch (field.type) {
+                    case WorldStatePacket::SEM_FIELD_NIL:
+                        break;
+                    case WorldStatePacket::SEM_FIELD_BOOL:
+                        if (!(buf >> field.bool_value))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_FIELD_DOUBLE:
+                        if (!(buf >> field.double_value))
+                            return false;
+                        break;
+                    case WorldStatePacket::SEM_FIELD_STRING:
+                        if (!(buf >> field.string_value))
+                            return false;
+                        break;
+                    default:
+                        return false;
+                    }
+                    entry.fields.push_back(field);
+                }
+                msg.semantic_field_states.push_back(entry);
             }
             continue;
         }
