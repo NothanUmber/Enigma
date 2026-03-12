@@ -54,6 +54,18 @@ namespace enigma {
         return Item::message(m);
     }
 
+    int Vortex::MpCaptureStateForSnapshot() const {
+        return state;
+    }
+
+    bool Vortex::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < OPEN || snapshot_state > SWALLOWING)
+            return false;
+        state = static_cast<iState>(snapshot_state);
+        init_model();
+        return true;
+    }
+
     int Vortex::externalState() const {
         return (state >= CLOSED && state <= CLOSING) ? 0 : 1 ;
     }

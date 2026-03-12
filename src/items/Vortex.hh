@@ -45,6 +45,8 @@ namespace enigma {
         // Object interface
         virtual std::string getClass() const;
         virtual Value message(const Message &m);
+        virtual int MpCaptureStateForSnapshot() const override;
+        virtual bool MpRestoreStateForSnapshot(int state) override;
 
         // StateObject interface
         virtual int externalState() const;
