@@ -5,6 +5,7 @@
 #include "multiplayer_protocol.hh"
 #include "multiplayer_rollback.hh"
 #include "multiplayer_script_recorder.hh"
+#include "multiplayer_state.hh"
 
 #include "client.hh"
 #include "game.hh"
@@ -314,11 +315,15 @@ static void append_actor(std::ostringstream &os, const char *prefix, unsigned pl
     os.setf(std::ios::fixed);
     os.precision(3);
     const ActorInfo *ai = a->get_actorinfo();
+    const VisualPredictionActorMode vp_mode = VisualPredictionGetActorMode(*a);
+    const double vp_blend = VisualPredictionGetActorBlendAlpha(*a);
     os << " " << prefix << "valid=1"
        << " " << prefix << "kind=" << a->getKind()
        << " " << prefix << "obj=" << a->getId()
        << " " << prefix << "ctrl=" << a->get_controllers()
        << " " << prefix << "mf=" << a->get_mouseforce()
+       << " " << prefix << "vp_mode=" << static_cast<int>(vp_mode)
+       << " " << prefix << "vp_blend=" << vp_blend
        << " " << prefix << "grab=" << (ai && ai->grabbed ? 1 : 0)
        << " " << prefix << "mov=" << (a->is_movable() ? 1 : 0)
        << " " << prefix << "dead=" << (a->is_dead() ? 1 : 0)

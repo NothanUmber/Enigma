@@ -1,0 +1,49 @@
+# Visual-prediction conflict probe:
+# - load a simple two-ball level
+# - queue local client input so the host ball becomes locally owned on the client
+# - queue host input before truth catches up
+# - verify the client enters BlendToTruth and the blend alpha advances
+
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugSmoothRender value=1
+both SET_INT key=MultiplayerDebugInputDelayTicks value=12
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxydlink01_2"
+sleep 1500
+both START_GAME
+sleep 1500
+
+both SET_ACTOR_POS player=0 x=9.800 y=6.500 vx=0.0 vy=0.0
+both SET_ACTOR_POS player=1 x=9.150 y=6.500 vx=0.0 vy=0.0
+
+client STREAM_STATE interval_ms=20
+host STREAM_STATE interval_ms=20
+sleep 100
+
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=1 fx=250.0 fy=0.0
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=2 fx=250.0 fy=0.0
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=3 fx=250.0 fy=0.0
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=4 fx=250.0 fy=0.0
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=5 fx=250.0 fy=0.0
+client QUEUE_LOCAL_INPUT player=1 ticks_ahead=6 fx=250.0 fy=0.0
+
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=6 fx=-250.0 fy=0.0
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=7 fx=-250.0 fy=0.0
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=8 fx=-250.0 fy=0.0
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=9 fx=-250.0 fy=0.0
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=10 fx=-250.0 fy=0.0
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=11 fx=-250.0 fy=0.0
+
+wait_state_change role=client field=p0_vp_blend min_abs_delta=0.4 timeout_ms=1500
+wait role=client contains="p0_vp_mode=2" timeout_ms=1500
+wait role=host contains="p1_vp_mode=2" timeout_ms=1500
+
+client STATE_RENDER
+sleep 100
+both QUIT

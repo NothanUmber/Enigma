@@ -23,6 +23,13 @@ struct PredictionState {
         std::unordered_map<uint32_t, sim_snapshot::ActorSnapshot> history_by_tick;
     };
 
+    struct RemoteActorState {
+        VisualPredictionActorMode mode = VisualPredictionActorMode::Truth;
+        std::unordered_map<uint32_t, sim_snapshot::ActorSnapshot> history_by_tick;
+        uint32_t blend_start_tick = 0;
+        uint32_t last_truth_input_tick_checked = 0;
+    };
+
     struct GridModelSnapshot {
         GridLayer layer = GRID_COUNT;
         uint16_t x = 0;
@@ -53,7 +60,7 @@ struct PredictionState {
     uint32_t last_delay_ticks = std::numeric_limits<uint32_t>::max();
     sim_snapshot::Snapshot truth_snapshot_for_render;
     std::vector<GridModelSnapshot> truth_grid_models_for_render;
-    std::unordered_map<int, OwnedActorState> owned_remote_actors;
+    std::unordered_map<int, RemoteActorState> remote_actor_states;
     std::unordered_map<int, OwnedActorState> owned_local_actors;
 };
 
@@ -69,7 +76,7 @@ bool prediction_enabled_now() {
 }
 
 void clear_prediction_cache() {
-    g_prediction.owned_remote_actors.clear();
+    g_prediction.remote_actor_states.clear();
     g_prediction.owned_local_actors.clear();
 }
 
@@ -205,6 +212,90 @@ bool remote_actor_in_local_interaction_cone(const Actor &remote_actor,
     return false;
 }
 
+int actor_authoritative_player(const Actor &actor) {
+    const unsigned players = std::min(input::ExpectedPlayers(), input::kMaxPlayers);
+    for (unsigned player = 0; player < players; ++player) {
+        if (!actor.controlled_by(static_cast<int>(player)))
+            continue;
+        return static_cast<int>(player);
+    }
+    return -1;
+}
+
+void prune_actor_history(std::unordered_map<uint32_t, sim_snapshot::ActorSnapshot> &history,
+                        uint32_t current_tick) {
+    for (auto it = history.begin(); it != history.end();) {
+        if (it->first < current_tick)
+            it = history.erase(it);
+        else
+            ++it;
+    }
+}
+
+bool authoritative_remote_input_active(const Actor &actor,
+                                       PredictionState::RemoteActorState &state,
+                                       uint32_t current_tick) {
+    if (current_tick == 0)
+        return false;
+    const int player = actor_authoritative_player(actor);
+    if (player < 0 || static_cast<unsigned>(player) == LocalPlayer())
+        return false;
+
+    const uint32_t end_tick = current_tick - 1;
+    if (state.last_truth_input_tick_checked > end_tick)
+        return false;
+
+    input::PlayerInput truth_input;
+    for (uint32_t tick = state.last_truth_input_tick_checked; tick <= end_tick; ++tick) {
+        if (!rollback::GetRecordedInput(tick, static_cast<unsigned>(player), truth_input))
+            continue;
+        if (truth_input.empty())
+            continue;
+        state.last_truth_input_tick_checked = tick + 1;
+        return true;
+    }
+
+    state.last_truth_input_tick_checked = end_tick + 1;
+    return false;
+}
+
+double remote_actor_blend_alpha(const PredictionState::RemoteActorState &state,
+                                uint32_t current_tick) {
+    const uint32_t duration_ticks = std::max<uint32_t>(1u, configured_delay_ticks());
+    if (current_tick <= state.blend_start_tick)
+        return 0.0;
+    double alpha = static_cast<double>(current_tick - state.blend_start_tick) /
+                   static_cast<double>(duration_ticks);
+    if (alpha < 0.0)
+        alpha = 0.0;
+    if (alpha > 1.0)
+        alpha = 1.0;
+    return alpha;
+}
+
+void apply_actor_blend_toward_truth(Actor &actor,
+                                    const sim_snapshot::ActorSnapshot &truth,
+                                    double alpha) {
+    if (alpha <= 0.0)
+        return;
+    if (alpha >= 1.0) {
+        sim_snapshot::RestoreActor(truth);
+        return;
+    }
+
+    ActorInfo *ai = actor.get_actorinfo();
+    if (!ai)
+        return;
+
+    ai->pos = ai->pos + (truth.info.pos - ai->pos) * alpha;
+    DidMoveActor(&actor);
+    ai->last_gridpos = ai->gridpos;
+    ai->vel = ai->vel + (truth.info.vel - ai->vel) * alpha;
+    ai->frozen_vel = ai->frozen_vel + (truth.info.frozen_vel - ai->frozen_vel) * alpha;
+    ai->render_pos = ai->pos;
+    ai->render_initialized = true;
+}
+
 void rewrite_inputs_for_predicted_tick(uint32_t tick, uint32_t delay_ticks) {
     (void)delay_ticks;
     const unsigned players = input::ExpectedPlayers();
@@ -230,44 +321,34 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
     for (const auto &actor : g_prediction.truth_snapshot_for_render.actors)
         truth_actors[actor.object_id] = actor;
 
-    std::vector<int> erase_owned_ids;
-    erase_owned_ids.reserve(g_prediction.owned_remote_actors.size());
-    for (auto &owned : g_prediction.owned_remote_actors) {
-        auto &history = owned.second.history_by_tick;
-        for (auto it = history.begin(); it != history.end();) {
-            if (it->first < current_tick)
-                it = history.erase(it);
-            else
-                ++it;
-        }
-        auto it = history.find(current_tick);
-        if (it != history.end()) {
+    std::vector<int> erase_remote_ids;
+    erase_remote_ids.reserve(g_prediction.remote_actor_states.size());
+    for (auto &entry : g_prediction.remote_actor_states) {
+        auto &state = entry.second;
+        prune_actor_history(state.history_by_tick, current_tick);
+        auto it = state.history_by_tick.find(current_tick);
+        if (it != state.history_by_tick.end()) {
             sim_snapshot::RestoreActor(it->second);
-        } else if (history.empty()) {
-            erase_owned_ids.push_back(owned.first);
+        } else if (state.history_by_tick.empty()) {
+            erase_remote_ids.push_back(entry.first);
         }
     }
-    for (int object_id : erase_owned_ids)
-        g_prediction.owned_remote_actors.erase(object_id);
+    for (int object_id : erase_remote_ids)
+        g_prediction.remote_actor_states.erase(object_id);
 
-    erase_owned_ids.clear();
-    erase_owned_ids.reserve(g_prediction.owned_local_actors.size());
+    std::vector<int> erase_local_ids;
+    erase_local_ids.reserve(g_prediction.owned_local_actors.size());
     for (auto &owned : g_prediction.owned_local_actors) {
         auto &history = owned.second.history_by_tick;
-        for (auto it = history.begin(); it != history.end();) {
-            if (it->first < current_tick)
-                it = history.erase(it);
-            else
-                ++it;
-        }
+        prune_actor_history(history, current_tick);
         auto it = history.find(current_tick);
         if (it != history.end()) {
             sim_snapshot::RestoreActor(it->second);
         } else if (history.empty()) {
-            erase_owned_ids.push_back(owned.first);
+            erase_local_ids.push_back(owned.first);
         }
     }
-    for (int object_id : erase_owned_ids)
+    for (int object_id : erase_local_ids)
         g_prediction.owned_local_actors.erase(object_id);
 
     g_prediction.simulation_active = true;
@@ -303,14 +384,19 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
         for (Actor *actor : actors) {
             if (!actor || actor_is_local_predicted(*actor))
                 continue;
+            auto state_it = g_prediction.remote_actor_states.find(actor->getId());
             const bool locally_affected =
                 remote_actor_in_local_interaction_cone(*actor, local_actors) ||
-                g_prediction.owned_remote_actors.find(actor->getId()) !=
-                    g_prediction.owned_remote_actors.end();
+                (state_it != g_prediction.remote_actor_states.end() &&
+                 state_it->second.mode != VisualPredictionActorMode::Truth);
             if (!locally_affected)
                 continue;
-            g_prediction.owned_remote_actors[actor->getId()]
-                .history_by_tick[simulated_tick] = sim_snapshot::CaptureActor(*actor);
+            auto &state = g_prediction.remote_actor_states[actor->getId()];
+            if (state.mode == VisualPredictionActorMode::Truth) {
+                state.mode = VisualPredictionActorMode::LocalOwned;
+                state.last_truth_input_tick_checked = current_tick;
+            }
+            state.history_by_tick[simulated_tick] = sim_snapshot::CaptureActor(*actor);
         }
     }
     g_prediction.simulation_active = false;
@@ -333,12 +419,33 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
         const bool affected_now = actor_state_differs(*actor, truth_it->second) &&
                                   remote_actor_in_local_interaction_cone(*actor, local_actors);
         if (affected_now) {
-            g_prediction.owned_remote_actors[actor->getId()]
-                .history_by_tick[target_tick] = sim_snapshot::CaptureActor(*actor);
+            auto &state = g_prediction.remote_actor_states[actor->getId()];
+            if (state.mode == VisualPredictionActorMode::Truth) {
+                state.mode = VisualPredictionActorMode::LocalOwned;
+                state.last_truth_input_tick_checked = current_tick;
+            }
+            state.history_by_tick[target_tick] = sim_snapshot::CaptureActor(*actor);
+        }
+
+        auto state_it = g_prediction.remote_actor_states.find(actor->getId());
+        if (state_it == g_prediction.remote_actor_states.end())
+            continue;
+        auto &state = state_it->second;
+        if (state.mode != VisualPredictionActorMode::LocalOwned)
+            continue;
+        if (!actor_state_differs(*actor, truth_it->second))
+            continue;
+        if (!authoritative_remote_input_active(*actor, state, current_tick))
+            continue;
+        state.mode = VisualPredictionActorMode::BlendToTruth;
+        state.blend_start_tick = current_tick;
+        if (state.history_by_tick.find(target_tick) == state.history_by_tick.end()) {
+            state.history_by_tick[target_tick] = sim_snapshot::CaptureActor(*actor);
         }
     }
 
-    erase_owned_ids.clear();
+    erase_remote_ids.clear();
+    erase_local_ids.clear();
     for (Actor *actor : actors) {
         if (!actor)
             continue;
@@ -351,28 +458,41 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
                 auto current_it = owned_it->second.history_by_tick.find(current_tick);
                 if (current_it != owned_it->second.history_by_tick.end() &&
                     actor_snapshot_still(current_it->second) && actor_truth_still(*actor)) {
-                    erase_owned_ids.push_back(actor->getId());
+                    erase_local_ids.push_back(actor->getId());
                 }
                 continue;
             }
             sim_snapshot::RestoreActor(truth_it->second);
             continue;
         }
-        auto owned_it = g_prediction.owned_remote_actors.find(actor->getId());
-        if (owned_it != g_prediction.owned_remote_actors.end()) {
-            auto current_it = owned_it->second.history_by_tick.find(current_tick);
-            if (current_it != owned_it->second.history_by_tick.end() &&
+
+        auto state_it = g_prediction.remote_actor_states.find(actor->getId());
+        if (state_it != g_prediction.remote_actor_states.end()) {
+            auto &state = state_it->second;
+            if (state.mode == VisualPredictionActorMode::BlendToTruth) {
+                const double alpha = remote_actor_blend_alpha(state, current_tick);
+                if (alpha >= 1.0) {
+                    sim_snapshot::RestoreActor(truth_it->second);
+                    erase_remote_ids.push_back(actor->getId());
+                } else {
+                    apply_actor_blend_toward_truth(*actor, truth_it->second, alpha);
+                }
+                continue;
+            }
+
+            auto current_it = state.history_by_tick.find(current_tick);
+            if (current_it != state.history_by_tick.end() &&
                 actor_snapshot_still(current_it->second) && actor_truth_still(*actor)) {
-                erase_owned_ids.push_back(actor->getId());
+                erase_remote_ids.push_back(actor->getId());
             }
             continue;
         }
         sim_snapshot::RestoreActor(truth_it->second);
     }
-    for (int object_id : erase_owned_ids) {
-        g_prediction.owned_remote_actors.erase(object_id);
+    for (int object_id : erase_remote_ids)
+        g_prediction.remote_actor_states.erase(object_id);
+    for (int object_id : erase_local_ids)
         g_prediction.owned_local_actors.erase(object_id);
-    }
 
     return true;
 }
@@ -424,6 +544,24 @@ void VisualPredictionInvalidate() {
 
 bool VisualPredictionEnabled() {
     return prediction_enabled_now();
+}
+
+VisualPredictionActorMode VisualPredictionGetActorMode(const Actor &actor) {
+    if (actor_is_local_predicted(actor))
+        return VisualPredictionActorMode::Truth;
+    auto it = g_prediction.remote_actor_states.find(actor.getId());
+    if (it == g_prediction.remote_actor_states.end())
+        return VisualPredictionActorMode::Truth;
+    return it->second.mode;
+}
+
+double VisualPredictionGetActorBlendAlpha(const Actor &actor) {
+    auto it = g_prediction.remote_actor_states.find(actor.getId());
+    if (it == g_prediction.remote_actor_states.end())
+        return 0.0;
+    if (it->second.mode != VisualPredictionActorMode::BlendToTruth)
+        return 0.0;
+    return remote_actor_blend_alpha(it->second, input::CurrentTick());
 }
 
 }  // namespace multiplayer

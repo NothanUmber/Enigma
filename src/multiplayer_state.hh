@@ -4,7 +4,16 @@
 #include <string>
 
 namespace enigma {
+
+class Actor;
+
 namespace multiplayer {
+
+enum class VisualPredictionActorMode {
+    Truth = 0,
+    LocalOwned = 1,
+    BlendToTruth = 2,
+};
 
 bool IsActive();
 bool IsHost();
@@ -32,6 +41,8 @@ bool VisualPredictionRenderActive();
 bool VisualPredictionSimulationActive();
 void VisualPredictionInvalidate();
 bool VisualPredictionEnabled();
+VisualPredictionActorMode VisualPredictionGetActorMode(const Actor &actor);
+double VisualPredictionGetActorBlendAlpha(const Actor &actor);
 
 }  // namespace multiplayer
 }  // namespace enigma
