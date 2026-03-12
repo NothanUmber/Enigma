@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace enigma {
 namespace multiplayer {
@@ -28,6 +29,13 @@ struct PredictionState {
         std::unordered_map<uint32_t, sim_snapshot::ActorSnapshot> history_by_tick;
         uint32_t blend_start_tick = 0;
         uint32_t last_truth_input_tick_checked = 0;
+    };
+
+    struct TruthGridObjectState {
+        GridLayer layer = GRID_COUNT;
+        uint16_t x = 0;
+        uint16_t y = 0;
+        ObjectStateSnapshot snapshot;
     };
 
     struct GridModelSnapshot {
@@ -62,6 +70,7 @@ struct PredictionState {
     std::vector<GridModelSnapshot> truth_grid_models_for_render;
     std::unordered_map<int, RemoteActorState> remote_actor_states;
     std::unordered_map<int, OwnedActorState> owned_local_actors;
+    std::unordered_set<int> owned_world_objects;
 };
 
 PredictionState g_prediction;
@@ -194,6 +203,76 @@ bool actor_truth_still(const Actor &actor) {
     return vel_sq <= 0.03 * 0.03;
 }
 
+bool attr_snapshots_equal(const Object::MpAttrSnapshot &a, const Object::MpAttrSnapshot &b) {
+    if (a.size() != b.size())
+        return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i].first != b[i].first || a[i].second != b[i].second)
+            return false;
+    }
+    return true;
+}
+
+bool object_state_matches_truth(Object *obj, const ObjectStateSnapshot &truth) {
+    if (!obj)
+        return false;
+    if (obj->MpCaptureStateForSnapshot() != truth.state)
+        return false;
+    if (obj->MpCaptureFlagsForSnapshot() != truth.flags)
+        return false;
+    Object::MpAttrSnapshot attrs;
+    obj->MpCaptureAttrsForSnapshot(attrs);
+    return attr_snapshots_equal(attrs, truth.attrs);
+}
+
+bool other_state_matches_truth(Other *other, const OtherStateSnapshot &truth) {
+    if (!other)
+        return false;
+    if (other->MpCaptureStateForSnapshot() != truth.state)
+        return false;
+    if (other->MpCaptureFlagsForSnapshot() != truth.flags)
+        return false;
+    Object::MpAttrSnapshot attrs;
+    other->MpCaptureAttrsForSnapshot(attrs);
+    return attr_snapshots_equal(attrs, truth.attrs);
+}
+
+void restore_object_truth_state(const ObjectStateSnapshot &truth) {
+    Object *obj = Object::getObject(truth.object_id);
+    if (!obj)
+        return;
+    obj->MpRestoreFlagsForSnapshot(truth.flags);
+    obj->MpRestoreAttrsForSnapshot(truth.attrs);
+    const int want = truth.state;
+    if (obj->MpRestoreStateForSnapshot(want))
+        return;
+    const int have = static_cast<int>(obj->getAttr("state"));
+    if (have != want)
+        obj->setAttr("state", Value(want));
+}
+
+uint64_t grid_model_key(GridLayer layer, uint16_t x, uint16_t y) {
+    return (static_cast<uint64_t>(static_cast<unsigned>(layer)) << 32) |
+           (static_cast<uint64_t>(x) << 16) |
+           static_cast<uint64_t>(y);
+}
+
+void restore_truth_grid_model(
+    const PredictionState::TruthGridObjectState &truth,
+    const std::unordered_map<uint64_t, size_t> &truth_grid_model_index) {
+    const uint64_t key = grid_model_key(truth.layer, truth.x, truth.y);
+    auto it = truth_grid_model_index.find(key);
+    if (it == truth_grid_model_index.end())
+        return;
+    const auto &entry = g_prediction.truth_grid_models_for_render[it->second];
+    ::display::KillModel(GridLoc(truth.layer, GridPos(static_cast<int>(truth.x), static_cast<int>(truth.y))));
+    if (!entry.model)
+        return;
+    ::display::SetModel(GridLoc(entry.layer,
+                                GridPos(static_cast<int>(entry.x), static_cast<int>(entry.y))),
+                        entry.model->clone());
+}
+
 bool remote_actor_in_local_interaction_cone(const Actor &remote_actor,
                                             const std::vector<Actor *> &local_actors) {
     const ecl::V2 remote_pos = remote_actor.get_pos();
@@ -321,6 +400,53 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
     for (const auto &actor : g_prediction.truth_snapshot_for_render.actors)
         truth_actors[actor.object_id] = actor;
 
+    std::unordered_map<int, PredictionState::TruthGridObjectState> truth_grid_objects;
+    truth_grid_objects.reserve(g_prediction.truth_snapshot_for_render.object_states.size());
+    {
+        const int w = Width();
+        const int h = Height();
+        size_t state_index = 0;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                GridPos p(x, y);
+                auto capture_truth_object = [&](GridLayer layer, Object *obj) {
+                    if (!obj)
+                        return;
+                    if (state_index >= g_prediction.truth_snapshot_for_render.object_states.size())
+                        return;
+                    const ObjectStateSnapshot &snap =
+                        g_prediction.truth_snapshot_for_render.object_states[state_index++];
+                    if (layer == GRID_STONES) {
+                        Stone *stone = dynamic_cast<Stone *>(obj);
+                        if (stone && stone->is_movable())
+                            return;
+                    }
+                    PredictionState::TruthGridObjectState truth;
+                    truth.layer = layer;
+                    truth.x = static_cast<uint16_t>(x);
+                    truth.y = static_cast<uint16_t>(y);
+                    truth.snapshot = snap;
+                    truth_grid_objects[snap.object_id] = std::move(truth);
+                };
+                capture_truth_object(GRID_FLOOR, GetFloor(p));
+                capture_truth_object(GRID_ITEMS, GetItem(p));
+                capture_truth_object(GRID_STONES, GetStone(p));
+            }
+        }
+    }
+
+    std::unordered_map<int, OtherStateSnapshot> truth_other_objects;
+    truth_other_objects.reserve(g_prediction.truth_snapshot_for_render.other_states.size());
+    for (const auto &snap : g_prediction.truth_snapshot_for_render.other_states)
+        truth_other_objects[snap.object_id] = snap;
+
+    std::unordered_map<uint64_t, size_t> truth_grid_model_index;
+    truth_grid_model_index.reserve(g_prediction.truth_grid_models_for_render.size());
+    for (size_t i = 0; i < g_prediction.truth_grid_models_for_render.size(); ++i) {
+        const auto &entry = g_prediction.truth_grid_models_for_render[i];
+        truth_grid_model_index[grid_model_key(entry.layer, entry.x, entry.y)] = i;
+    }
+
     std::vector<int> erase_remote_ids;
     erase_remote_ids.reserve(g_prediction.remote_actor_states.size());
     for (auto &entry : g_prediction.remote_actor_states) {
@@ -353,6 +479,7 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
 
     g_prediction.simulation_active = true;
     const uint32_t target_tick = current_tick + delay_ticks;
+    bool local_world_prediction_active = false;
     while (input::CurrentTick() < target_tick) {
         const uint32_t replay_tick = input::CurrentTick();
         rewrite_inputs_for_predicted_tick(replay_tick, delay_ticks);
@@ -368,6 +495,7 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
                 local_actors.push_back(actor);
         }
         const bool local_input_active = local_predicted_input_active(replay_tick);
+        local_world_prediction_active = local_world_prediction_active || local_input_active;
         const uint32_t simulated_tick = input::CurrentTick();
         for (Actor *actor : local_actors) {
             if (!actor)
@@ -493,6 +621,48 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
         g_prediction.remote_actor_states.erase(object_id);
     for (int object_id : erase_local_ids)
         g_prediction.owned_local_actors.erase(object_id);
+
+    std::unordered_set<int> next_owned_world_objects;
+    next_owned_world_objects.reserve(g_prediction.owned_world_objects.size() + 8);
+    for (const auto &entry : truth_grid_objects) {
+        Object *obj = Object::getObject(entry.first);
+        if (!obj)
+            continue;
+        const bool owned_before = g_prediction.owned_world_objects.find(entry.first) !=
+                                  g_prediction.owned_world_objects.end();
+        const bool differs_from_truth = !object_state_matches_truth(obj, entry.second.snapshot);
+        const bool keep_owned =
+            differs_from_truth && (owned_before || local_world_prediction_active);
+        if (keep_owned) {
+            next_owned_world_objects.insert(entry.first);
+            continue;
+        }
+        restore_object_truth_state(entry.second.snapshot);
+        restore_truth_grid_model(entry.second, truth_grid_model_index);
+    }
+    for (const auto &entry : truth_other_objects) {
+        Other *other = dynamic_cast<Other *>(Object::getObject(entry.first));
+        if (!other)
+            continue;
+        const bool owned_before = g_prediction.owned_world_objects.find(entry.first) !=
+                                  g_prediction.owned_world_objects.end();
+        const bool keep_owned =
+            !other_state_matches_truth(other, entry.second) &&
+            (owned_before || local_world_prediction_active);
+        if (keep_owned) {
+            next_owned_world_objects.insert(entry.first);
+            continue;
+        }
+        other->MpRestoreFlagsForSnapshot(entry.second.flags);
+        other->MpRestoreAttrsForSnapshot(entry.second.attrs);
+        const int want = entry.second.state;
+        if (!other->MpRestoreStateForSnapshot(want)) {
+            const int have = static_cast<int>(other->getAttr("state"));
+            if (have != want)
+                other->setAttr("state", Value(want));
+        }
+    }
+    g_prediction.owned_world_objects = std::move(next_owned_world_objects);
 
     return true;
 }
