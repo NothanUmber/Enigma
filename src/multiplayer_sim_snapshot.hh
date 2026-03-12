@@ -96,6 +96,9 @@ struct Snapshot {
     std::vector<ActorSnapshot> actors;
 };
 
+ActorSnapshot CaptureActor(const Actor &actor);
+void RestoreActor(const ActorSnapshot &snap);
+
 Snapshot Capture();
 void Restore(const Snapshot &snap);
 

@@ -272,6 +272,24 @@ Snapshot::AnimatedGridModel &Snapshot::AnimatedGridModel::operator=(const Animat
 
 Snapshot::AnimatedGridModel::~AnimatedGridModel() = default;
 
+ActorSnapshot CaptureActor(const Actor &actor) {
+    ActorSnapshot snap;
+    snap.object_id = actor.getId();
+    snap.internal_state = actor.snapshot_internal_state();
+    snap.info = capture_actorinfo(actor.get_actorinfo());
+    return snap;
+}
+
+void RestoreActor(const ActorSnapshot &snap) {
+    Actor *actor = dynamic_cast<Actor *>(Object::getObject(snap.object_id));
+    if (!actor)
+        return;
+    actor->restore_internal_state(snap.internal_state);
+    restore_actorinfo(*actor, snap.info);
+    if (BasicBall *ball = dynamic_cast<BasicBall *>(actor))
+        ball->MpFinishAppearingAfterSnapshotRestore();
+}
+
 Snapshot Capture() {
     Snapshot snap;
     snap.input = input::CaptureSnapshot();
@@ -334,11 +352,7 @@ Snapshot Capture() {
     for (Actor *a : actors) {
         if (!a)
             continue;
-        ActorSnapshot as;
-        as.object_id = a->getId();
-        as.internal_state = a->snapshot_internal_state();
-        as.info = capture_actorinfo(*a->get_actorinfo());
-        snap.actors.push_back(as);
+        snap.actors.push_back(CaptureActor(*a));
     }
     return snap;
 }

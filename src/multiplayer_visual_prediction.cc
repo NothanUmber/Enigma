@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 
 namespace enigma {
 namespace multiplayer {
@@ -18,6 +19,10 @@ namespace multiplayer {
 namespace {
 
 struct PredictionState {
+    struct OwnedRemoteActorState {
+        std::unordered_map<uint32_t, sim_snapshot::ActorSnapshot> history_by_tick;
+    };
+
     struct GridModelSnapshot {
         GridLayer layer = GRID_COUNT;
         uint16_t x = 0;
@@ -48,6 +53,7 @@ struct PredictionState {
     uint32_t last_delay_ticks = std::numeric_limits<uint32_t>::max();
     sim_snapshot::Snapshot truth_snapshot_for_render;
     std::vector<GridModelSnapshot> truth_grid_models_for_render;
+    std::unordered_map<int, OwnedRemoteActorState> owned_remote_actors;
 };
 
 PredictionState g_prediction;
@@ -62,6 +68,7 @@ bool prediction_enabled_now() {
 }
 
 void clear_prediction_cache() {
+    g_prediction.owned_remote_actors.clear();
 }
 
 void maybe_invalidate_for_config_change() {
@@ -141,6 +148,53 @@ bool get_local_predicted_input(uint32_t source_tick, input::PlayerInput &out) {
     return true;
 }
 
+bool actor_is_local_predicted(const Actor &actor) {
+    return actor.controlled_by(static_cast<int>(LocalPlayer()));
+}
+
+bool actor_state_differs(const Actor &actor, const sim_snapshot::ActorSnapshot &truth) {
+    const ActorInfo &ai = actor.get_actorinfo();
+    const ecl::V2 dpos = ai.pos - truth.info.pos;
+    const ecl::V2 dvel = ai.vel - truth.info.vel;
+    const double pos_sq = static_cast<double>(dpos[0]) * static_cast<double>(dpos[0]) +
+                          static_cast<double>(dpos[1]) * static_cast<double>(dpos[1]);
+    const double vel_sq = static_cast<double>(dvel[0]) * static_cast<double>(dvel[0]) +
+                          static_cast<double>(dvel[1]) * static_cast<double>(dvel[1]);
+    return pos_sq > 0.02 * 0.02 || vel_sq > 0.05 * 0.05;
+}
+
+bool actor_snapshot_still(const sim_snapshot::ActorSnapshot &snap) {
+    const ecl::V2 vel = snap.info.vel;
+    const double vel_sq = static_cast<double>(vel[0]) * static_cast<double>(vel[0]) +
+                          static_cast<double>(vel[1]) * static_cast<double>(vel[1]);
+    return vel_sq <= 0.03 * 0.03;
+}
+
+bool actor_truth_still(const Actor &actor) {
+    const ecl::V2 vel = actor.get_actorinfo().vel;
+    const double vel_sq = static_cast<double>(vel[0]) * static_cast<double>(vel[0]) +
+                          static_cast<double>(vel[1]) * static_cast<double>(vel[1]);
+    return vel_sq <= 0.03 * 0.03;
+}
+
+bool remote_actor_in_local_interaction_cone(const Actor &remote_actor,
+                                            const std::vector<Actor *> &local_actors) {
+    const ecl::V2 remote_pos = remote_actor.get_pos();
+    const double remote_radius = remote_actor.get_actorinfo().radius;
+    for (Actor *local_actor : local_actors) {
+        if (!local_actor)
+            continue;
+        const ecl::V2 delta = remote_pos - local_actor->get_pos();
+        const double allowed = remote_radius + local_actor->get_actorinfo()->radius + 0.35;
+        const double dist_sq =
+            static_cast<double>(delta[0]) * static_cast<double>(delta[0]) +
+            static_cast<double>(delta[1]) * static_cast<double>(delta[1]);
+        if (dist_sq <= allowed * allowed)
+            return true;
+    }
+    return false;
+}
+
 void rewrite_inputs_for_predicted_tick(uint32_t tick, uint32_t delay_ticks) {
     (void)delay_ticks;
     const unsigned players = input::ExpectedPlayers();
@@ -161,6 +215,31 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
     if (delay_ticks == 0)
         return false;
 
+    std::unordered_map<int, sim_snapshot::ActorSnapshot> truth_actors;
+    truth_actors.reserve(g_prediction.truth_snapshot_for_render.actors.size());
+    for (const auto &actor : g_prediction.truth_snapshot_for_render.actors)
+        truth_actors[actor.object_id] = actor;
+
+    std::vector<int> erase_owned_ids;
+    erase_owned_ids.reserve(g_prediction.owned_remote_actors.size());
+    for (auto &owned : g_prediction.owned_remote_actors) {
+        auto &history = owned.second.history_by_tick;
+        for (auto it = history.begin(); it != history.end();) {
+            if (it->first < current_tick)
+                it = history.erase(it);
+            else
+                ++it;
+        }
+        auto it = history.find(current_tick);
+        if (it != history.end()) {
+            sim_snapshot::RestoreActor(it->second);
+        } else if (history.empty()) {
+            erase_owned_ids.push_back(owned.first);
+        }
+    }
+    for (int object_id : erase_owned_ids)
+        g_prediction.owned_remote_actors.erase(object_id);
+
     g_prediction.simulation_active = true;
     const uint32_t target_tick = current_tick + delay_ticks;
     while (input::CurrentTick() < target_tick) {
@@ -168,8 +247,75 @@ bool rebuild_predicted_world_for_render(uint32_t current_tick, double timestep) 
         rewrite_inputs_for_predicted_tick(replay_tick, delay_ticks);
         server::SimulateOneTick(timestep);
         display::Tick(timestep);
+
+        std::vector<Actor *> actors;
+        GetActors(actors);
+        std::vector<Actor *> local_actors;
+        local_actors.reserve(2);
+        for (Actor *actor : actors) {
+            if (actor && actor_is_local_predicted(*actor))
+                local_actors.push_back(actor);
+        }
+        const uint32_t simulated_tick = input::CurrentTick();
+        for (Actor *actor : actors) {
+            if (!actor || actor_is_local_predicted(*actor))
+                continue;
+            const bool locally_affected =
+                remote_actor_in_local_interaction_cone(*actor, local_actors) ||
+                g_prediction.owned_remote_actors.find(actor->getId()) !=
+                    g_prediction.owned_remote_actors.end();
+            if (!locally_affected)
+                continue;
+            g_prediction.owned_remote_actors[actor->getId()]
+                .history_by_tick[simulated_tick] = sim_snapshot::CaptureActor(*actor);
+        }
     }
     g_prediction.simulation_active = false;
+
+    std::vector<Actor *> actors;
+    GetActors(actors);
+    std::vector<Actor *> local_actors;
+    local_actors.reserve(2);
+    for (Actor *actor : actors) {
+        if (actor && actor_is_local_predicted(*actor))
+            local_actors.push_back(actor);
+    }
+
+    for (Actor *actor : actors) {
+        if (!actor || actor_is_local_predicted(*actor))
+            continue;
+        auto truth_it = truth_actors.find(actor->getId());
+        if (truth_it == truth_actors.end())
+            continue;
+        const bool affected_now = actor_state_differs(*actor, truth_it->second) &&
+                                  remote_actor_in_local_interaction_cone(*actor, local_actors);
+        if (affected_now) {
+            g_prediction.owned_remote_actors[actor->getId()]
+                .history_by_tick[target_tick] = sim_snapshot::CaptureActor(*actor);
+        }
+    }
+
+    erase_owned_ids.clear();
+    for (Actor *actor : actors) {
+        if (!actor || actor_is_local_predicted(*actor))
+            continue;
+        auto owned_it = g_prediction.owned_remote_actors.find(actor->getId());
+        if (owned_it != g_prediction.owned_remote_actors.end()) {
+            auto current_it = owned_it->second.history_by_tick.find(current_tick);
+            if (current_it != owned_it->second.history_by_tick.end() &&
+                actor_snapshot_still(current_it->second) && actor_truth_still(*actor)) {
+                erase_owned_ids.push_back(actor->getId());
+            }
+            continue;
+        }
+        auto truth_it = truth_actors.find(actor->getId());
+        if (truth_it == truth_actors.end())
+            continue;
+        sim_snapshot::RestoreActor(truth_it->second);
+    }
+    for (int object_id : erase_owned_ids)
+        g_prediction.owned_remote_actors.erase(object_id);
+
     return true;
 }
 
