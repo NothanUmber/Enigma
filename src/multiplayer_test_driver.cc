@@ -16,6 +16,7 @@
 #include "player.hh"
 #include "Inventory.hh"
 #include "server.hh"
+#include "stones/ShogunStone.hh"
 #include "world.hh"
 
 #include "SDL.h"
@@ -718,6 +719,61 @@ static bool handle_command(const std::string &line) {
         os << "x=" << x << " y=" << y << " kind=" << kind << " id=" << st->getId();
         multiplayer::VisualPredictionInvalidate();
         send_ok("SET_STONE", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_SHOGUN_CHAIN") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_SHOGUN_CHAIN", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_SHOGUN_CHAIN", "no_world");
+            return true;
+        }
+        ShogunStone *shogun = dynamic_cast<ShogunStone *>(GetStone(GridPos(x, y)));
+        if (!shogun) {
+            send_err("GET_SHOGUN_CHAIN", "no_shogun");
+            return true;
+        }
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << shogun->getKind()
+           << " holes=" << shogun->MpCaptureStateForSnapshot()
+           << " chain=" << shogun->MpDebugChainHoles();
+        send_ok("GET_SHOGUN_CHAIN", os.str());
+        return true;
+    }
+
+    if (cmd == "BREAK_SHOGUN_CHAIN") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("BREAK_SHOGUN_CHAIN", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("BREAK_SHOGUN_CHAIN", "no_world");
+            return true;
+        }
+        ShogunStone *shogun = dynamic_cast<ShogunStone *>(GetStone(GridPos(x, y)));
+        if (!shogun) {
+            send_err("BREAK_SHOGUN_CHAIN", "no_shogun");
+            return true;
+        }
+        if (!shogun->MpDebugDropSubChain()) {
+            send_err("BREAK_SHOGUN_CHAIN", "not_breakable");
+            return true;
+        }
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << shogun->getKind()
+           << " holes=" << shogun->MpCaptureStateForSnapshot()
+           << " chain=" << shogun->MpDebugChainHoles();
+        send_ok("BREAK_SHOGUN_CHAIN", os.str());
         return true;
     }
 

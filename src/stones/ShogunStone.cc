@@ -122,6 +122,24 @@ Value ShogunStone::getAttr(const std::string &key) const {
         return true;
     }
 
+    bool ShogunStone::MpNeedsSemanticWorldResync() const {
+        return true;
+    }
+
+    int ShogunStone::MpDebugChainHoles() const {
+        return chainHoles();
+    }
+
+    bool ShogunStone::MpDebugDropSubChain() {
+        if (!isDisplayable() || !subShogun)
+            return false;
+        ShogunStone *old_sub = subShogun;
+        subShogun = NULL;
+        old_sub->superShogun = NULL;
+        DisposeObject(old_sub);
+        return true;
+    }
+
     void ShogunStone::setState(int extState) {
         // reject any write attempts
     }

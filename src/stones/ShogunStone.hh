@@ -54,8 +54,11 @@ namespace enigma {
         virtual Value message(const Message &m);
         virtual int MpCaptureStateForSnapshot() const override;
         virtual bool MpRestoreStateForSnapshot(int state) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         bool MpRestoreToGridForSnapshot(GridPos pos);
-        
+        int MpDebugChainHoles() const;
+        bool MpDebugDropSubChain();
+
         // StateObject interface
         virtual void setState(int extState);
 

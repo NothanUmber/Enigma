@@ -1,0 +1,37 @@
+# Probe ShogunStone semantic world-resync parity for same-kind hidden chain repair.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23463 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23463 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both SETUP_LOAD_FILE path="/tmp/open_sesame_sml_on_dot.mpsetup"
+sleep 100
+
+both GET_CELL x=10 y=6
+both GET_SHOGUN_CHAIN x=10 y=6
+
+client BREAK_SHOGUN_CHAIN x=10 y=6
+client GET_CELL x=10 y=6
+client GET_SHOGUN_CHAIN x=10 y=6
+
+sleep 200
+both GET_CELL x=10 y=6
+both GET_SHOGUN_CHAIN x=10 y=6
+
+both QUIT

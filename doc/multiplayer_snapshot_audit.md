@@ -71,7 +71,7 @@ These classes already need and already have custom snapshot treatment:
 | --- | --- | --- | --- |
 | `Door` | Yes | Yes | `NET_WORLD_STATE` now carries a semantic override record for `Door`, and focused probes verified that `OPENING` / `OPEN` are restored on both peers. |
 | `ShogunDot` | Yes | Yes | World resync now carries the same ON/OFF logical state through the semantic override path, matching snapshot restore without replaying target actions. |
-| `ShogunStone` | Yes | Partial | Snapshot restore preserves hidden sub-shogun topology; world resync mostly reconstructs visible stack composition from `kind` plus movable positions. |
+| `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
 | `OxydStone` | Yes | Partial | Snapshot restore has explicit color/state handling; world resync carries `oxydcolor` and uses `MpForceExternalState()`, but does not yet claim full parity with internal registry/state. |
 | `Rubberband` | Yes | No | Snapshot path restores anchors and runtime parameters; world resync does not serialize `Other` objects yet. |
 | `Wire` | Yes | No | Snapshot path restores anchor references; world resync does not serialize `Other` objects yet. |
