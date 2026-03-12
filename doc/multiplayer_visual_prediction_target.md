@@ -214,6 +214,8 @@ Status markers:
   - when the local ball kicks a stationary remote ball, that remote ball no
     longer rolls forward, snaps back, and rolls again
   - handoff back to truth may still be rough or missing
+  - when the remote ball pushes the local ball, the local ball should no
+    longer jump straight to the final target position on the remote peer
 - Test:
   - use a simple two-ball level such as `It Takes Two`
   - move one ball into the other while the remote mouse is not moving
