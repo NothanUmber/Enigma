@@ -81,6 +81,10 @@ namespace enigma {
         state = snapshot_state ? ON : OFF;
         return true;
     }
+
+    bool ShogunDot::MpNeedsSemanticWorldResync() const {
+        return true;
+    }
     
     void ShogunDot::on_creation(GridPos p) {
         if (server::WorldInitialized &&

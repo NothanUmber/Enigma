@@ -51,6 +51,7 @@ namespace enigma {
         // StateObject interface
         virtual void setState(int extState);
         virtual bool MpRestoreStateForSnapshot(int state) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
 
         // GridObject interface
         virtual void on_creation(GridPos p);
