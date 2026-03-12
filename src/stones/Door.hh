@@ -50,6 +50,7 @@ namespace enigma {
         virtual void toggleState();
         virtual int MpCaptureStateForSnapshot() const override;
         virtual bool MpRestoreStateForSnapshot(int snapshot_state) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
 
         // GridObject interface
         virtual void init_model();

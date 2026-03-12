@@ -87,6 +87,15 @@ public:
 
     typedef ecl::AssocList<std::string, Value> AttribMap;
     typedef std::vector<std::pair<std::string, Value>> MpAttrSnapshot;
+    struct MpSemanticState {
+        int logical_state = 0;
+        uint32_t flags = 0;
+        MpAttrSnapshot fields;
+    };
+    enum class MpApplyContext {
+        SnapshotRestore,
+        WorldResync
+    };
 
     Object();
     Object(const char *kind);
@@ -194,6 +203,9 @@ public:
     virtual void MpRestoreFlagsForSnapshot(uint32_t flags);
     virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const;
     virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs);
+    virtual void MpCaptureSemanticState(MpSemanticState &state) const;
+    virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx);
+    virtual bool MpNeedsSemanticWorldResync() const;
 
     virtual void warning(const char *format, ...) const;
     virtual ObjectType getObjectType() const;

@@ -3,6 +3,28 @@
 This note lists world-object classes that need more than the generic
 `StateObject::state` snapshot used by `multiplayer_sim_snapshot`.
 
+See also `doc/multiplayer_object_state_contract.md` for the proposed shared
+semantic contract between prediction snapshots and lockstep world resync.
+
+## Status tracking
+
+This file now tracks two separate capabilities:
+
+- **Snapshot hooks**
+  - whether local in-process prediction snapshots can capture/apply the
+    object's internal runtime state faithfully enough
+- **World resync parity**
+  - whether the host-driven lockstep world-resync path has been verified to
+    restore the same semantics, not just a similar visible result
+
+Status legend:
+
+- **Yes**: implemented / verified
+- **Partial**: works only via visible `kind/state`, ad hoc extras, or other
+  approximations; not semantically equivalent yet
+- **No**: known missing
+- **Unknown**: not reviewed yet
+
 ## Current generic coverage
 
 The current snapshot layer already captures:
@@ -39,6 +61,20 @@ These classes already need and already have custom snapshot treatment:
   - snapshot restore must set ON/OFF without replaying target actions
 - `src/stones/ShogunStone.cc`
   - hidden sub-shogun topology is not represented by plain grid state
+- `src/others/Wire.cc`
+  - anchor references live outside generic `$...` attr capture
+  - snapshot restore must reconnect both anchors to rebuild fellows/wires lists
+
+### Current parity table
+
+| Object | Snapshot hooks | World resync parity | Notes |
+| --- | --- | --- | --- |
+| `Door` | Yes | Yes | `NET_WORLD_STATE` now carries a semantic override record for `Door`, and focused probes verified that `OPENING` / `OPEN` are restored on both peers. |
+| `ShogunDot` | Yes | No | Snapshot restore can set ON/OFF without replaying actions; world resync still applies generic item `state`, which is not the same semantics. |
+| `ShogunStone` | Yes | Partial | Snapshot restore preserves hidden sub-shogun topology; world resync mostly reconstructs visible stack composition from `kind` plus movable positions. |
+| `OxydStone` | Yes | Partial | Snapshot restore has explicit color/state handling; world resync carries `oxydcolor` and uses `MpForceExternalState()`, but does not yet claim full parity with internal registry/state. |
+| `Rubberband` | Yes | No | Snapshot path restores anchors and runtime parameters; world resync does not serialize `Other` objects yet. |
+| `Wire` | Yes | No | Snapshot path restores anchor references; world resync does not serialize `Other` objects yet. |
 
 ## High-confidence candidates for custom hooks
 
@@ -56,9 +92,11 @@ capture/restore support.
   - prediction can snapshot it while an actor is half-way through warp handling
 
 - `src/others/Rubberband.cc`
-  - currently outside the grid-object snapshot path, but practically required
+  - non-grid object with runtime anchor references and violation flags
   - anchor references, violation flags and the rendered band geometry all evolve at runtime
-  - without a non-grid snapshot/update pass, the band trails behind predicted actor motion
+  - now covered by the dedicated `Other` snapshot path, but still worth keeping on the
+    explicit list because it was the first real user-visible `Other` regression
+  - **World resync parity:** still missing, because `NET_WORLD_STATE` does not encode `Other` state
 
 - `src/floors/ThiefFloor.cc`
   - private fields `victimId` and `bag`
@@ -132,18 +170,20 @@ relying on prediction for them.
   - mostly looks covered by `state` + `GameTimer`
   - should be verified, but does not obviously need custom hooks yet
 
-## Outside current grid-object snapshot scope
+## Dedicated non-grid snapshot scope
 
-These are stateful world objects, but they are **not** restored by
-`CaptureObjectStates()` / `RestoreObjectStates()` at all, because they are not
-grid objects.
+These are stateful world objects that are restored by the dedicated
+`CaptureOtherStates()` / `RestoreOtherStates()` pass rather than the grid-object
+snapshot path. They should be audited with that in mind.
 
 - `src/others/TimerGadget.cc`
   - stateful `Other` with `GameTimer` behavior
+  - **Snapshot hooks:** probably covered by generic `Other` + `GameTimer`, still unverified
+  - **World resync parity:** no current `Other` transport
 
 - more generally: `src/others/*`
-  - if prediction starts depending on `Other` state, the snapshot system needs a
-    dedicated non-grid object pass rather than more object-local hacks
+  - the dedicated non-grid snapshot pass now exists
+  - remaining work is per-class fidelity, not a missing top-level mechanism
 
 ## Likely fine with generic handling
 
@@ -165,11 +205,29 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 If we continue extending prediction/replay coverage, the next order should be:
 
 1. `OxydStone`
-2. a dedicated snapshot/update pass for `Other` objects, starting with `Rubberband`
-3. `Vortex`
-4. `ThiefFloor`
-5. `BridgeFloor`
-6. `ForwardFloor`
-7. `LightPassengerStone`
-8. `ChessStone`
-9. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+2. `Vortex`
+3. `ThiefFloor`
+4. `BridgeFloor`
+5. `ForwardFloor`
+6. `LightPassengerStone`
+7. `ChessStone`
+8. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+9. remaining `Other` classes with custom runtime references beyond the generic pass
+
+## World-resync alignment backlog
+
+To make prediction snapshots and lockstep world resync semantically equivalent,
+the following larger tasks are still open:
+
+1. define a shared object-state contract for:
+   - local snapshot capture/apply
+   - network world-resync capture/apply
+2. extend `NET_WORLD_STATE` beyond visible `kind/state` + movable positions
+   so it can carry the same semantically relevant internal state
+3. port the already handled snapshot classes to that richer world-resync path:
+   - `Door`
+   - `ShogunDot`
+   - `ShogunStone`
+   - `OxydStone`
+   - `Rubberband`
+   - `Wire`

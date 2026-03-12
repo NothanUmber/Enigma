@@ -177,6 +177,14 @@ struct WorldStatePacket {
     std::vector<Uint16> floor_kind;
     std::vector<Uint16> stone_kind;
     std::vector<Uint16> item_kind;
+    struct SemanticState {
+        Uint8 layer = 0;
+        Uint16 x = 0;
+        Uint16 y = 0;
+        Uint32 logical_state = 0;
+        Uint32 flags = 0;
+    };
+    std::vector<SemanticState> semantic_states;
 };
 
 struct WorldStateRequest {
@@ -324,6 +332,16 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
             buf << Uint16(e.x) << Uint16(e.y) << Uint16(e.color_raw);
         }
     }
+    if (!msg.semantic_states.empty()) {
+        buf << Uint8(3);
+        Uint16 scount = static_cast<Uint16>(std::min<size_t>(msg.semantic_states.size(), 0xFFFF));
+        buf << scount;
+        for (Uint16 i = 0; i < scount; ++i) {
+            const auto &e = msg.semantic_states[i];
+            buf << Uint8(e.layer) << Uint16(e.x) << Uint16(e.y)
+                << Uint32(e.logical_state) << Uint32(e.flags);
+        }
+    }
 }
 
 inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
@@ -386,6 +404,7 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
     msg.floor_kind.clear();
     msg.stone_kind.clear();
     msg.item_kind.clear();
+    msg.semantic_states.clear();
     // Optional extensions: kinds (v1) and oxyd colors (v2). Older decoders ignore trailing bytes.
     // Newer decoders support multiple extension blocks in sequence.
     while (buf.get_rpos() < static_cast<std::ptrdiff_t>(buf.size())) {
@@ -440,6 +459,20 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
                 if (!(buf >> e.x >> e.y >> e.color_raw))
                     return false;
                 msg.oxyd_colors.push_back(e);
+            }
+            continue;
+        }
+        if (ext == 3) {
+            Uint8 consumed_ext = 0;
+            Uint16 scount = 0;
+            if (!(buf >> consumed_ext >> scount))
+                return false;
+            msg.semantic_states.reserve(scount);
+            for (Uint16 i = 0; i < scount; ++i) {
+                WorldStatePacket::SemanticState e;
+                if (!(buf >> e.layer >> e.x >> e.y >> e.logical_state >> e.flags))
+                    return false;
+                msg.semantic_states.push_back(e);
             }
             continue;
         }

@@ -467,6 +467,7 @@ void broadcast_world_state_snapshot(bool reliable) {
     pkt.floor_kind.assign(count, 0);
     pkt.stone_kind.assign(count, 0);
     pkt.item_kind.assign(count, 0);
+    pkt.semantic_states.clear();
 
     auto encode_state = [](Object *obj) -> Uint16 {
         if (!obj)
@@ -526,6 +527,33 @@ void broadcast_world_state_snapshot(bool reliable) {
 	            }
 	        }
 	    }
+
+    auto append_semantic_state = [&pkt](GridLayer layer, int x, int y, Object *obj) {
+        if (!obj || !obj->MpNeedsSemanticWorldResync())
+            return;
+        Object::MpSemanticState semantic;
+        obj->MpCaptureSemanticState(semantic);
+        if (!semantic.fields.empty() && debug_enabled()) {
+            debug_log("mp world-state semantic fields dropped for %s at (%d,%d)",
+                      obj->getKind().c_str(), x, y);
+        }
+        protocol::WorldStatePacket::SemanticState entry;
+        entry.layer = static_cast<Uint8>(layer);
+        entry.x = static_cast<Uint16>(x);
+        entry.y = static_cast<Uint16>(y);
+        entry.logical_state = static_cast<Uint32>(semantic.logical_state);
+        entry.flags = static_cast<Uint32>(semantic.flags);
+        pkt.semantic_states.push_back(entry);
+    };
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            GridPos p(x, y);
+            append_semantic_state(GRID_FLOOR, x, y, GetFloor(p));
+            append_semantic_state(GRID_ITEMS, x, y, GetItem(p));
+            append_semantic_state(GRID_STONES, x, y, GetStone(p));
+        }
+    }
 
     pkt.movable_stones.clear();
     for (int y = 0; y < h; ++y) {

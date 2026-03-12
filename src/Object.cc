@@ -143,6 +143,30 @@ void Object::MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) {
         setAttr(it->first, it->second);
 }
 
+void Object::MpCaptureSemanticState(MpSemanticState &state) const {
+    state.logical_state = MpCaptureStateForSnapshot();
+    state.flags = MpCaptureFlagsForSnapshot();
+    state.fields.clear();
+    MpCaptureAttrsForSnapshot(state.fields);
+}
+
+bool Object::MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) {
+    (void)ctx;
+    MpRestoreFlagsForSnapshot(state.flags);
+    MpRestoreAttrsForSnapshot(state.fields);
+    if (MpRestoreStateForSnapshot(state.logical_state))
+        return true;
+    const int want = state.logical_state;
+    const int have = static_cast<int>(getAttr("state"));
+    if (have != want)
+        setAttr("state", Value(want));
+    return true;
+}
+
+bool Object::MpNeedsSemanticWorldResync() const {
+    return false;
+}
+
 int Object::getId() const {
     return id;
 }

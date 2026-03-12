@@ -1472,6 +1472,19 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
 	        return &pkt.kind_dict[idx];
 	    };
 
+    auto semantic_key = [](Uint8 layer, int x, int y) -> uint32_t {
+        return (static_cast<uint32_t>(layer) << 24) |
+               ((static_cast<uint32_t>(x) & 0x0FFFu) << 12) |
+               (static_cast<uint32_t>(y) & 0x0FFFu);
+    };
+    std::unordered_map<uint32_t, protocol::WorldStatePacket::SemanticState> semantic_states;
+    semantic_states.reserve(pkt.semantic_states.size());
+    for (const auto &entry : pkt.semantic_states) {
+        semantic_states.emplace(semantic_key(entry.layer, static_cast<int>(entry.x),
+                                             static_cast<int>(entry.y)),
+                                entry);
+    }
+
 	    // Reconcile positions of movable stones (puzzle stones, doors, etc) before applying
 	    // per-tile kind/state. This avoids destructive kill/recreate moves for movable stones.
 	    if (!pkt.movable_stones.empty()) {
@@ -1696,13 +1709,45 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         for (int x = 0; x < w; ++x) {
             const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x);
             GridPos p(x, y);
-            applied_state_changes += apply_state(GetFloor(p), pkt.floor_state[idx]) ? 1 : 0;
-            applied_state_changes += apply_state(GetStone(p), pkt.stone_state[idx]) ? 1 : 0;
-            applied_state_changes += apply_state(GetItem(p), pkt.item_state[idx]) ? 1 : 0;
+            if (semantic_states.find(semantic_key(static_cast<Uint8>(GRID_FLOOR), x, y)) ==
+                semantic_states.end())
+                applied_state_changes += apply_state(GetFloor(p), pkt.floor_state[idx]) ? 1 : 0;
+            if (semantic_states.find(semantic_key(static_cast<Uint8>(GRID_STONES), x, y)) ==
+                semantic_states.end())
+                applied_state_changes += apply_state(GetStone(p), pkt.stone_state[idx]) ? 1 : 0;
+            if (semantic_states.find(semantic_key(static_cast<Uint8>(GRID_ITEMS), x, y)) ==
+                semantic_states.end())
+                applied_state_changes += apply_state(GetItem(p), pkt.item_state[idx]) ? 1 : 0;
         }
     }
+
+    auto object_at = [](Uint8 layer, GridPos p) -> Object * {
+        switch (static_cast<GridLayer>(layer)) {
+        case GRID_FLOOR:
+            return GetFloor(p);
+        case GRID_ITEMS:
+            return GetItem(p);
+        case GRID_STONES:
+            return GetStone(p);
+        default:
+            return nullptr;
+        }
+    };
+    int applied_semantic_changes = 0;
+    for (const auto &entry : pkt.semantic_states) {
+        GridPos p(static_cast<int>(entry.x), static_cast<int>(entry.y));
+        Object *obj = object_at(entry.layer, p);
+        if (!obj)
+            continue;
+        Object::MpSemanticState semantic;
+        semantic.logical_state = static_cast<int>(entry.logical_state);
+        semantic.flags = entry.flags;
+        if (obj->MpApplySemanticState(semantic, Object::MpApplyContext::WorldResync))
+            applied_semantic_changes += 1;
+    }
     if (debug_enabled()) {
-        debug_log("mp world-state apply state: changed=%d", applied_state_changes);
+        debug_log("mp world-state apply state: changed=%d semantic=%d", applied_state_changes,
+                  applied_semantic_changes);
         debug_log("mp world-state applied: world=%llu kind=%llu state=%llu movable=%llu",
                   static_cast<unsigned long long>(WorldGridChecksum()),
                   static_cast<unsigned long long>(WorldGridKindChecksum()),

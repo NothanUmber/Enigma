@@ -103,6 +103,10 @@ namespace enigma {
         }
         return true;
     }
+
+    bool Door::MpNeedsSemanticWorldResync() const {
+        return true;
+    }
     
     void Door::init_model() {
         std::string mname = model_basename();
