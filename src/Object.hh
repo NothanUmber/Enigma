@@ -94,16 +94,19 @@ public:
             GRID_ITEM,
             GRID_STONE,
             ACTOR_OBJECT,
+            ACTOR_STABLE_ID,
             OTHER_BY_NAME
         };
 
         Kind kind = NONE;
         GridPos pos = GridPos(-1, -1);
         uint32_t object_id = 0;
+        uint32_t stable_id = 0;
         std::string name;
 
         bool operator==(const MpObjectRef &other) const {
             return kind == other.kind && pos == other.pos && object_id == other.object_id &&
+                   stable_id == other.stable_id &&
                    name == other.name;
         }
 

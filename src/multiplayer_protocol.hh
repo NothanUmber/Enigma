@@ -212,6 +212,7 @@ struct WorldStatePacket {
         SEM_REF_GRID_STONE = 3,
         SEM_REF_ACTOR_OBJECT = 4,
         SEM_REF_OTHER_NAME = 5,
+        SEM_REF_ACTOR_STABLE_ID = 6,
     };
     struct SemanticRef {
         std::string key;
@@ -461,6 +462,7 @@ inline void encode_world_state(ecl::Buffer &buf, const WorldStatePacket &msg) {
                     buf << Uint16(ref.x) << Uint16(ref.y);
                     break;
                 case WorldStatePacket::SEM_REF_ACTOR_OBJECT:
+                case WorldStatePacket::SEM_REF_ACTOR_STABLE_ID:
                     buf << Uint32(ref.object_id);
                     break;
                 case WorldStatePacket::SEM_REF_OTHER_NAME:
@@ -704,6 +706,7 @@ inline bool decode_world_state(ecl::Buffer &buf, WorldStatePacket &msg) {
                             return false;
                         break;
                     case WorldStatePacket::SEM_REF_ACTOR_OBJECT:
+                    case WorldStatePacket::SEM_REF_ACTOR_STABLE_ID:
                         if (!(buf >> ref.object_id))
                             return false;
                         break;

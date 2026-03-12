@@ -2448,6 +2448,14 @@ Actor *FindActorByID(ActorID id) {
     return nullptr;
 }
 
+Actor *FindActorByStableId(unsigned stable_id) {
+    for (auto &actor : level->actorlist) {
+        if (actor->stable_id() == stable_id)
+            return actor;
+    }
+    return nullptr;
+}
+
 unsigned CountActorsOfKind(ActorID id) {
     unsigned count = 0;
     for (auto &actor : level->actorlist) {

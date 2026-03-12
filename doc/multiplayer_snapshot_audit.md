@@ -73,7 +73,7 @@ These classes already need and already have custom snapshot treatment:
 | `ShogunDot` | Yes | Yes | World resync now carries the same ON/OFF logical state through the semantic override path, matching snapshot restore without replaying target actions. |
 | `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
 | `OxydStone` | Yes | Yes | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, and `oxydcolor` now rides the same semantic field path instead of the ad hoc color transport. |
-| `Rubberband` | Yes | No | Snapshot path restores anchors and runtime parameters; world resync does not serialize `Other` objects yet. |
+| `Rubberband` | Yes | Yes | World resync now carries semantic `Other` records for `Rubberband`, including stable actor-anchor refs and scalar runtime parameters, so same-kind repairs reconnect anchors and restore later band behavior. |
 | `Wire` | Yes | Yes | World resync now carries semantic `Other` records for `Wire`, so same-kind repairs reconnect both stone anchors and rebuild the corresponding fellows/wires lists. |
 
 ## High-confidence candidates for custom hooks
@@ -90,13 +90,6 @@ capture/restore support.
   - runtime attrs `$dest_idx`, `$dest_vortex`, `$grabbed_actor`
   - internal busy states (`SWALLOWING`, `WARPING`, `EMITTING`)
   - prediction can snapshot it while an actor is half-way through warp handling
-
-- `src/others/Rubberband.cc`
-  - non-grid object with runtime anchor references and violation flags
-  - anchor references, violation flags and the rendered band geometry all evolve at runtime
-  - now covered by the dedicated `Other` snapshot path, but still worth keeping on the
-    explicit list because it was the first real user-visible `Other` regression
-  - **World resync parity:** still missing, because `NET_WORLD_STATE` does not encode `Other` state
 
 - `src/floors/ThiefFloor.cc`
   - private fields `victimId` and `bag`
@@ -204,28 +197,25 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. `OxydStone`
-2. `Vortex`
-3. `ThiefFloor`
-4. `BridgeFloor`
-5. `ForwardFloor`
-6. `LightPassengerStone`
-7. `ChessStone`
-8. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-9. remaining `Other` classes with custom runtime references beyond the generic pass
+1. `Vortex`
+2. `ThiefFloor`
+3. `BridgeFloor`
+4. `ForwardFloor`
+5. `LightPassengerStone`
+6. `ChessStone`
+7. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+8. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
-To make prediction snapshots and lockstep world resync semantically equivalent,
-the following larger tasks are still open:
+The initial handled-object slice is now aligned for:
 
-1. define a shared object-state contract for:
-   - local snapshot capture/apply
-   - network world-resync capture/apply
-2. extend `NET_WORLD_STATE` beyond visible `kind/state` + movable positions
-   so it can carry the same semantically relevant internal state
-3. port the already handled snapshot classes to that richer world-resync path:
-   - `Door`
-   - `ShogunDot`
-   - `ShogunStone`
-   - `Rubberband`
+- `Door`
+- `ShogunDot`
+- `ShogunStone`
+- `OxydStone`
+- `Rubberband`
+- `Wire`
+
+The next backlog is extending that same semantic contract to the remaining
+high-risk classes in the recommended-order list above.

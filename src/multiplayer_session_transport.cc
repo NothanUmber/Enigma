@@ -1808,6 +1808,10 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
             out.second.kind = Object::MpObjectRef::ACTOR_OBJECT;
             out.second.object_id = ref.object_id;
             return true;
+        case protocol::WorldStatePacket::SEM_REF_ACTOR_STABLE_ID:
+            out.second.kind = Object::MpObjectRef::ACTOR_STABLE_ID;
+            out.second.stable_id = ref.object_id;
+            return true;
         case protocol::WorldStatePacket::SEM_REF_OTHER_NAME:
             out.second.kind = Object::MpObjectRef::OTHER_BY_NAME;
             out.second.name = ref.name;

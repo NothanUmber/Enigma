@@ -289,6 +289,8 @@ void FastRespawnActor(Actor *a, bool keep_velocity);
   animation. */
 void RespawnActor(Actor *a);
 
+Actor *FindActorByStableId(unsigned stable_id);
+
 /*! Find the marble of the other color (ac-whiteball <->
   ac-blackball). */
 Actor *FindOtherMarble(Actor *thisMarble);

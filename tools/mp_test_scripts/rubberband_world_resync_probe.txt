@@ -1,0 +1,31 @@
+# Probe Rubberband world-resync parity for semantic actor refs and scalar repair.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23467 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23467 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxydlink03_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both GET_RUBBERBAND_STATE index=0
+
+client FORCE_RUBBERBAND_STATE index=0 anchor1=white anchor2=black strength=7
+client GET_RUBBERBAND_STATE index=0
+
+sleep 150
+both GET_RUBBERBAND_STATE index=0
+
+both QUIT

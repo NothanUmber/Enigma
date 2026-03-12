@@ -312,7 +312,7 @@ Status markers:
 
 ### Step 6 — Align lockstep world resync with the same semantic state contract
 
-- Status: `[ ]`
+- Status: `[x]`
 - Goal:
   - make prediction snapshot restore and lockstep world resync restore the same
     gameplay-relevant object state

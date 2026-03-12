@@ -26,6 +26,53 @@
 #include "world.hh"
 
 namespace enigma {
+    namespace {
+        bool capture_rubber_anchor_ref(Object *obj, Object::MpObjectRef &ref) {
+            if (!obj)
+                return false;
+            if (Actor *actor = dynamic_cast<Actor *>(obj)) {
+                ref = Object::MpObjectRef();
+                ref.kind = Object::MpObjectRef::ACTOR_STABLE_ID;
+                ref.stable_id = actor->stable_id();
+                return true;
+            }
+            if (Stone *stone = dynamic_cast<Stone *>(obj)) {
+                const GridPos pos = stone->getOwnerPos();
+                if (GetStone(pos) != stone)
+                    return false;
+                ref = Object::MpObjectRef();
+                ref.kind = Object::MpObjectRef::GRID_STONE;
+                ref.pos = pos;
+                return true;
+            }
+            if (Value name = obj->getAttr("name")) {
+                const std::string str = name.to_string();
+                if (!str.empty()) {
+                    ref = Object::MpObjectRef();
+                    ref.kind = Object::MpObjectRef::OTHER_BY_NAME;
+                    ref.name = str;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        Object *resolve_rubber_anchor_ref(const Object::MpObjectRef &ref) {
+            switch (ref.kind) {
+            case Object::MpObjectRef::ACTOR_OBJECT:
+                return Object::getObject(static_cast<int>(ref.object_id));
+            case Object::MpObjectRef::ACTOR_STABLE_ID:
+                return FindActorByStableId(ref.stable_id);
+            case Object::MpObjectRef::GRID_STONE:
+                return GetStone(ref.pos);
+            case Object::MpObjectRef::OTHER_BY_NAME:
+                return GetNamedObject(ref.name);
+            default:
+                return NULL;
+            }
+        }
+    }  // namespace
+
     Rubberband::Rubberband() : strength (10), outerThreshold (1), innerThreshold (0), minLength (0), maxLength (0) {
         anchor1 = NULL;
         anchor2.ac = NULL;
@@ -175,10 +222,65 @@ namespace enigma {
 
         Other::MpRestoreAttrsForSnapshot(remaining);
 
-        if (have_anchor1)
-            setAttr("anchor1", anchor1_value);
-        if (have_anchor2)
-            setAttr("anchor2", anchor2_value);
+        if (have_anchor1 || have_anchor2) {
+            Object *new_anchor1 = have_anchor1 ? (Object *)anchor1_value : (Object *)anchor1;
+            Object *new_anchor2 = have_anchor2 ? (Object *)anchor2_value : anchor2Object();
+            restoreAnchors(new_anchor1, new_anchor2);
+        }
+    }
+
+    void Rubberband::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        semantic.logical_state = MpCaptureStateForSnapshot();
+        semantic.flags = MpCaptureFlagsForSnapshot();
+        semantic.fields.clear();
+        semantic.refs.clear();
+
+        semantic.fields.emplace_back("strength", Value(strength));
+        semantic.fields.emplace_back("length", Value(outerThreshold));
+        semantic.fields.emplace_back("threshold", Value(innerThreshold));
+        semantic.fields.emplace_back("min", Value(minLength));
+        semantic.fields.emplace_back("max", Value(maxLength));
+
+        Object::MpObjectRef ref;
+        if (capture_rubber_anchor_ref(anchor1, ref))
+            semantic.refs.emplace_back("anchor1", ref);
+        if (capture_rubber_anchor_ref(anchor2Object(), ref))
+            semantic.refs.emplace_back("anchor2", ref);
+    }
+
+    bool Rubberband::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        (void)ctx;
+        Object *resolved_anchor1 = NULL;
+        Object *resolved_anchor2 = NULL;
+        bool have_anchor1 = false;
+        bool have_anchor2 = false;
+        MpAttrSnapshot attrs;
+        attrs.reserve(semantic.fields.size() + 2);
+        for (const auto &field : semantic.fields)
+            attrs.push_back(field);
+        for (const auto &entry : semantic.refs) {
+            if (entry.first == "anchor1") {
+                resolved_anchor1 = resolve_rubber_anchor_ref(entry.second);
+                have_anchor1 = dynamic_cast<Actor *>(resolved_anchor1) != NULL;
+            } else if (entry.first == "anchor2") {
+                resolved_anchor2 = resolve_rubber_anchor_ref(entry.second);
+                have_anchor2 = resolved_anchor2 != NULL &&
+                               (dynamic_cast<Actor *>(resolved_anchor2) != NULL ||
+                                dynamic_cast<Stone *>(resolved_anchor2) != NULL);
+            }
+        }
+        if (!have_anchor1 || !have_anchor2)
+            return false;
+
+        attrs.emplace_back("anchor1", Value(resolved_anchor1));
+        attrs.emplace_back("anchor2", Value(resolved_anchor2));
+        MpRestoreAttrsForSnapshot(attrs);
+        MpRestoreFlagsForSnapshot(semantic.flags);
+        return true;
+    }
+
+    bool Rubberband::MpNeedsSemanticWorldResync() const {
+        return true;
     }
 
     void Rubberband::postAddition() {
@@ -358,6 +460,37 @@ namespace enigma {
 
     ecl::V2 Rubberband::posAnchor2() const {
         return (objFlags & OBJBIT_STONE) ? anchor2.st->getOwnerPos().center() : anchor2.ac->get_pos();
+    }
+
+    void Rubberband::restoreAnchors(Object *newAnchor1, Object *newAnchor2) {
+        Actor *new_anchor1 = dynamic_cast<Actor *>(newAnchor1);
+        ASSERT(new_anchor1 != NULL, XLevelRuntime, "Rubberband: 'anchor1' is no actor");
+        ASSERT(newAnchor2 != NULL, XLevelRuntime, "Rubberband: 'anchor2' is neither actor nor stone");
+        ASSERT(newAnchor2->getObjectType() == Object::ACTOR || newAnchor2->getObjectType() == Object::STONE,
+               XLevelRuntime, "Rubberband: 'anchor2' is neither actor nor stone");
+        ASSERT(newAnchor1 != newAnchor2, XLevelRuntime, "Rubberband: 'anchor1' is identical to 'anchor2'");
+
+        Object *old_anchor1 = anchor1;
+        Object *old_anchor2 = anchor2Object();
+        const bool new_anchor2_is_stone = newAnchor2->getObjectType() == Object::STONE;
+        const bool old_anchor2_is_stone = (objFlags & OBJBIT_STONE) != 0;
+        if (old_anchor1 == new_anchor1 && old_anchor2 == newAnchor2 && old_anchor2_is_stone == new_anchor2_is_stone)
+            return;
+
+        switchAnchor(old_anchor1, NULL, old_anchor2);
+        switchAnchor(old_anchor2, NULL, old_anchor1);
+
+        anchor1 = new_anchor1;
+        if (new_anchor2_is_stone) {
+            anchor2.st = dynamic_cast<Stone *>(newAnchor2);
+            objFlags |= OBJBIT_STONE;
+        } else {
+            anchor2.ac = dynamic_cast<Actor *>(newAnchor2);
+            objFlags &= ~OBJBIT_STONE;
+        }
+
+        switchAnchor(NULL, anchor1, anchor2Object());
+        switchAnchor(NULL, anchor2Object(), anchor1);
     }
 
     void Rubberband::switchAnchor(Object *oldAnchor, Object *newAnchor, Object *otherAnchor) {

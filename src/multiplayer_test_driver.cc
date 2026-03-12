@@ -168,6 +168,28 @@ static bool parse_i32(const std::map<std::string, std::string> &kv, const char *
     return true;
 }
 
+static bool parse_f64(const std::map<std::string, std::string> &kv, const char *key, double &out) {
+    auto it = kv.find(key);
+    if (it == kv.end())
+        return false;
+    char *end = nullptr;
+    double v = std::strtod(it->second.c_str(), &end);
+    if (!end || *end != '\0')
+        return false;
+    out = v;
+    return true;
+}
+
+static void set_snapshot_attr(Object::MpAttrSnapshot &attrs, const std::string &key, const Value &value) {
+    for (auto &entry : attrs) {
+        if (entry.first == key) {
+            entry.second = value;
+            return;
+        }
+    }
+    attrs.emplace_back(key, value);
+}
+
 static bool parse_u16(const std::map<std::string, std::string> &kv, const char *key, Uint16 &out) {
     uint32_t v = 0;
     if (!parse_u32(kv, key, v))
@@ -427,6 +449,17 @@ static std::vector<Wire *> sorted_wires() {
             wires.push_back(wire);
     }
     return wires;
+}
+
+static std::vector<Rubberband *> sorted_rubberbands() {
+    std::vector<Rubberband *> rubberbands;
+    std::vector<Other *> others;
+    GetOthers(others);
+    for (Other *other : others) {
+        if (Rubberband *rubberband = dynamic_cast<Rubberband *>(other))
+            rubberbands.push_back(rubberband);
+    }
+    return rubberbands;
 }
 
 static std::string object_debug_label(Object *obj) {
@@ -981,6 +1014,99 @@ static bool handle_command(const std::string &line) {
            << " anchor1=" << object_debug_label(anchor1)
            << " anchor2=" << object_debug_label(anchor2);
         send_ok("FORCE_WIRE_ANCHORS", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_RUBBERBAND_STATE") {
+        int index = 0;
+        if (!parse_i32(kv, "index", index)) {
+            send_err("GET_RUBBERBAND_STATE", "missing_index");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_RUBBERBAND_STATE", "no_world");
+            return true;
+        }
+        const std::vector<Rubberband *> rubberbands = sorted_rubberbands();
+        if (index < 0 || static_cast<size_t>(index) >= rubberbands.size()) {
+            send_err("GET_RUBBERBAND_STATE", "bad_index");
+            return true;
+        }
+        Rubberband *rubberband = rubberbands[static_cast<size_t>(index)];
+        Object *anchor1 = rubberband->getAttr("anchor1");
+        Object *anchor2 = rubberband->getAttr("anchor2");
+        std::ostringstream os;
+        os << "index=" << index
+           << " id=" << rubberband->getId()
+           << " anchor1=" << object_debug_label(anchor1)
+           << " anchor2=" << object_debug_label(anchor2)
+           << " strength=" << static_cast<double>(rubberband->getAttr("strength"))
+           << " length=" << static_cast<double>(rubberband->getAttr("length"))
+           << " threshold=" << static_cast<double>(rubberband->getAttr("threshold"))
+           << " min=" << static_cast<double>(rubberband->getAttr("min"))
+           << " max=" << static_cast<double>(rubberband->getAttr("max"))
+           << " flags=" << rubberband->MpCaptureFlagsForSnapshot();
+        send_ok("GET_RUBBERBAND_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_RUBBERBAND_STATE") {
+        int index = 0;
+        if (!parse_i32(kv, "index", index)) {
+            send_err("FORCE_RUBBERBAND_STATE", "missing_index");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_RUBBERBAND_STATE", "no_world");
+            return true;
+        }
+        const std::vector<Rubberband *> rubberbands = sorted_rubberbands();
+        if (index < 0 || static_cast<size_t>(index) >= rubberbands.size()) {
+            send_err("FORCE_RUBBERBAND_STATE", "bad_index");
+            return true;
+        }
+        Rubberband *rubberband = rubberbands[static_cast<size_t>(index)];
+        Object::MpAttrSnapshot attrs;
+        rubberband->MpCaptureAttrsForSnapshot(attrs);
+        const auto it_anchor1 = kv.find("anchor1");
+        if (it_anchor1 != kv.end()) {
+            Actor *anchor1 = dynamic_cast<Actor *>(GetNamedObject(it_anchor1->second));
+            if (!anchor1) {
+                send_err("FORCE_RUBBERBAND_STATE", "bad_anchor1");
+                return true;
+            }
+            set_snapshot_attr(attrs, "anchor1", Value(static_cast<Object *>(anchor1)));
+        }
+        const auto it_anchor2 = kv.find("anchor2");
+        if (it_anchor2 != kv.end()) {
+            Object *anchor2 = GetNamedObject(it_anchor2->second);
+            if (!anchor2 ||
+                (anchor2->getObjectType() != Object::ACTOR && anchor2->getObjectType() != Object::STONE)) {
+                send_err("FORCE_RUBBERBAND_STATE", "bad_anchor2");
+                return true;
+            }
+            set_snapshot_attr(attrs, "anchor2", Value(anchor2));
+        }
+        double scalar = 0.0;
+        if (parse_f64(kv, "strength", scalar))
+            set_snapshot_attr(attrs, "strength", Value(scalar));
+        if (parse_f64(kv, "length", scalar))
+            set_snapshot_attr(attrs, "length", Value(scalar));
+        if (parse_f64(kv, "threshold", scalar))
+            set_snapshot_attr(attrs, "threshold", Value(scalar));
+        if (parse_f64(kv, "min", scalar))
+            set_snapshot_attr(attrs, "min", Value(scalar));
+        if (parse_f64(kv, "max", scalar))
+            set_snapshot_attr(attrs, "max", Value(scalar));
+        rubberband->MpRestoreAttrsForSnapshot(attrs);
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "index=" << index
+           << " id=" << rubberband->getId()
+           << " anchor1=" << object_debug_label(rubberband->getAttr("anchor1"))
+           << " anchor2=" << object_debug_label(rubberband->getAttr("anchor2"))
+           << " strength=" << static_cast<double>(rubberband->getAttr("strength"));
+        send_ok("FORCE_RUBBERBAND_STATE", os.str());
         return true;
     }
 

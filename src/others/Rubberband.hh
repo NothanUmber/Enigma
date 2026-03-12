@@ -48,6 +48,9 @@ namespace enigma {
         virtual Value message(const Message &m) override;
         virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
         virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         
         // Other interface
         virtual void postAddition() override;
@@ -71,6 +74,7 @@ namespace enigma {
         
         Object * anchor2Object() const;
         ecl::V2 posAnchor2() const;
+        void restoreAnchors(Object *newAnchor1, Object *newAnchor2);
         void switchAnchor(Object *oldAnchor, Object *newAnchor, Object *otherAnchor);
     };
 

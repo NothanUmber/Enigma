@@ -39,9 +39,10 @@ The first contract slice is implemented for `Door`:
 This is intentionally a narrow first step:
 
 - the network semantic payload now carries `logical_state`, `flags`, scalar
-  `fields`, and a first `refs` transport for `Other` objects
-- that is sufficient for the currently ported grid objects plus `Wire`
-- actor-reference cases such as `Rubberband` still need the next extension
+  `fields`, and semantic `refs` for grid objects, `Other` objects, and stable
+  actor references
+- that is sufficient for the currently ported grid objects plus `Wire` and
+  `Rubberband`
 
 ## Design goals
 
@@ -290,8 +291,9 @@ Keep the current visible world-state packet, but add semantic records for the
 objects that need more than visible `kind/state`.
 
 Scalar semantic fields are now on that wire path for current users such as
-`OxydStone` `oxydcolor`; `Wire` now uses the first semantic ref transport for
-stone anchors on the `Other` path.
+`OxydStone` `oxydcolor`; `Wire` now uses the semantic ref transport for stone
+anchors on the `Other` path, and `Rubberband` uses the same path with stable
+actor refs plus scalar runtime parameters.
 
 ### Phase 4: retire ad hoc world-resync special cases
 

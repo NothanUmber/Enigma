@@ -152,6 +152,10 @@ bool encode_semantic_ref(const std::pair<std::string, Object::MpObjectRef> &src,
         dst.type = protocol::WorldStatePacket::SEM_REF_ACTOR_OBJECT;
         dst.object_id = static_cast<Uint32>(src.second.object_id);
         return true;
+    case Object::MpObjectRef::ACTOR_STABLE_ID:
+        dst.type = protocol::WorldStatePacket::SEM_REF_ACTOR_STABLE_ID;
+        dst.object_id = static_cast<Uint32>(src.second.stable_id);
+        return true;
     case Object::MpObjectRef::OTHER_BY_NAME:
         dst.type = protocol::WorldStatePacket::SEM_REF_OTHER_NAME;
         dst.name = src.second.name;
