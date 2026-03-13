@@ -2021,6 +2021,24 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "GET_GAME_TIMER_ALARMS") {
+        const Timer::Snapshot snap = GameTimer.snapshot();
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "count=" << snap.alarms.size();
+        for (size_t i = 0; i < snap.alarms.size(); ++i) {
+            const Timer::AlarmSnapshot &alarm = snap.alarms[i];
+            os << " alarm" << i << "_handler=" << alarm.handler_object_id
+               << " alarm" << i << "_left=" << alarm.timeleft
+               << " alarm" << i << "_interval=" << alarm.interval
+               << " alarm" << i << "_repeat=" << (alarm.repeatp ? 1 : 0)
+               << " alarm" << i << "_nr=" << alarm.alarmnr;
+        }
+        send_ok("GET_GAME_TIMER_ALARMS", os.str());
+        return true;
+    }
+
     if (cmd == "SETUP_LOAD_FILE") {
         std::string path;
         {

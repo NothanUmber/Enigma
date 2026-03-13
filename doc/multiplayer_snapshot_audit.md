@@ -88,11 +88,6 @@ capture/restore support.
   - static per-level registry `levelOxyds`
   - color/pairing state is not fully represented by plain external `state`
 
-- `src/items/Vortex.cc`
-  - runtime attrs `$dest_idx`, `$dest_vortex`, `$grabbed_actor`
-  - internal busy states (`SWALLOWING`, `WARPING`, `EMITTING`)
-  - prediction can snapshot it while an actor is half-way through warp handling
-
 - `src/floors/ThiefFloor.cc`
   - private fields `victimId` and `bag`
   - inventory/bag ownership is not represented by external `state`
@@ -170,6 +165,18 @@ runtime-model snapshotting should be enough:
 
 - `src/items/Bomb.cc`
 - `src/items/SeedItem.cc`
+- `src/items/Vortex.cc`
+  - verified by `tools/mp_test_scripts/vortex_sim_snapshot_restore_probe.txt`
+  - exact verified case: saving during source `EMITTING` (`it_snap=5`) in
+    `enigma_demolevels/ralD006_1` after forcing destination vortex `right`
+    closed; restore preserves source `$grabbed_actor`, `$dest_vortex=right`,
+    destination reopening (`it_snap=2`), and the pending `GameTimer` alarm
+  - after `SIM_SNAPSHOT_LOAD`, the restored sample matches the baseline 700ms
+    later: both vortices return to `it_snap=0`, `GET_ACTOR_GRID player=0`
+    reports `gx=6 gy=11`, and `GET_GAME_TIMER_ALARMS count=0`
+  - sticky-destination redirect via `$dest_idx > 0` remains unverified, but
+    this key direct vortex-to-vortex handoff no longer looks like a custom-hook
+    gap
 - `src/floors/ForwardFloor.cc`
   - verified by `tools/mp_test_scripts/forwardfloor_sim_snapshot_baseline_probe.txt`
     and `tools/mp_test_scripts/forwardfloor_sim_snapshot_restore_probe.txt`
@@ -202,10 +209,9 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. `Vortex`
-2. `ThiefFloor`
-3. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-4. remaining `Other` classes with custom runtime references beyond the generic pass
+1. `ThiefFloor`
+2. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+3. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 

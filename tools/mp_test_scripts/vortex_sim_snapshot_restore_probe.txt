@@ -1,0 +1,59 @@
+# Probe Vortex sim snapshot restore while a marble is waiting for a closed
+# destination vortex to reopen.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23469 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23469 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_demolevels/ralD006_1"
+sleep 1500
+both START_GAME
+host STREAM_STATE interval_ms=50
+sleep 1000
+
+host SEND_NAMED_MESSAGE name=right message=close
+sleep 50
+host GET_CELL x=6 y=11
+
+host SET_ACTOR_POS player=0 x=4.50 y=11.50 vx=0.0 vy=0.0
+sleep 450
+host GET_CELL x=4 y=11
+host GET_CELL x=6 y=11
+host GET_CELL_ATTR x=4 y=11 layer=it key=$grabbed_actor
+host GET_CELL_ATTR x=4 y=11 layer=it key=$dest_idx
+host GET_CELL_ATTR x=4 y=11 layer=it key=$dest_vortex
+host GET_GAME_TIMER_ALARMS
+host SIM_SNAPSHOT_SAVE
+
+sleep 700
+host GET_CELL x=4 y=11
+host GET_CELL x=6 y=11
+host GET_ACTOR_GRID player=0
+host GET_GAME_TIMER_ALARMS
+
+host SIM_SNAPSHOT_LOAD
+host GET_CELL x=4 y=11
+host GET_CELL x=6 y=11
+host GET_CELL_ATTR x=4 y=11 layer=it key=$grabbed_actor
+host GET_CELL_ATTR x=4 y=11 layer=it key=$dest_idx
+host GET_CELL_ATTR x=4 y=11 layer=it key=$dest_vortex
+host GET_GAME_TIMER_ALARMS
+
+sleep 700
+host GET_CELL x=4 y=11
+host GET_CELL x=6 y=11
+host GET_ACTOR_GRID player=0
+host GET_CELL_ATTR x=4 y=11 layer=it key=$grabbed_actor
+host GET_CELL_ATTR x=6 y=11 layer=it key=$grabbed_actor
+host GET_GAME_TIMER_ALARMS
+
+both QUIT
