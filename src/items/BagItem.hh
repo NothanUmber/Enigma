@@ -58,6 +58,9 @@ namespace enigma {
         virtual void add_item (Item *it);
         virtual Item *yield_first();
         virtual bool containsKind(std::string kind) const;
+
+        // Snapshot helpers for off-grid bag owners such as ThiefFloor.
+        const std::vector<Item *> &MpContentsForSnapshot() const { return m_contents; }
                 
     private:
         std::vector<Item *> m_contents;

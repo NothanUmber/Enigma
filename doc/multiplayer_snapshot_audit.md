@@ -66,6 +66,13 @@ These classes already need and already have custom snapshot treatment:
 - `src/others/Wire.cc`
   - anchor references live outside generic `$...` attr capture
   - snapshot restore must reconnect both anchors to rebuild fellows/wires lists
+- `src/floors/ThiefFloor.cc`
+  - hidden `victimId` and private off-grid `it_bag` contents are now serialized
+    into the snapshot path via custom attrs
+  - `tools/mp_test_scripts/thieffloor_sim_snapshot_bag_baseline_probe.txt` and
+    `tools/mp_test_scripts/thieffloor_sim_snapshot_bag_restore_probe.txt`
+    verify that restore can still drop the saved bag after a post-save mutation
+    replaced the dropped bag on the grid
 
 ### Current parity table
 
@@ -76,6 +83,7 @@ These classes already need and already have custom snapshot treatment:
 | `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
 | `OxydStone` | Yes | Yes | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, and `oxydcolor` now rides the same semantic field path instead of the ad hoc color transport. |
 | `Rubberband` | Yes | Yes | World resync now carries semantic `Other` records for `Rubberband`, including stable actor-anchor refs and scalar runtime parameters, so same-kind repairs reconnect anchors and restore later band behavior. |
+| `ThiefFloor` | Yes | No | Sim snapshots now restore private `victimId` plus detached `it_bag` contents recursively; lockstep world resync still has no semantic transport for the hidden bag state. |
 | `Wire` | Yes | Yes | World resync now carries semantic `Other` records for `Wire`, so same-kind repairs reconnect both stone anchors and rebuild the corresponding fellows/wires lists. |
 
 ## High-confidence candidates for custom hooks
@@ -87,10 +95,6 @@ capture/restore support.
   - hidden/internal states (`OPENING`, `CLOSING`, `OPEN_SINGLE`, `OPEN_PAIR`)
   - static per-level registry `levelOxyds`
   - color/pairing state is not fully represented by plain external `state`
-
-- `src/floors/ThiefFloor.cc`
-  - private fields `victimId` and `bag`
-  - inventory/bag ownership is not represented by external `state`
 
 - `src/floors/ScalesFloor.cc`
   - runtime attr `$mass` accumulates mass across messages
@@ -209,9 +213,8 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. `ThiefFloor`
-2. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-3. remaining `Other` classes with custom runtime references beyond the generic pass
+1. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+2. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 

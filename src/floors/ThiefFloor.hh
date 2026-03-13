@@ -53,6 +53,8 @@ namespace enigma {
         // Object interface
         virtual std::string getClass() const;
         virtual Value message(const Message &m);
+        virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
+        virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
         
         // StateObject interface
         virtual void setState(int extState);

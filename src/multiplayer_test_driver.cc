@@ -1001,6 +1001,149 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "SEND_CELL_MESSAGE") {
+        if (!world_accessible()) {
+            send_err("SEND_CELL_MESSAGE", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("SEND_CELL_MESSAGE", "missing_xy");
+            return true;
+        }
+        std::string layer;
+        std::string message;
+        {
+            const auto it_layer = kv.find("layer");
+            if (it_layer != kv.end())
+                layer = it_layer->second;
+            const auto it_message = kv.find("message");
+            if (it_message != kv.end())
+                message = it_message->second;
+        }
+        if (layer.empty() || message.empty()) {
+            send_err("SEND_CELL_MESSAGE", "missing_fields");
+            return true;
+        }
+        GridObject *obj = grid_object_for_layer(layer, GridPos(x, y));
+        if (!obj) {
+            send_err("SEND_CELL_MESSAGE", "target_not_found");
+            return true;
+        }
+        Value arg;
+        std::string arg_err;
+        if (!parse_message_value(kv, arg, arg_err)) {
+            send_err("SEND_CELL_MESSAGE", arg_err);
+            return true;
+        }
+        const Value reply = SendMessage(obj, message, arg);
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " layer=" << layer
+           << " target=" << object_debug_label(obj)
+           << " message=" << message
+           << " arg_type=" << value_type_name(arg.getType())
+           << " arg=" << debug_value_string(arg)
+           << " result_type=" << value_type_name(reply.getType())
+           << " result=" << debug_value_string(reply);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SEND_CELL_MESSAGE", os.str());
+        return true;
+    }
+
+    if (cmd == "CALL_CELL_ACTOR_ENTER") {
+        if (!world_accessible()) {
+            send_err("CALL_CELL_ACTOR_ENTER", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        uint32_t player_u32 = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("CALL_CELL_ACTOR_ENTER", "missing_xy");
+            return true;
+        }
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("CALL_CELL_ACTOR_ENTER", "missing_player");
+            return true;
+        }
+        std::string layer;
+        {
+            const auto it_layer = kv.find("layer");
+            if (it_layer != kv.end())
+                layer = it_layer->second;
+        }
+        if (layer.empty()) {
+            send_err("CALL_CELL_ACTOR_ENTER", "missing_layer");
+            return true;
+        }
+        GridObject *obj = grid_object_for_layer(layer, GridPos(x, y));
+        if (!obj) {
+            send_err("CALL_CELL_ACTOR_ENTER", "target_not_found");
+            return true;
+        }
+        Actor *actor = player::GetMainActor(static_cast<unsigned>(player_u32));
+        if (!actor) {
+            send_err("CALL_CELL_ACTOR_ENTER", "no_actor");
+            return true;
+        }
+        obj->actor_enter(actor);
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " layer=" << layer
+           << " target=" << object_debug_label(obj)
+           << " player=" << static_cast<unsigned>(player_u32)
+           << " actor=" << object_debug_label(actor);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("CALL_CELL_ACTOR_ENTER", os.str());
+        return true;
+    }
+
+    if (cmd == "CALL_CELL_ANIMCB") {
+        if (!world_accessible()) {
+            send_err("CALL_CELL_ANIMCB", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("CALL_CELL_ANIMCB", "missing_xy");
+            return true;
+        }
+        std::string layer;
+        {
+            const auto it_layer = kv.find("layer");
+            if (it_layer != kv.end())
+                layer = it_layer->second;
+        }
+        if (layer.empty()) {
+            send_err("CALL_CELL_ANIMCB", "missing_layer");
+            return true;
+        }
+        GridObject *obj = grid_object_for_layer(layer, GridPos(x, y));
+        if (!obj) {
+            send_err("CALL_CELL_ANIMCB", "target_not_found");
+            return true;
+        }
+        display::ModelCallback *callback = dynamic_cast<display::ModelCallback *>(obj);
+        if (!callback) {
+            send_err("CALL_CELL_ANIMCB", "no_callback");
+            return true;
+        }
+        callback->animcb();
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " layer=" << layer
+           << " target=" << object_debug_label(obj);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("CALL_CELL_ANIMCB", os.str());
+        return true;
+    }
+
     if (cmd == "SEND_NAMED_MESSAGE") {
         if (!world_accessible()) {
             send_err("SEND_NAMED_MESSAGE", "no_world");
@@ -1072,6 +1215,44 @@ static bool handle_command(const std::string &line) {
         os << "x=" << x << " y=" << y << " kind=" << kind << " id=" << st->getId();
         multiplayer::VisualPredictionInvalidate();
         send_ok("SET_STONE", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_ITEM") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("SET_ITEM", "missing_xy");
+            return true;
+        }
+        std::string kind;
+        {
+            auto it = kv.find("kind");
+            if (it != kv.end())
+                kind = it->second;
+        }
+        if (kind.empty()) {
+            send_err("SET_ITEM", "missing_kind");
+            return true;
+        }
+        if (kind == "-" || kind == "none") {
+            SetItem(GridPos(x, y), nullptr);
+            std::ostringstream os;
+            os << "x=" << x << " y=" << y << " kind=-";
+            multiplayer::VisualPredictionInvalidate();
+            send_ok("SET_ITEM", os.str());
+            return true;
+        }
+        Item *item = MakeItem(kind.c_str());
+        if (!item) {
+            send_err("SET_ITEM", "make_failed");
+            return true;
+        }
+        SetItem(GridPos(x, y), item);
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y << " kind=" << kind << " id=" << item->getId();
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SET_ITEM", os.str());
         return true;
     }
 
