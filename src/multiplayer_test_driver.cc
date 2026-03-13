@@ -5,6 +5,7 @@
 #include "multiplayer_protocol.hh"
 #include "multiplayer_rollback.hh"
 #include "multiplayer_script_recorder.hh"
+#include "multiplayer_sim_snapshot.hh"
 #include "multiplayer_state.hh"
 
 #include "client.hh"
@@ -95,6 +96,9 @@ struct DriverState {
         input::PlayerInput value;
     };
     std::vector<QueuedLocalInput> queued_local_inputs;
+
+    bool sim_snapshot_valid = false;
+    sim_snapshot::Snapshot sim_snapshot;
 };
 
 DriverState g_drv;
@@ -482,6 +486,77 @@ static std::string object_debug_label(Object *obj) {
     return os.str();
 }
 
+static GridObject *grid_object_for_layer(const std::string &layer, GridPos p) {
+    if (layer == "floor" || layer == "fl")
+        return GetFloor(p);
+    if (layer == "item" || layer == "it")
+        return GetItem(p);
+    if (layer == "stone" || layer == "st")
+        return GetStone(p);
+    return nullptr;
+}
+
+static const char *value_type_name(Value::Type type) {
+    switch (type) {
+    case Value::DEFAULT:
+        return "default";
+    case Value::NIL:
+        return "nil";
+    case Value::BOOL:
+        return "bool";
+    case Value::DOUBLE:
+        return "double";
+    case Value::STRING:
+        return "string";
+    case Value::OBJECT:
+        return "object";
+    case Value::GROUP:
+        return "group";
+    case Value::POSITION:
+        return "position";
+    case Value::GRIDPOS:
+        return "gridpos";
+    case Value::TOKENS:
+        return "tokens";
+    case Value::NAMEDOBJECT:
+        return "object";
+    }
+    return "unknown";
+}
+
+static std::string debug_value_string(const Value &value) {
+    switch (value.getType()) {
+    case Value::DEFAULT:
+        return "(default)";
+    case Value::NIL:
+        return "nil";
+    case Value::BOOL:
+    case Value::DOUBLE:
+    case Value::STRING:
+    case Value::GROUP:
+    case Value::TOKENS:
+        return value.to_string();
+    case Value::OBJECT:
+    case Value::NAMEDOBJECT:
+        return object_debug_label(static_cast<Object *>(value));
+    case Value::POSITION: {
+        const ecl::V2 pos = static_cast<ecl::V2>(value);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << pos[0] << "," << pos[1];
+        return os.str();
+    }
+    case Value::GRIDPOS: {
+        const GridPos pos = value.operator GridPos();
+        std::ostringstream os;
+        os << pos.x << "," << pos.y;
+        return os.str();
+    }
+    }
+    return "(unknown)";
+}
+
 static void emit_state_snapshot() {
     if (!g_drv.enabled)
         return;
@@ -776,6 +851,61 @@ static bool handle_command(const std::string &line) {
            << " it_model=" << display::DebugModelName(GridLoc(GRID_ITEMS, p))
            << " st_model=" << display::DebugModelName(GridLoc(GRID_STONES, p));
         send_ok("GET_CELL_MODEL", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_CELL_ATTR") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_CELL_ATTR", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_CELL_ATTR", "no_world");
+            return true;
+        }
+        std::string layer;
+        std::string key;
+        {
+            const auto it_layer = kv.find("layer");
+            if (it_layer != kv.end())
+                layer = it_layer->second;
+            const auto it_key = kv.find("key");
+            if (it_key != kv.end())
+                key = it_key->second;
+        }
+        if (layer.empty() || key.empty()) {
+            send_err("GET_CELL_ATTR", "missing_fields");
+            return true;
+        }
+        if (layer != "floor" && layer != "fl" &&
+            layer != "item" && layer != "it" &&
+            layer != "stone" && layer != "st") {
+            send_err("GET_CELL_ATTR", "bad_layer");
+            return true;
+        }
+        GridObject *obj = grid_object_for_layer(layer, GridPos(x, y));
+        if (!obj) {
+            std::ostringstream os;
+            os << "x=" << x << " y=" << y
+               << " layer=" << layer
+               << " kind=-"
+               << " attr_exists=0"
+               << " type=default"
+               << " value=(no_object)";
+            send_ok("GET_CELL_ATTR", os.str());
+            return true;
+        }
+        const Value value = obj->getAttr(key);
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " layer=" << layer
+           << " kind=" << obj->getKind()
+           << " attr_exists=" << (value.isDefault() ? 0 : 1)
+           << " type=" << value_type_name(value.getType())
+           << " value=" << debug_value_string(value);
+        send_ok("GET_CELL_ATTR", os.str());
         return true;
     }
 
@@ -1544,6 +1674,7 @@ static bool handle_command(const std::string &line) {
             multiplayer::NotifyLoadLevel(pack, level_id);
         }
         server::Msg_LoadLevel(proxy, false);
+        g_drv.sim_snapshot_valid = false;
         send_ok("LOAD_LEVEL");
         return true;
     }
@@ -1556,6 +1687,7 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "ABORT_MP") {
         multiplayer::RequestAbort();
+        g_drv.sim_snapshot_valid = false;
         send_ok("ABORT_MP");
         return true;
     }
@@ -1713,6 +1845,43 @@ static bool handle_command(const std::string &line) {
             return true;
         }
         send_ok("SETUP_SAVE_FILE", "path=" + path);
+        return true;
+    }
+
+    if (cmd == "SIM_SNAPSHOT_SAVE") {
+        if (!world_accessible()) {
+            send_err("SIM_SNAPSHOT_SAVE", "no_world");
+            return true;
+        }
+        g_drv.sim_snapshot = multiplayer::sim_snapshot::Capture();
+        g_drv.sim_snapshot_valid = true;
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "tick=" << static_cast<unsigned>(input::CurrentTick())
+           << " objects=" << g_drv.sim_snapshot.object_states.size()
+           << " others=" << g_drv.sim_snapshot.other_states.size()
+           << " actors=" << g_drv.sim_snapshot.actors.size();
+        send_ok("SIM_SNAPSHOT_SAVE", os.str());
+        return true;
+    }
+
+    if (cmd == "SIM_SNAPSHOT_LOAD") {
+        if (!g_drv.sim_snapshot_valid) {
+            send_err("SIM_SNAPSHOT_LOAD", "no_snapshot");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("SIM_SNAPSHOT_LOAD", "no_world");
+            return true;
+        }
+        multiplayer::sim_snapshot::Restore(g_drv.sim_snapshot);
+        multiplayer::VisualPredictionInvalidate();
+        std::ostringstream os;
+        os << "tick=" << static_cast<unsigned>(input::CurrentTick())
+           << " objects=" << g_drv.sim_snapshot.object_states.size()
+           << " others=" << g_drv.sim_snapshot.other_states.size()
+           << " actors=" << g_drv.sim_snapshot.actors.size();
+        send_ok("SIM_SNAPSHOT_LOAD", os.str());
         return true;
     }
 

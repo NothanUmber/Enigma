@@ -95,10 +95,6 @@ capture/restore support.
   - private fields `victimId` and `bag`
   - inventory/bag ownership is not represented by external `state`
 
-- `src/floors/ForwardFloor.cc`
-  - runtime attr `$stoneabove` is used between `ALARM_PREPARE` and `ALARM_PUSH`
-  - plain `state` + timer snapshot is not enough for exact replay
-
 - `src/floors/ScalesFloor.cc`
   - runtime attr `$mass` accumulates mass across messages
   - not represented by external `state`
@@ -181,6 +177,11 @@ runtime-model snapshotting should be enough:
 
 - `src/items/Bomb.cc`
 - `src/items/SeedItem.cc`
+- `src/floors/ForwardFloor.cc`
+  - verified by `tools/mp_test_scripts/forwardfloor_sim_snapshot_baseline_probe.txt`
+    and `tools/mp_test_scripts/forwardfloor_sim_snapshot_restore_probe.txt`
+  - runtime attr `$stoneabove` and the pending `ALARM_PUSH` already survive via
+    generic object-attr + `GameTimer` sim snapshots
 - `src/stones/DispenserStone.cc`
 - `src/stones/ScissorsStone.cc`
 - `src/stones/BoulderStone.cc`
@@ -195,11 +196,10 @@ If we continue extending prediction/replay coverage, the next order should be:
 
 1. `Vortex`
 2. `ThiefFloor`
-3. `ForwardFloor`
-4. `LightPassengerStone`
-5. `ChessStone`
-6. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-7. remaining `Other` classes with custom runtime references beyond the generic pass
+3. `LightPassengerStone`
+4. `ChessStone`
+5. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+6. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
