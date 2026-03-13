@@ -113,10 +113,6 @@ capture/restore support.
   - dynamic scratch / secure bits in `objFlags`
   - window damage state is not stored in `state`
 
-- `src/stones/SpitterStone.cc`
-  - runtime attrs `$hitdestindex` and `$ball_velocity`
-  - used later when creating / launching cannonballs
-
 - `src/stones/ActorImpulseStone.cc`
   - runtime attrs / counters such as `$signalidx`
   - action sequencing depends on data outside `state`
@@ -190,6 +186,18 @@ runtime-model snapshotting should be enough:
 - `src/stones/ScissorsStone.cc`
 - `src/stones/BoulderStone.cc`
 - `src/stones/BreakStone.cc`
+- `src/stones/SpitterStone.cc`
+  - verified by `tools/mp_test_scripts/spitter_sim_snapshot_restore_probe.txt`
+  - exact verified case: save while `st_spitter` is in `LOADING`
+    (`st_snap=2`, model `st_spitter_loading`) after `spit` with explicit
+    grid target `(8,2)` in
+    `enigma_experimental/mptest_spitter_snapshot_1`; after
+    `SIM_SNAPSHOT_LOAD`, the restored `$ball_velocity=5.455,0.000` produces the
+    same `CALL_CELL_ANIMCB` outcome and the target item again ends as
+    `it_debris`
+  - automatic destination cycling via `$hitdestindex` is still unverified, but
+    the core "save before cannonball spawn, restore, then launch" path looks
+    covered by generic `$...` attr snapshots
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -213,7 +221,7 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+1. the remaining `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `ActorImpulseStone`)
 2. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
