@@ -66,6 +66,7 @@ public:
     void activate(TimeHandler *th);
     void set_alarm(TimeHandler *th, double interval, bool repeatp = false, int alarmnr = 0);
     double remove_alarm(TimeHandler *th, int alarmnr = 0);
+    void remove_all_alarms(TimeHandler *th);
     void clear();
 
     void tick(double dtime);

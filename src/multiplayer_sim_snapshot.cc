@@ -34,6 +34,55 @@ namespace sim_snapshot {
 
 namespace {
 
+std::unordered_map<int, int> g_retained_movable_snapshot_refs;
+std::unordered_map<int, Stone *> g_preserved_disposed_movable_stones;
+
+void release_retained_movable_ids(const std::vector<int> &object_ids) {
+    for (int object_id : object_ids) {
+        auto it_ref = g_retained_movable_snapshot_refs.find(object_id);
+        if (it_ref == g_retained_movable_snapshot_refs.end())
+            continue;
+        if (--it_ref->second == 0) {
+            g_retained_movable_snapshot_refs.erase(it_ref);
+            auto it_preserved = g_preserved_disposed_movable_stones.find(object_id);
+            if (it_preserved == g_preserved_disposed_movable_stones.end())
+                continue;
+            Stone *preserved = it_preserved->second;
+            g_preserved_disposed_movable_stones.erase(it_preserved);
+            if (preserved)
+                preserved->dispose();
+        }
+    }
+}
+
+void retain_snapshot_movable_stones(Snapshot &snap) {
+    if (snap.movable_stones.empty()) {
+        snap.retained_movable_stones.reset();
+        return;
+    }
+    std::shared_ptr<Snapshot::RetainedMovableStones> retained =
+        std::make_shared<Snapshot::RetainedMovableStones>();
+    retained->object_ids.reserve(snap.movable_stones.size());
+    for (const auto &stone : snap.movable_stones) {
+        if (stone.object_id < 0)
+            continue;
+        retained->object_ids.push_back(stone.object_id);
+        ++g_retained_movable_snapshot_refs[stone.object_id];
+    }
+    snap.retained_movable_stones = retained;
+}
+
+Stone *take_preserved_disposed_movable_stone(int object_id) {
+    auto it = g_preserved_disposed_movable_stones.find(object_id);
+    if (it == g_preserved_disposed_movable_stones.end())
+        return nullptr;
+    Stone *stone = it->second;
+    g_preserved_disposed_movable_stones.erase(it);
+    if (stone)
+        stone->MpReattachToRepositoryForSnapshotPreserve();
+    return stone;
+}
+
 ActorInfoSnapshot capture_actorinfo(const ActorInfo &ai) {
     ActorInfoSnapshot s;
     s.pos = ai.pos;
@@ -150,11 +199,19 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
         GridPos dst(static_cast<int>(e.x), static_cast<int>(e.y));
         if (GetStone(dst) != nullptr)
             continue;
-        ShogunStone *hidden = dynamic_cast<ShogunStone *>(Object::getObject(e.object_id));
-        if (!hidden)
+        Stone *missing = dynamic_cast<Stone *>(Object::getObject(e.object_id));
+        if (!missing)
+            missing = take_preserved_disposed_movable_stone(e.object_id);
+        if (!missing || !missing->is_movable())
             continue;
-        if (!hidden->MpRestoreToGridForSnapshot(dst))
-            continue;
+        if (ShogunStone *hidden = dynamic_cast<ShogunStone *>(missing)) {
+            if (!hidden->MpRestoreToGridForSnapshot(dst))
+                continue;
+        } else {
+            SetStoneForSnapshotRestore(dst, missing);
+            if (Value name = missing->getAttr("name"))
+                NameObject(missing, name.to_string());
+        }
         current_pos_by_id[object_id] = key(dst.x, dst.y);
     }
 
@@ -255,7 +312,8 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
 }  // namespace
 
 Snapshot::AnimatedGridModel::AnimatedGridModel(const AnimatedGridModel &other)
-: layer(other.layer),
+: object_id(other.object_id),
+  layer(other.layer),
   x(other.x),
   y(other.y),
   model(other.model ? std::unique_ptr<::display::Model>(other.model->clone()) : nullptr) {
@@ -264,6 +322,7 @@ Snapshot::AnimatedGridModel::AnimatedGridModel(const AnimatedGridModel &other)
 Snapshot::AnimatedGridModel &Snapshot::AnimatedGridModel::operator=(const AnimatedGridModel &other) {
     if (this == &other)
         return *this;
+    object_id = other.object_id;
     layer = other.layer;
     x = other.x;
     y = other.y;
@@ -272,6 +331,10 @@ Snapshot::AnimatedGridModel &Snapshot::AnimatedGridModel::operator=(const Animat
 }
 
 Snapshot::AnimatedGridModel::~AnimatedGridModel() = default;
+
+Snapshot::RetainedMovableStones::~RetainedMovableStones() {
+    release_retained_movable_ids(object_ids);
+}
 
 ActorSnapshot CaptureActor(const Actor &actor) {
     ActorSnapshot snap;
@@ -327,15 +390,16 @@ Snapshot Capture() {
             for (GridLayer layer : layers) {
                 for (int y = 0; y < h; ++y) {
                     for (int x = 0; x < w; ++x) {
+                        const GridPos p(x, y);
+                        Snapshot::AnimatedGridModel entry;
                         if (layer == GRID_STONES) {
-                            Stone *st = GetStone(GridPos(x, y));
+                            Stone *st = GetStone(p);
                             if (st && st->is_movable())
-                                continue;
+                                entry.object_id = st->getId();
                         }
-                        ::display::Model *model = ::display::GetModel(GridLoc(layer, GridPos(x, y)));
+                        ::display::Model *model = ::display::GetModel(GridLoc(layer, p));
                         if (!model || !model->needs_runtime_snapshot())
                             continue;
-                        Snapshot::AnimatedGridModel entry;
                         entry.layer = layer;
                         entry.x = static_cast<uint16_t>(x);
                         entry.y = static_cast<uint16_t>(y);
@@ -346,6 +410,7 @@ Snapshot Capture() {
             }
         }
     }
+    retain_snapshot_movable_stones(snap);
 
     std::vector<Actor *> actors;
     GetActors(actors);
@@ -375,8 +440,14 @@ void Restore(const Snapshot &snap) {
     for (const auto &entry : snap.animated_grid_models) {
         if (!entry.model)
             continue;
-        ::display::SetModel(GridLoc(entry.layer, GridPos(static_cast<int>(entry.x), static_cast<int>(entry.y))),
-                            entry.model->clone());
+        GridPos pos(static_cast<int>(entry.x), static_cast<int>(entry.y));
+        if (entry.object_id >= 0) {
+            Stone *st = dynamic_cast<Stone *>(Object::getObject(entry.object_id));
+            if (!st || !st->isDisplayable())
+                continue;
+            pos = st->get_pos();
+        }
+        ::display::SetModel(GridLoc(entry.layer, pos), entry.model->clone());
     }
 
     std::unordered_map<int, ActorSnapshot> by_id;
@@ -398,6 +469,21 @@ void Restore(const Snapshot &snap) {
             ball->MpFinishAppearingAfterSnapshotRestore();
         }
     }
+}
+
+bool TryPreserveDisposedMovableStone(Stone *stone) {
+    if (!stone || !stone->is_movable())
+        return false;
+    const int object_id = stone->getId();
+    auto it = g_retained_movable_snapshot_refs.find(object_id);
+    if (it == g_retained_movable_snapshot_refs.end() || it->second <= 0)
+        return false;
+    UnnameObject(stone);
+    if (TimeHandler *th = dynamic_cast<TimeHandler *>(stone))
+        GameTimer.remove_all_alarms(th);
+    stone->MpDetachFromRepositoryForSnapshotPreserve();
+    g_preserved_disposed_movable_stones[object_id] = stone;
+    return true;
 }
 
 }  // namespace sim_snapshot

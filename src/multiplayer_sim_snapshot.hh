@@ -63,6 +63,7 @@ struct ActorSnapshot {
 
 struct Snapshot {
     struct AnimatedGridModel {
+        int object_id = -1;
         GridLayer layer = GRID_FLOOR;
         uint16_t x = 0;
         uint16_t y = 0;
@@ -74,6 +75,13 @@ struct Snapshot {
         AnimatedGridModel(AnimatedGridModel &&) noexcept = default;
         AnimatedGridModel &operator=(AnimatedGridModel &&) noexcept = default;
         ~AnimatedGridModel();
+    };
+
+    struct RetainedMovableStones {
+        std::vector<int> object_ids;
+
+        RetainedMovableStones() = default;
+        ~RetainedMovableStones();
     };
 
     input::Snapshot input;
@@ -94,6 +102,7 @@ struct Snapshot {
     std::vector<MovableStone> movable_stones;
     std::vector<AnimatedGridModel> animated_grid_models;
     std::vector<ActorSnapshot> actors;
+    std::shared_ptr<RetainedMovableStones> retained_movable_stones;
 };
 
 ActorSnapshot CaptureActor(const Actor &actor);
@@ -101,6 +110,7 @@ void RestoreActor(const ActorSnapshot &snap);
 
 Snapshot Capture();
 void Restore(const Snapshot &snap);
+bool TryPreserveDisposedMovableStone(Stone *stone);
 
 }  // namespace sim_snapshot
 }  // namespace multiplayer

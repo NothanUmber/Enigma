@@ -168,6 +168,14 @@ bool Object::MpNeedsSemanticWorldResync() const {
     return false;
 }
 
+void Object::MpDetachFromRepositoryForSnapshotPreserve() {
+    objects.erase(id);
+}
+
+void Object::MpReattachToRepositoryForSnapshotPreserve() {
+    objects[id] = this;
+}
+
 int Object::getId() const {
     return id;
 }

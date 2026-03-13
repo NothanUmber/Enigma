@@ -121,6 +121,13 @@ double Timer::remove_alarm(TimeHandler *th, int alarmnr) {
     return timeleft;
 }
 
+void Timer::remove_all_alarms(TimeHandler *th) {
+    for (auto &alarm : self->alarms) {
+        if (alarm.handler == th)
+            alarm.mark_removed();
+    }
+}
+
 void Timer::tick(double dtime) {
     self->handlers.remove(nullptr);  // remove inactive entries
     for (auto &handler : self->handlers)

@@ -238,7 +238,8 @@ private:
     void dispose(Stone *st) override {
         if (st) {
             SendMessage(st, "disconnect");
-            DisposeObject(st);
+            if (!multiplayer::sim_snapshot::TryPreserveDisposedMovableStone(st))
+                DisposeObject(st);
         }
     }
 

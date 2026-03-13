@@ -19,6 +19,7 @@
  *
  */
 #include "world.hh"
+#include "multiplayer_sim_snapshot.hh"
 #include "world_internal.hh"
 
 #include "errors.hh"

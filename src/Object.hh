@@ -235,6 +235,8 @@ public:
     virtual void MpCaptureSemanticState(MpSemanticState &state) const;
     virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx);
     virtual bool MpNeedsSemanticWorldResync() const;
+    void MpDetachFromRepositoryForSnapshotPreserve();
+    void MpReattachToRepositoryForSnapshotPreserve();
 
     virtual void warning(const char *format, ...) const;
     virtual ObjectType getObjectType() const;

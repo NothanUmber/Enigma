@@ -30,24 +30,26 @@ Status legend:
 The current snapshot layer already captures:
 
 - grid-object `MpCaptureStateForSnapshot()` / `MpRestoreStateForSnapshot()`
-- movable-stone positions
-- animated grid models
+- object flags plus generic captured attrs
+- movable-stone positions, including retaining disposed movable stones while a
+  live snapshot still references them
+- animated grid models, including movable-stone runtime models restored by
+  object id
 - actors
 - `GameTimer`
 - pending secure actions
 
 That is enough for classes whose full runtime state is represented by:
 
-- `state`
+- `state`, `objFlags`, and captured attrs
 - current grid position
 - current model animation state
 - active timer alarms
+- and object instances that can stay alive until outstanding snapshots are dropped
 
 It is **not** enough for classes that additionally depend on:
 
 - hidden sub-objects or hidden topology
-- runtime-only attributes such as `$foo`
-- dynamic `objFlags` bits that are not derivable from `state`
 - object pointers / object ids stored outside the grid
 - static registries that must stay in sync with object state
 
@@ -98,20 +100,6 @@ capture/restore support.
 - `src/floors/ScalesFloor.cc`
   - runtime attr `$mass` accumulates mass across messages
   - not represented by external `state`
-
-- `src/stones/ChessStone.cc`
-  - runtime attr `$destination`
-  - deferred state bits in `objFlags` (`NEWCOLOR`, `FALL`, `SINK`, capture retry counter)
-  - plain `state` is insufficient
-  - verified by `tools/mp_test_scripts/chessstone_sim_snapshot_restore_probe.txt`
-  - exact verified gap: saving during black `CAPTURING` / white `CAPTURE`
-    restores the black stone's `state=CAPTURING` and `$destination=4,2`, but
-    does not recreate the white movable stone once it was destroyed after the
-    save point, so the saved mid-capture semantics are lost immediately after
-    `SIM_SNAPSHOT_LOAD`
-  - this now looks architectural: generic sim snapshot restore can reposition
-    surviving movable stones, but it cannot yet resurrect disposed movable
-    stones by semantic state
 
 - `src/stones/CoinSlot.cc`
   - runtime attr `$addTime` buffers extra timer delay
@@ -197,6 +185,15 @@ runtime-model snapshotting should be enough:
     snapshot restore avoids lifecycle callbacks and rebuilds the laser graph
   - exact verified case: blocked laser push retry restores at the saved cell and
     matches the baseline one-cell move timing after 45 ticks
+- `src/stones/ChessStone.cc`
+  - verified by `tools/mp_test_scripts/chessstone_capture_timeline_probe.txt`
+    and `tools/mp_test_scripts/chessstone_sim_snapshot_restore_probe.txt`
+  - generic flags/attrs + `GameTimer` are sufficient once sim snapshots retain
+    disposed movable stones and restore movable runtime models by object id
+  - exact verified case: saving during black `CAPTURING` / white `CAPTURE`
+    restores both stones immediately after `SIM_SNAPSHOT_LOAD`, including
+    black `$destination=4,2`, and 1200ms later matches the same sampled
+    baseline progression (`black state=DISAPPEARING` at `(2,1)`, white gone)
 
 They still need testing, but they do not currently show the same kind of hidden
 state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
@@ -207,9 +204,8 @@ If we continue extending prediction/replay coverage, the next order should be:
 
 1. `Vortex`
 2. `ThiefFloor`
-3. `ChessStone`
-4. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-5. remaining `Other` classes with custom runtime references beyond the generic pass
+3. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+4. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
