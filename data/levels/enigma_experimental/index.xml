@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <index xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="index.xsd">
 
-  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="15" title="Experimental"/>
+  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="16" title="Experimental"/>
 
   <attributes/>
 
@@ -20,6 +20,7 @@
     <level _seq="12" _title="MP LightPassenger Snapshot Probe" _xpath="./mptest_lightpassenger_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_lightpassenger_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="13" _title="MP ChessStone Snapshot Probe" _xpath="./mptest_chessstone_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_chessstone_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="14" _title="MP Spitter Snapshot Probe" _xpath="./mptest_spitter_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_spitter_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="15" _title="MP StoneImpulse Snapshot Probe" _xpath="./mptest_stoneimpulse_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_stoneimpulse_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
   </levels>
 
 </index>

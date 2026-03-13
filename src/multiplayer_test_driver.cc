@@ -588,6 +588,52 @@ static GridObject *grid_object_for_layer(const std::string &layer, GridPos p) {
     return nullptr;
 }
 
+static bool parse_direction_value(const std::string &text, Direction &out) {
+    std::string lower;
+    lower.reserve(text.size());
+    for (char ch : text)
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    if (lower == "west" || lower == "w" || lower == "0") {
+        out = WEST;
+        return true;
+    }
+    if (lower == "south" || lower == "s" || lower == "1") {
+        out = SOUTH;
+        return true;
+    }
+    if (lower == "east" || lower == "e" || lower == "2") {
+        out = EAST;
+        return true;
+    }
+    if (lower == "north" || lower == "n" || lower == "3") {
+        out = NORTH;
+        return true;
+    }
+    return false;
+}
+
+static bool parse_direction(const std::map<std::string, std::string> &kv, const char *key, Direction &out) {
+    const auto it = kv.find(key);
+    if (it == kv.end())
+        return false;
+    return parse_direction_value(it->second, out);
+}
+
+static const char *direction_name(Direction dir) {
+    switch (dir) {
+    case WEST:
+        return "west";
+    case SOUTH:
+        return "south";
+    case EAST:
+        return "east";
+    case NORTH:
+        return "north";
+    default:
+        return "nodir";
+    }
+}
+
 static const char *value_type_name(Value::Type type) {
     switch (type) {
     case Value::DEFAULT:
@@ -1050,6 +1096,38 @@ static bool handle_command(const std::string &line) {
            << " result=" << debug_value_string(reply);
         multiplayer::VisualPredictionInvalidate();
         send_ok("SEND_CELL_MESSAGE", os.str());
+        return true;
+    }
+
+    if (cmd == "SEND_CELL_IMPULSE") {
+        if (!world_accessible()) {
+            send_err("SEND_CELL_IMPULSE", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("SEND_CELL_IMPULSE", "missing_xy");
+            return true;
+        }
+        Direction dir = NODIR;
+        if (!parse_direction(kv, "dir", dir) || dir == NODIR) {
+            send_err("SEND_CELL_IMPULSE", "missing_dir");
+            return true;
+        }
+        Stone *stone = GetStone(GridPos(x, y));
+        if (!stone) {
+            send_err("SEND_CELL_IMPULSE", "target_not_found");
+            return true;
+        }
+        stone->on_impulse(Impulse(stone, stone->get_pos(), dir, false));
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " dir=" << direction_name(dir)
+           << " target=" << object_debug_label(stone);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SEND_CELL_IMPULSE", os.str());
         return true;
     }
 

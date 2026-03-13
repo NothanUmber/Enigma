@@ -104,11 +104,6 @@ capture/restore support.
   - runtime attr `$addTime` buffers extra timer delay
   - if omitted, replay of coin insertions can drift
 
-- `src/stones/StoneImpulse.cc`
-  - runtime attrs `$incoming` and `$impulse_source`
-  - dynamic behavior bits in `objFlags`
-  - used across later callbacks / impulse propagation
-
 - `src/stones/WindowStone.cc`
   - dynamic scratch / secure bits in `objFlags`
   - window damage state is not stored in `state`
@@ -198,6 +193,18 @@ runtime-model snapshotting should be enough:
   - automatic destination cycling via `$hitdestindex` is still unverified, but
     the core "save before cannonball spawn, restore, then launch" path looks
     covered by generic `$...` attr snapshots
+- `src/stones/StoneImpulse.cc`
+  - verified by `tools/mp_test_scripts/stoneimpulse_sim_snapshot_restore_probe.txt`
+  - exact verified case: `SEND_CELL_IMPULSE dir=east` puts an oriented
+    `st_stoneimpulse` into `EXPANDING` with saved `$incoming=2` in
+    `enigma_experimental/mptest_stoneimpulse_snapshot_1`; after
+    `SIM_SNAPSHOT_LOAD`, the stone is immediately back in `st_snap=1` /
+    model `st_stoneimpulse_anim1`, and the same two `CALL_CELL_ANIMCB` steps
+    again move only the east-side `st_box_wood` from `(5,2)` to `(6,2)` while
+    the west-side box at `(3,2)` stays put
+  - the direct backfire-suppression path looks covered by generic state +
+    flags + `$...` attr snapshots; fellow/wire propagation through
+    `$impulse_source` is still unverified
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -221,7 +228,7 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. the remaining `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `ActorImpulseStone`)
+1. the remaining `$...`-attribute stones (`CoinSlot`, `ActorImpulseStone`)
 2. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
