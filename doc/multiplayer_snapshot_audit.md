@@ -103,6 +103,15 @@ capture/restore support.
   - runtime attr `$destination`
   - deferred state bits in `objFlags` (`NEWCOLOR`, `FALL`, `SINK`, capture retry counter)
   - plain `state` is insufficient
+  - verified by `tools/mp_test_scripts/chessstone_sim_snapshot_restore_probe.txt`
+  - exact verified gap: saving during black `CAPTURING` / white `CAPTURE`
+    restores the black stone's `state=CAPTURING` and `$destination=4,2`, but
+    does not recreate the white movable stone once it was destroyed after the
+    save point, so the saved mid-capture semantics are lost immediately after
+    `SIM_SNAPSHOT_LOAD`
+  - this now looks architectural: generic sim snapshot restore can reposition
+    surviving movable stones, but it cannot yet resurrect disposed movable
+    stones by semantic state
 
 - `src/stones/CoinSlot.cc`
   - runtime attr `$addTime` buffers extra timer delay

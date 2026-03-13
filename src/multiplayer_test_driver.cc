@@ -258,6 +258,98 @@ static uint32_t local_submission_tick() {
     return input::CurrentTick();
 }
 
+static bool parse_message_value(const std::map<std::string, std::string> &kv, Value &out,
+                                std::string &err) {
+    out = Value();
+    err.clear();
+
+    const auto it_type = kv.find("arg_type");
+    if (it_type == kv.end())
+        return true;
+
+    const std::string &type = it_type->second;
+    if (type == "nil")
+        return true;
+
+    if (type == "bool") {
+        const auto it = kv.find("arg");
+        if (it == kv.end()) {
+            err = "missing_arg";
+            return false;
+        }
+        if (it->second == "1" || it->second == "true") {
+            out = Value(true);
+            return true;
+        }
+        if (it->second == "0" || it->second == "false") {
+            out = Value(false);
+            return true;
+        }
+        err = "bad_bool";
+        return false;
+    }
+
+    if (type == "int" || type == "double") {
+        double value = 0.0;
+        if (!parse_f64(kv, "arg", value)) {
+            err = "missing_arg";
+            return false;
+        }
+        out = Value(value);
+        return true;
+    }
+
+    if (type == "string") {
+        const auto it = kv.find("arg");
+        if (it == kv.end()) {
+            err = "missing_arg";
+            return false;
+        }
+        out = Value(it->second);
+        return true;
+    }
+
+    if (type == "gridpos") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "arg_x", x) || !parse_i32(kv, "arg_y", y)) {
+            err = "missing_arg_xy";
+            return false;
+        }
+        out = Value(GridPos(x, y));
+        return true;
+    }
+
+    if (type == "position") {
+        double x = 0.0;
+        double y = 0.0;
+        if (!parse_f64(kv, "arg_x", x) || !parse_f64(kv, "arg_y", y)) {
+            err = "missing_arg_xy";
+            return false;
+        }
+        out = Value(ecl::V2(x, y));
+        return true;
+    }
+
+    if (type == "object") {
+        const auto it = kv.find("arg_name");
+        if (it == kv.end()) {
+            err = "missing_arg_name";
+            return false;
+        }
+        Object *obj = GetNamedObject(it->second);
+        if (!obj) {
+            err = "arg_object_not_found";
+            return false;
+        }
+        out = Value(obj);
+        return true;
+    }
+
+    err = "bad_arg_type";
+    return false;
+}
+
 static void send_frame(const std::string &msg) {
     if (!g_drv.enabled)
         return;
@@ -906,6 +998,50 @@ static bool handle_command(const std::string &line) {
            << " type=" << value_type_name(value.getType())
            << " value=" << debug_value_string(value);
         send_ok("GET_CELL_ATTR", os.str());
+        return true;
+    }
+
+    if (cmd == "SEND_NAMED_MESSAGE") {
+        if (!world_accessible()) {
+            send_err("SEND_NAMED_MESSAGE", "no_world");
+            return true;
+        }
+        std::string name;
+        std::string message;
+        {
+            const auto it_name = kv.find("name");
+            if (it_name != kv.end())
+                name = it_name->second;
+            const auto it_message = kv.find("message");
+            if (it_message != kv.end())
+                message = it_message->second;
+        }
+        if (name.empty() || message.empty()) {
+            send_err("SEND_NAMED_MESSAGE", "missing_fields");
+            return true;
+        }
+        Object *obj = GetNamedObject(name);
+        if (!obj) {
+            send_err("SEND_NAMED_MESSAGE", "target_not_found");
+            return true;
+        }
+        Value arg;
+        std::string arg_err;
+        if (!parse_message_value(kv, arg, arg_err)) {
+            send_err("SEND_NAMED_MESSAGE", arg_err);
+            return true;
+        }
+        const Value reply = SendMessage(obj, message, arg);
+        std::ostringstream os;
+        os << "name=" << name
+           << " target=" << object_debug_label(obj)
+           << " message=" << message
+           << " arg_type=" << value_type_name(arg.getType())
+           << " arg=" << debug_value_string(arg)
+           << " result_type=" << value_type_name(reply.getType())
+           << " result=" << debug_value_string(reply);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SEND_NAMED_MESSAGE", os.str());
         return true;
     }
 
