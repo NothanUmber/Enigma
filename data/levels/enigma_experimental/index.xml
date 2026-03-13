@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <index xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="index.xsd">
 
-  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="12" title="Experimental"/>
+  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="13" title="Experimental"/>
 
   <attributes/>
 
@@ -17,6 +17,7 @@
     <level _seq="9" _title="TODO" _xpath="lib/todo" author="Martin Hawlisch" ctrl="force" easy="false" id="todo" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="10" _title="Multiplayer Test (3 Players)" _xpath="./mp_test_3p" author="Enigma Team" ctrl="force" easy="false" id="mp_test_3p" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="11" _title="Multiplayer Test (4 Players)" _xpath="./mp_test_4p" author="Enigma Team" ctrl="force" easy="false" id="mp_test_4p" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="12" _title="MP LightPassenger Snapshot Probe" _xpath="./mptest_lightpassenger_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_lightpassenger_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
   </levels>
 
 </index>

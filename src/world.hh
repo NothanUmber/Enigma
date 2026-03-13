@@ -339,6 +339,9 @@ Stone *GetStone(GridPos p);
 Stone *YieldStone(GridPos p);
 void KillStone(GridPos p);
 void MoveStone(GridPos oldPos, GridPos newPos);
+Stone *YieldStoneForSnapshotRestore(GridPos p);
+void SetStoneForSnapshotRestore(GridPos p, Stone *st);
+void MoveStoneForSnapshotRestore(GridPos oldPos, GridPos newPos);
 void TouchStone(GridPos pos);
 
 /* -------------------- Items -------------------- */

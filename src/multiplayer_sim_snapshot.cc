@@ -20,6 +20,7 @@
 #include "actors.hh"
 #include "actors/Balls.hh"
 #include "d_models.hh"
+#include "laser.hh"
 #include "server.hh"
 #include "stones/ShogunStone.hh"
 #include "world.hh"
@@ -185,7 +186,7 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
             GridPos dst_pos = key_to_pos(dst);
             if (GetStone(dst_pos) != nullptr)
                 continue;
-            MoveStone(key_to_pos(src), dst_pos);
+            MoveStoneForSnapshotRestore(key_to_pos(src), dst_pos);
             src_by_dst.erase(dst);
             src_to_dst.erase(it);
             progressed = true;
@@ -198,7 +199,7 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
         const uint32_t start_src = src_to_dst.begin()->first;
         const uint32_t start_dst = src_to_dst.begin()->second;
         GridPos start_src_pos = key_to_pos(start_src);
-        Stone *held = YieldStone(start_src_pos);
+        Stone *held = YieldStoneForSnapshotRestore(start_src_pos);
         if (!held) {
             src_by_dst.erase(start_dst);
             src_to_dst.erase(start_src);
@@ -210,14 +211,14 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
             auto it_prev = src_by_dst.find(empty);
             if (it_prev == src_by_dst.end()) {
                 // Unexpected permutation shape; restore what we can and abort.
-                SetStone(start_src_pos, held);
+                SetStoneForSnapshotRestore(start_src_pos, held);
                 held = nullptr;
                 src_to_dst.clear();
                 src_by_dst.clear();
                 break;
             }
             const uint32_t prev_src = it_prev->second;
-            MoveStone(key_to_pos(prev_src), key_to_pos(empty));
+            MoveStoneForSnapshotRestore(key_to_pos(prev_src), key_to_pos(empty));
             auto it_dst = src_to_dst.find(prev_src);
             if (it_dst != src_to_dst.end())
                 src_to_dst.erase(it_dst);
@@ -225,7 +226,7 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
             empty = prev_src;
         }
         if (held) {
-            SetStone(key_to_pos(start_dst), held);
+            SetStoneForSnapshotRestore(key_to_pos(start_dst), held);
             src_by_dst.erase(start_dst);
             src_to_dst.erase(start_src);
         }
@@ -361,11 +362,16 @@ void Restore(const Snapshot &snap) {
     input::RestoreSnapshot(snap.input);
     server::RandomState = snap.random_state;
     server::LevelTime = snap.level_time;
-    GameTimer.restore(snap.game_timer);
-    RestorePendingActions(snap.pending_actions);
+    restore_movable_stone_positions(snap.movable_stones);
     RestoreObjectStates(snap.object_states);
     RestoreOtherStates(snap.other_states);
-    restore_movable_stone_positions(snap.movable_stones);
+    // Laser beams are runtime graph objects, not part of the grid-object snapshot.
+    // Rebuild them after grid/object state is back in place, but suppress
+    // light-change actions; snapshot restore must not synthesize new gameplay.
+    RecalcLight();
+    PerformRecalcLight(true);
+    GameTimer.restore(snap.game_timer);
+    RestorePendingActions(snap.pending_actions);
     for (const auto &entry : snap.animated_grid_models) {
         if (!entry.model)
             continue;

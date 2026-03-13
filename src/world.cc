@@ -2341,8 +2341,40 @@ Stone *YieldStone(GridPos p) {
     return st;
 }
 
+Stone *YieldStoneForSnapshotRestore(GridPos p) {
+    Field *f = level->get_field(p);
+    if (!f)
+        return nullptr;
+    Stone *st = f->stone;
+    if (!st)
+        return nullptr;
+    display::KillModel(GridLoc(GRID_STONES, p));
+    f->stone = nullptr;
+    st->MpSetGridPosForSnapshot(GridPos(-1, -1));
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(p);
+    return st;
+}
+
 void SetStone(GridPos p, Stone *st) {
     level->st_layer.set(p, st);
+    if (!g_suppress_world_change_notifications)
+        level->changed_stones.push_back(p);
+    if (!g_suppress_world_change_notifications && level->registerCriticalPositions)
+        level->collisionCriticalPositions.push_back(p);
+}
+
+void SetStoneForSnapshotRestore(GridPos p, Stone *st) {
+    if (!st)
+        return;
+    Field *f = level->get_field(p);
+    if (!f) {
+        DisposeObject(st);
+        return;
+    }
+    ASSERT(f->stone == nullptr, XLevelRuntime, "snapshot restore target occupied");
+    f->stone = st;
+    st->MpSetGridPosForSnapshot(p);
     if (!g_suppress_world_change_notifications)
         level->changed_stones.push_back(p);
     if (!g_suppress_world_change_notifications && level->registerCriticalPositions)
@@ -2360,6 +2392,10 @@ void ReplaceStone(GridPos p, Stone *st) {
 
 void MoveStone(GridPos oldPos, GridPos newPos) {
     SetStone(newPos, YieldStone(oldPos));
+}
+
+void MoveStoneForSnapshotRestore(GridPos oldPos, GridPos newPos) {
+    SetStoneForSnapshotRestore(newPos, YieldStoneForSnapshotRestore(oldPos));
 }
 
 void TouchStone(GridPos pos) {

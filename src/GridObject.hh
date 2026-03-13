@@ -58,6 +58,7 @@ namespace enigma {
             pos.x = -1;
             pos.y = -1;
         }
+        void MpSetGridPosForSnapshot(GridPos p) { pos = p; }
         GridPos get_pos() const {return pos;}
         
         virtual void setOwner(int player);

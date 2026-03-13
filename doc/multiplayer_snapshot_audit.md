@@ -99,10 +99,6 @@ capture/restore support.
   - runtime attr `$mass` accumulates mass across messages
   - not represented by external `state`
 
-- `src/stones/LightPassengerStone.cc`
-  - dynamic `objFlags` encode skate direction, blocked state and visibility
-  - these bits directly affect later movement decisions
-
 - `src/stones/ChessStone.cc`
   - runtime attr `$destination`
   - deferred state bits in `objFlags` (`NEWCOLOR`, `FALL`, `SINK`, capture retry counter)
@@ -186,6 +182,12 @@ runtime-model snapshotting should be enough:
 - `src/stones/ScissorsStone.cc`
 - `src/stones/BoulderStone.cc`
 - `src/stones/BreakStone.cc`
+- `src/stones/LightPassengerStone.cc`
+  - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
+  - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
+    snapshot restore avoids lifecycle callbacks and rebuilds the laser graph
+  - exact verified case: blocked laser push retry restores at the saved cell and
+    matches the baseline one-cell move timing after 45 ticks
 
 They still need testing, but they do not currently show the same kind of hidden
 state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
@@ -196,10 +198,9 @@ If we continue extending prediction/replay coverage, the next order should be:
 
 1. `Vortex`
 2. `ThiefFloor`
-3. `LightPassengerStone`
-4. `ChessStone`
-5. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-6. remaining `Other` classes with custom runtime references beyond the generic pass
+3. `ChessStone`
+4. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+5. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
