@@ -50,6 +50,7 @@ namespace enigma {
         
         // StateObject interface
         virtual int externalState() const;
+        virtual bool MpRestoreStateForSnapshot(int state) override;
         virtual void setState(int extState);
         virtual void toggleState();
 

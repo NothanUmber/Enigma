@@ -68,6 +68,22 @@ namespace enigma {
     int BridgeFloor::externalState() const {
         return (state == CLOSED) ? 0 : 1;
     }
+
+    bool BridgeFloor::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < CLOSED || snapshot_state > OPENING)
+            return false;
+        state = snapshot_state;
+        if (!isDisplayable())
+            return true;
+        if (state == OPENING) {
+            set_anim(model_basename() + "opening");
+        } else if (state == CLOSING) {
+            set_anim(model_basename() + "closing");
+        } else {
+            init_model();
+        }
+        return true;
+    }
     
     void BridgeFloor::setState(int extState) {
         if (isDisplayable()) {

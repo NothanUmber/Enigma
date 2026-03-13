@@ -45,6 +45,7 @@ namespace enigma {
         virtual Value getAttr(const std::string &key) const override;
 
         // StateObject interface
+        virtual bool MpRestoreStateForSnapshot(int state) override;
         virtual void setState(int extState) override;
 
 

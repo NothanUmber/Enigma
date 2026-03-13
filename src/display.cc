@@ -42,6 +42,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 
 using namespace std;
 using namespace ecl;
@@ -77,6 +78,14 @@ Rect round_grid(const dRect &r, double w, double h) {
 /* -------------------- Local variables -------------------- */
 
 namespace {
+
+std::string debug_model_key(const GridLoc &l) {
+    return std::to_string(static_cast<int>(l.layer)) + ":" +
+           std::to_string(l.pos.x) + ":" +
+           std::to_string(l.pos.y);
+}
+
+std::map<std::string, std::string> g_debug_model_names;
 
 const int NTILESH = 20;  // Default game screen width in tiles
 const int NTILESV = 13;  // Default game screen height in tiles
@@ -2193,10 +2202,12 @@ Model *display::SetModel(const GridLoc &l, Model *m) {
 }
 
 Model *display::SetModel(const GridLoc &l, const string &modelname) {
+    g_debug_model_names[debug_model_key(l)] = modelname;
     return SetModel(l, MakeModel(modelname));
 }
 
 void display::KillModel(const GridLoc &l) {
+    g_debug_model_names.erase(debug_model_key(l));
     delete YieldModel(l);
 }
 
@@ -2205,7 +2216,15 @@ Model *display::GetModel(const GridLoc &l) {
 }
 
 Model *display::YieldModel(const GridLoc &l) {
+    g_debug_model_names.erase(debug_model_key(l));
     return gamedpy->yield_model(l);
+}
+
+std::string display::DebugModelName(const GridLoc &l) {
+    const auto it = g_debug_model_names.find(debug_model_key(l));
+    if (it == g_debug_model_names.end())
+        return std::string("-");
+    return it->second;
 }
 
 SpriteHandle display::AddEffect(const V2 &pos, const char *modelname, bool isDispensible) {

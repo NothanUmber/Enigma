@@ -95,6 +95,7 @@ Model *SetModel(const GridLoc &l, Model *m);
 void KillModel(const GridLoc &l);
 Model *GetModel(const GridLoc &l);
 Model *YieldModel(const GridLoc &l);
+std::string DebugModelName(const GridLoc &l);
 
 /* -------------------- Scrolling -------------------- */
 

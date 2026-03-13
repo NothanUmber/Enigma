@@ -1,0 +1,44 @@
+# Probe generic GridObject snapshot restore on a bridge mid-transition.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23469 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23469 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/floors_1"
+sleep 1500
+both START_GAME
+sleep 1000
+
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+host SET_STONE x=105 y=5 kind=st_box
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+
+sleep 400
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+host SETUP_SAVE_FILE path=/tmp/bridge_snapshot_anim_restore_probe.mps
+
+sleep 1200
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+
+host SETUP_LOAD_FILE path=/tmp/bridge_snapshot_anim_restore_probe.mps
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+
+sleep 1200
+host GET_CELL x=105 y=5
+host GET_CELL_MODEL x=105 y=5
+
+both QUIT

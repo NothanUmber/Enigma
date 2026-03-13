@@ -8,6 +8,7 @@
 #include "multiplayer_state.hh"
 
 #include "client.hh"
+#include "display.hh"
 #include "game.hh"
 #include "input.hh"
 #include "lev/Proxy.hh"
@@ -754,6 +755,27 @@ static bool handle_command(const std::string &line) {
            << " it_snap=" << snapshot_state_or_dash(it);
         multiplayer::VisualPredictionEndRender();
         send_ok("GET_CELL_RENDER", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_CELL_MODEL") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_CELL_MODEL", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_CELL_MODEL", "no_world");
+            return true;
+        }
+        const GridPos p(x, y);
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " fl_model=" << display::DebugModelName(GridLoc(GRID_FLOOR, p))
+           << " it_model=" << display::DebugModelName(GridLoc(GRID_ITEMS, p))
+           << " st_model=" << display::DebugModelName(GridLoc(GRID_STONES, p));
+        send_ok("GET_CELL_MODEL", os.str());
         return true;
     }
 

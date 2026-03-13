@@ -145,6 +145,13 @@ namespace enigma {
         if (isDisplayable())
             init_model();
     }
+
+    bool GridObject::MpRestoreStateForSnapshot(int snapshot_state) {
+        StateObject::MpRestoreStateForSnapshot(snapshot_state);
+        if (isDisplayable())
+            init_model();
+        return true;
+    }
     
     std::string GridObject::getModelName() const {
         return getClass();

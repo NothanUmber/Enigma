@@ -95,10 +95,6 @@ capture/restore support.
   - private fields `victimId` and `bag`
   - inventory/bag ownership is not represented by external `state`
 
-- `src/floors/BridgeFloor.cc`
-  - runtime flag `OBJBIT_EXPLICIT` changes closing/opening behavior
-  - external `state` alone does not tell whether the bridge should reopen
-
 - `src/floors/ForwardFloor.cc`
   - runtime attr `$stoneabove` is used between `ALARM_PREPARE` and `ALARM_PUSH`
   - plain `state` + timer snapshot is not enough for exact replay
@@ -199,12 +195,11 @@ If we continue extending prediction/replay coverage, the next order should be:
 
 1. `Vortex`
 2. `ThiefFloor`
-3. `BridgeFloor`
-4. `ForwardFloor`
-5. `LightPassengerStone`
-6. `ChessStone`
-7. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
-8. remaining `Other` classes with custom runtime references beyond the generic pass
+3. `ForwardFloor`
+4. `LightPassengerStone`
+5. `ChessStone`
+6. the `$...`-attribute stones (`CoinSlot`, `StoneImpulse`, `SpitterStone`, `ActorImpulseStone`)
+7. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
