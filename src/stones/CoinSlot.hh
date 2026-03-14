@@ -62,6 +62,7 @@ namespace enigma {
         // StateObject interface
         virtual int externalState() const;
         virtual void setState(int extState);
+        virtual bool MpRestoreStateForSnapshot(int state) override;
 
         // GridObject interface
         virtual void init_model();

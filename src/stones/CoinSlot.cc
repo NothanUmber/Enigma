@@ -76,6 +76,28 @@ namespace enigma {
         return;   // ignore any write attempts
     }
 
+    bool CoinSlot::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < OFF || snapshot_state > INSERT_ON)
+            return false;
+        state = snapshot_state;
+        if (!isDisplayable())
+            return true;
+
+        switch (state) {
+        case OFF:
+            set_model("st_coinslot");
+            break;
+        case ON:
+            set_model("st_coinslot_active");
+            break;
+        case INSERT_OFF:
+        case INSERT_ON:
+            set_anim("st_coinslot_insert");
+            break;
+        }
+        return true;
+    }
+
     void CoinSlot::init_model() {
         // just static models
         if (state <= ON)

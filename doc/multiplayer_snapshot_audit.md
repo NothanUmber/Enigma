@@ -205,6 +205,17 @@ runtime-model snapshotting should be enough:
   - the direct backfire-suppression path looks covered by generic state +
     flags + `$...` attr snapshots; fellow/wire propagation through
     `$impulse_source` is still unverified
+- `src/stones/CoinSlot.cc`
+  - verified by `tools/mp_test_scripts/coinslot_sim_snapshot_restore_probe.txt`
+  - exact verified case: saving in `enigma_experimental/mptest_coinslot_snapshot_1`
+    after one `CALL_CELL_ACTOR_HIT` while non-instant `st_coinslot` is still in
+    `INSERT_OFF` (`st_snap=2`, `$addTime=0.7`, model `st_coinslot_insert`,
+    no alarm); after `SIM_SNAPSHOT_LOAD`, the same insert-phase model and
+    buffered `$addTime` are restored, and the follow-up `CALL_CELL_ANIMCB`
+    re-arms the same `0.700` timer with matching baseline countdown
+  - this needed a small custom restore hook because the generic state restore
+    handled the buffered timer semantics but left insert-phase visuals on the
+    wrong static model
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -228,7 +239,7 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. the remaining `$...`-attribute stones (`CoinSlot`, `ActorImpulseStone`)
+1. the remaining `$...`-attribute stone (`ActorImpulseStone`)
 2. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog

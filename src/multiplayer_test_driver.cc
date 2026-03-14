@@ -131,6 +131,25 @@ static std::vector<std::string> split_ws(const std::string &s) {
     return out;
 }
 
+static std::vector<std::string> split_csv(const std::string &s) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char ch : s) {
+        if (ch == ',') {
+            const std::string token = trim(cur);
+            if (!token.empty())
+                out.push_back(token);
+            cur.clear();
+            continue;
+        }
+        cur.push_back(ch);
+    }
+    const std::string token = trim(cur);
+    if (!token.empty())
+        out.push_back(token);
+    return out;
+}
+
 static std::map<std::string, std::string> parse_kv(const std::vector<std::string> &tokens,
                                                    size_t start) {
     std::map<std::string, std::string> out;
@@ -1180,6 +1199,47 @@ static bool handle_command(const std::string &line) {
         return true;
     }
 
+    if (cmd == "CALL_CELL_ACTOR_HIT") {
+        if (!world_accessible()) {
+            send_err("CALL_CELL_ACTOR_HIT", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        uint32_t player_u32 = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("CALL_CELL_ACTOR_HIT", "missing_xy");
+            return true;
+        }
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("CALL_CELL_ACTOR_HIT", "missing_player");
+            return true;
+        }
+        Stone *stone = GetStone(GridPos(x, y));
+        if (!stone) {
+            send_err("CALL_CELL_ACTOR_HIT", "target_not_found");
+            return true;
+        }
+        Actor *actor = player::GetMainActor(static_cast<unsigned>(player_u32));
+        if (!actor) {
+            send_err("CALL_CELL_ACTOR_HIT", "no_actor");
+            return true;
+        }
+        StoneContact sc;
+        sc.actor = actor;
+        sc.stonepos = GridPos(x, y);
+        sc.stoneid = get_id(stone);
+        stone->actor_hit(sc);
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " target=" << object_debug_label(stone)
+           << " actor=" << object_debug_label(actor);
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("CALL_CELL_ACTOR_HIT", os.str());
+        return true;
+    }
+
     if (cmd == "CALL_CELL_ANIMCB") {
         if (!world_accessible()) {
             send_err("CALL_CELL_ANIMCB", "no_world");
@@ -1758,6 +1818,56 @@ static bool handle_command(const std::string &line) {
             os << " first=-";
         }
         send_ok("GET_INV", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_INV") {
+        uint32_t player_u32 = 0;
+        if (!parse_u32(kv, "player", player_u32)) {
+            send_err("SET_INV", "missing_player");
+            return true;
+        }
+        Inventory *inv = player::GetInventory(static_cast<unsigned>(player_u32));
+        if (!inv) {
+            send_err("SET_INV", "no_inventory");
+            return true;
+        }
+        std::string items;
+        {
+            const auto it = kv.find("items");
+            if (it != kv.end())
+                items = it->second;
+        }
+        if (items.empty()) {
+            send_err("SET_INV", "missing_items");
+            return true;
+        }
+        inv->clear();
+        if (items != "-" && items != "none") {
+            const std::vector<std::string> kinds = split_csv(items);
+            for (const std::string &kind : kinds) {
+                Item *item = MakeItem(kind.c_str());
+                if (!item) {
+                    send_err("SET_INV", "make_failed");
+                    return true;
+                }
+                if (!inv->willAddItem(item)) {
+                    delete item;
+                    send_err("SET_INV", "inventory_full");
+                    return true;
+                }
+                inv->add_item(item);
+            }
+        }
+        player::RedrawInventory(inv);
+        std::ostringstream os;
+        os << "player=" << static_cast<unsigned>(player_u32)
+           << " size=" << static_cast<unsigned>(inv->size());
+        if (inv->size() > 0 && inv->get_item(0))
+            os << " first=" << inv->get_item(0)->getKind();
+        else
+            os << " first=-";
+        send_ok("SET_INV", os.str());
         return true;
     }
 
