@@ -113,10 +113,6 @@ relying on prediction for them.
   - mostly looks covered by `state` + `GameTimer`
   - laser-specific mode bits in `objFlags` should still be sanity-checked
 
-- `src/stones/TimerStone.cc`
-  - mostly looks covered by `state` + `GameTimer`
-  - should be verified, but does not obviously need custom hooks yet
-
 ## Dedicated non-grid snapshot scope
 
 These are stateful world objects that are restored by the dedicated
@@ -235,6 +231,17 @@ runtime-model snapshotting should be enough:
     `fl_scales_darkgray_pressed`
   - no gameplay hook was needed here; generic `$...` attr snapshots already
     preserve the accumulated mass and recomputed state/model path
+- `src/stones/TimerStone.cc`
+  - verified by `tools/mp_test_scripts/timerstone_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_timerstone_snapshot_1`,
+    save a looping `st_timer` after its first sampled fire, with external
+    `st_state=1` but internal `st_snap=3` and the target instant switch still
+    in its matching transitional on-state; after `SIM_SNAPSHOT_LOAD`, the same
+    internal timer phase and target switch state are restored, and the next
+    220ms interval again advances the timer to `st_snap=2` while the target
+    switch flips back off on the same timeline as baseline
+  - no gameplay hook was needed here; generic internal-state snapshots plus
+    `GameTimer` restore already preserve the alternating ON_TRUE/ON_FALSE phase
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
