@@ -91,22 +91,9 @@ These classes already need and already have custom snapshot treatment:
 These are the next classes I would treat as requiring custom
 capture/restore support.
 
-- `src/stones/OxydStone.cc`
-  - hidden/internal states (`OPENING`, `CLOSING`, `OPEN_SINGLE`, `OPEN_PAIR`)
-  - static per-level registry `levelOxyds`
-  - color/pairing state is not fully represented by plain external `state`
-
 - `src/floors/ScalesFloor.cc`
   - runtime attr `$mass` accumulates mass across messages
   - not represented by external `state`
-
-- `src/stones/CoinSlot.cc`
-  - runtime attr `$addTime` buffers extra timer delay
-  - if omitted, replay of coin insertions can drift
-
-- `src/stones/WindowStone.cc`
-  - dynamic scratch / secure bits in `objFlags`
-  - window damage state is not stored in `state`
 
 ## Review next when prediction hits them
 
@@ -223,6 +210,17 @@ runtime-model snapshotting should be enough:
   - no gameplay hook was needed here; the generic `$...` attr snapshot already
     preserves the non-Enigma signal-multiplier counter once it is exercised by
     a compatibility-aware probe
+- `src/stones/WindowStone.cc`
+  - verified by `tools/mp_test_scripts/window_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_window_snapshot_1`,
+    a secure scratched `st_window_ew` receives `_explosion` from the west so it
+    enters `BREAK` with only the east face remaining; after `SIM_SNAPSHOT_LOAD`,
+    the same `st_snap=1`, empty `scratches`, and break model
+    `st_window_green4_0_anim` are restored, and the next `CALL_CELL_ANIMCB`
+    again settles to the static `st_window_green4_0`
+  - this needed a small custom restore hook because generic state/flags restore
+    preserved the broken-face semantics but left the window on the settled
+    static model instead of the pending break animation
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -246,7 +244,8 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. remaining `Other` classes with custom runtime references beyond the generic pass
+1. the remaining high-confidence snapshot candidate (`ScalesFloor`)
+2. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 

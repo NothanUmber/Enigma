@@ -1,0 +1,51 @@
+# Probe WindowStone sim snapshot restore while a secure scratched window is in
+# BREAK animation after an explosion removes one face.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23480 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23480 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/mptest_window_snapshot_1"
+sleep 1500
+both START_GAME
+host STREAM_STATE interval_ms=50
+wait role=host contains="sv_world_init=1" timeout_ms=5000
+
+host GET_CELL x=4 y=2
+host GET_CELL_ATTR x=4 y=2 layer=st key=secure
+host GET_CELL_ATTR x=4 y=2 layer=st key=scratches
+host GET_CELL_MODEL x=4 y=2
+host SEND_CELL_MESSAGE x=4 y=2 layer=st message=_explosion arg_type=gridpos arg_x=3 arg_y=2
+host GET_CELL x=4 y=2
+host GET_CELL_ATTR x=4 y=2 layer=st key=secure
+host GET_CELL_ATTR x=4 y=2 layer=st key=scratches
+host GET_CELL_MODEL x=4 y=2
+host SIM_SNAPSHOT_SAVE
+
+host CALL_CELL_ANIMCB x=4 y=2 layer=st
+host GET_CELL x=4 y=2
+host GET_CELL_ATTR x=4 y=2 layer=st key=secure
+host GET_CELL_ATTR x=4 y=2 layer=st key=scratches
+host GET_CELL_MODEL x=4 y=2
+
+host SIM_SNAPSHOT_LOAD
+host GET_CELL x=4 y=2
+host GET_CELL_ATTR x=4 y=2 layer=st key=secure
+host GET_CELL_ATTR x=4 y=2 layer=st key=scratches
+host GET_CELL_MODEL x=4 y=2
+host CALL_CELL_ANIMCB x=4 y=2 layer=st
+host GET_CELL x=4 y=2
+host GET_CELL_ATTR x=4 y=2 layer=st key=secure
+host GET_CELL_ATTR x=4 y=2 layer=st key=scratches
+host GET_CELL_MODEL x=4 y=2
+
+both QUIT

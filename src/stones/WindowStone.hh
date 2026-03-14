@@ -54,9 +54,10 @@ namespace enigma {
         virtual Value getAttr(const std::string &key) const;
         virtual Value message(const Message &m);
         
-         // StateObject interface
+        // StateObject interface
         virtual int externalState() const;
         virtual void setState(int extState);
+        virtual bool MpRestoreStateForSnapshot(int state) override;
        
         // GridObject interface
         virtual DirectionBits getFaces(bool actorInvisible = false) const;

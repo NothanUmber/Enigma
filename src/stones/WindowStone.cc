@@ -109,6 +109,26 @@ namespace enigma {
         // ignore any state access
     }
 
+    bool WindowStone::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (snapshot_state < IDLE || snapshot_state > FINALBREAK)
+            return false;
+        state = snapshot_state;
+        if (!isDisplayable())
+            return true;
+
+        if (state == IDLE) {
+            init_model();
+            return true;
+        }
+
+        const uint32_t scratchDirs = ((objFlags & OBJBIT_SCRATCHDIRS) >> 24);
+        set_anim(ecl::strf("st_window_%s%d_%d_anim",
+                           objFlags & OBJBIT_SECURE ? "green" : "blue",
+                           getFaces() & ~scratchDirs,
+                           scratchDirs));
+        return true;
+    }
+
     DirectionBits WindowStone::getFaces(bool actorInvisible) const {
         if (!actorInvisible || objFlags & OBJBIT_SECURE)
             return Stone::getFaces(actorInvisible);
