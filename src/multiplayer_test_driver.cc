@@ -10,6 +10,7 @@
 
 #include "client.hh"
 #include "display.hh"
+#include "enigma.hh"
 #include "game.hh"
 #include "input.hh"
 #include "lev/Proxy.hh"
@@ -202,6 +203,18 @@ static bool parse_f64(const std::map<std::string, std::string> &kv, const char *
         return false;
     out = v;
     return true;
+}
+
+static bool parse_game_type(const std::string &text, GameType &out) {
+    if (text == "peroxyd")
+        out = GAMET_PEROXYD;
+    else if (text == "oxydextra")
+        out = GAMET_OXYDEXTRA;
+    else if (text == "oxydmagnum")
+        out = GAMET_OXYDMAGNUM;
+    else
+        out = GetGameType(text);
+    return out != GAMET_UNKNOWN;
 }
 
 static void set_snapshot_attr(Object::MpAttrSnapshot &attrs, const std::string &key, const Value &value) {
@@ -2464,6 +2477,41 @@ static bool handle_command(const std::string &line) {
         }
         options::SetOption(key.c_str(), value ? 1.0 : 0.0);
         send_ok("SET_BOOL");
+        return true;
+    }
+
+    if (cmd == "SET_GAME_COMPAT") {
+        std::string value_text;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("value");
+            if (it != kv.end())
+                value_text = it->second;
+        }
+        if (value_text.empty()) {
+            send_err("SET_GAME_COMPAT", "missing_value");
+            return true;
+        }
+
+        GameType game_type = GAMET_UNKNOWN;
+        char *end = nullptr;
+        long raw = std::strtol(value_text.c_str(), &end, 10);
+        if (end && *end == '\0') {
+            if (raw >= GAMET_FIRST && raw <= GAMET_LAST)
+                game_type = static_cast<GameType>(raw);
+        } else if (!parse_game_type(value_text, game_type)) {
+            send_err("SET_GAME_COMPAT", "bad_value");
+            return true;
+        }
+        if (game_type == GAMET_UNKNOWN) {
+            send_err("SET_GAME_COMPAT", "bad_value");
+            return true;
+        }
+
+        server::GameCompatibility = game_type;
+        std::ostringstream os;
+        os << "value=" << GetGameTypeName(game_type)
+           << " enum=" << static_cast<int>(game_type);
+        send_ok("SET_GAME_COMPAT", os.str());
         return true;
     }
 

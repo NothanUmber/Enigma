@@ -108,10 +108,6 @@ capture/restore support.
   - dynamic scratch / secure bits in `objFlags`
   - window damage state is not stored in `state`
 
-- `src/stones/ActorImpulseStone.cc`
-  - runtime attrs / counters such as `$signalidx`
-  - action sequencing depends on data outside `state`
-
 ## Review next when prediction hits them
 
 These classes are not as clear-cut as the list above, but they do maintain
@@ -216,6 +212,17 @@ runtime-model snapshotting should be enough:
   - this needed a small custom restore hook because the generic state restore
     handled the buffered timer semantics but left insert-phase visuals on the
     wrong static model
+- `src/stones/ActorImpulseStone.cc`
+  - verified by `tools/mp_test_scripts/actorimpulse_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_actorimpulse_snapshot_1`,
+    force `GameCompatibility=per.oxyd`, send `_init` to seed the first
+    destination, rotate once with `signal`, then save with `$signalidx=1` while
+    the middle switch is on; after `SIM_SNAPSHOT_LOAD`, the same `$signalidx=1`
+    and switch pattern are restored, and the next `signal` again advances to
+    `$signalidx=2` with only the last switch on
+  - no gameplay hook was needed here; the generic `$...` attr snapshot already
+    preserves the non-Enigma signal-multiplier counter once it is exercised by
+    a compatibility-aware probe
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -239,8 +246,7 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. the remaining `$...`-attribute stone (`ActorImpulseStone`)
-2. remaining `Other` classes with custom runtime references beyond the generic pass
+1. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 

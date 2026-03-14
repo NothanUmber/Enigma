@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<el:level xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://enigma-game.org/schema/level/1 level.xsd" xmlns:el="http://enigma-game.org/schema/level/1">
+  <el:protected>
+    <el:info el:type="level">
+      <el:identity el:title="MP ActorImpulse Snapshot Probe" el:subtitle="" el:id="mptest_actorimpulse_snapshot"/>
+      <el:version el:score="1" el:release="1" el:revision="1" el:status="released"/>
+      <el:author el:name="Codex" el:email="" el:homepage=""/>
+      <el:copyright>Copyright © 2026</el:copyright>
+      <el:license el:type="GPL v2.0 or above" el:open="true"/>
+      <el:compatibility el:enigma="1.10"/>
+      <el:modes el:easy="false" el:single="true" el:network="true"/>
+      <el:comments>
+        <el:code>Minimal ActorImpulseStone snapshot probe for $signalidx rotation.</el:code>
+      </el:comments>
+      <el:score el:easy="-" el:difficult="-"/>
+    </el:info>
+    <el:luamain><![CDATA[
+ti[" "] = {"fl_sahara"}
+ti["#"] = {"st_rawglass"}
+ti["a"] = {"st_actorimpulse"}
+ti["1"] = {"st_switch"}
+ti["2"] = {"st_switch"}
+ti["3"] = {"st_switch"}
+
+wo(ti, " ", {
+    "###########",
+    "#         #",
+    "# a 123   #",
+    "#         #",
+    "###########",
+})
+
+enigma.AddSignal("st(2 2)", "st(4 2)")
+enigma.AddSignal("st(2 2)", "st(5 2)")
+enigma.AddSignal("st(2 2)", "st(6 2)")
+
+wo[{1,3}] = {"#ac_marble_black"}
+wo[{2,3}] = {"#ac_marble_white"}
+    ]]></el:luamain>
+    <el:i18n>
+      <el:string el:key="title">
+        <el:english el:translate="false"/>
+      </el:string>
+    </el:i18n>
+  </el:protected>
+</el:level>
