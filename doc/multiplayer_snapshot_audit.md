@@ -124,8 +124,16 @@ These are stateful world objects that are restored by the dedicated
 snapshot path. They should be audited with that in mind.
 
 - `src/others/TimerGadget.cc`
-  - stateful `Other` with `GameTimer` behavior
-  - **Snapshot hooks:** probably covered by generic `Other` + `GameTimer`, still unverified
+  - verified by `tools/mp_test_scripts/timergadget_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_timergadget_snapshot_1`,
+    a looping `ot_timer` (`interval=0.2`, `target=sw`, `action=signal`) has
+    already fired once against the target `st_switch`; after settling that
+    first toggle, `SIM_SNAPSHOT_SAVE` captures the switch at `st_snap=0` with
+    one repeating alarm pending, `SIM_SNAPSHOT_LOAD` restores the same settled
+    switch state plus queued alarm, and the next 220ms interval flips the
+    switch again on the same timeline as baseline
+  - no gameplay hook was needed here; the dedicated `Other` snapshot pass plus
+    `GameTimer` restore already preserves this repeating-alarm phase case
   - **World resync parity:** no current `Other` transport
 
 - more generally: `src/others/*`
