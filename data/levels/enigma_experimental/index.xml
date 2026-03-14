@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <index xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="index.xsd">
 
-  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="22" title="Experimental"/>
+  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="23" title="Experimental"/>
 
   <attributes/>
 
@@ -27,6 +27,7 @@
     <level _seq="19" _title="MP Scales Snapshot Probe" _xpath="./mptest_scales_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_scales_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="20" _title="MP TimerGadget Snapshot Probe" _xpath="./mptest_timergadget_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_timergadget_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="21" _title="MP TimerStone Snapshot Probe" _xpath="./mptest_timerstone_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_timerstone_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="22" _title="MP MonoFlop Snapshot Probe" _xpath="./mptest_monoflop_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_monoflop_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
   </levels>
 
 </index>

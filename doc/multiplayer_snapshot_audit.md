@@ -110,8 +110,18 @@ relying on prediction for them.
   - still worth checking because flood propagation depends on callbacks and surrounding cells
 
 - `src/stones/MonoFlopStone.cc`
-  - mostly looks covered by `state` + `GameTimer`
-  - laser-specific mode bits in `objFlags` should still be sanity-checked
+  - non-laser timer path verified by
+    `tools/mp_test_scripts/monoflop_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_monoflop_snapshot_1`,
+    `CALL_CELL_ACTOR_HIT` puts `st_monoflop` into `ON_TIMER`
+    (`st_snap=3`, model `st_monoflop_anim`) with a single pending 0.200s
+    alarm; after `SIM_SNAPSHOT_LOAD`, the same animated `ON_TIMER` state and
+    pending alarm are restored, and 220ms later the stone again settles to
+    `st_snap=0` with model `st_monoflop` and no remaining alarm
+  - no gameplay hook was needed here; generic internal-state snapshots plus
+    `GameTimer` restore already preserve the touch-triggered timer path
+  - laser-specific `ON_LASER` / light-dir handling in `objFlags` is still
+    unverified
 
 ## Dedicated non-grid snapshot scope
 
