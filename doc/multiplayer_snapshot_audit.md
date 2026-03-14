@@ -91,10 +91,6 @@ These classes already need and already have custom snapshot treatment:
 These are the next classes I would treat as requiring custom
 capture/restore support.
 
-- `src/floors/ScalesFloor.cc`
-  - runtime attr `$mass` accumulates mass across messages
-  - not represented by external `state`
-
 ## Review next when prediction hits them
 
 These classes are not as clear-cut as the list above, but they do maintain
@@ -221,6 +217,16 @@ runtime-model snapshotting should be enough:
   - this needed a small custom restore hook because generic state/flags restore
     preserved the broken-face semantics but left the window on the settled
     static model instead of the pending break animation
+- `src/floors/ScalesFloor.cc`
+  - verified by `tools/mp_test_scripts/scales_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_scales_snapshot_1`,
+    send `_add_mass 0.6`, save while the floor is still released, then add
+    `_add_mass 0.5` to cross the `min=1.0` threshold; after `SIM_SNAPSHOT_LOAD`,
+    the same `$mass=0.6` and released model are restored, and the next
+    `_add_mass 0.5` again yields `$mass=1.1` with
+    `fl_scales_darkgray_pressed`
+  - no gameplay hook was needed here; generic `$...` attr snapshots already
+    preserve the accumulated mass and recomputed state/model path
 - `src/stones/LightPassengerStone.cc`
   - verified by `tools/mp_test_scripts/lightpassenger_sim_snapshot_restore_probe.txt`
   - dynamic `objFlags` plus `GameTimer` are sufficient once movable-stone
@@ -244,8 +250,7 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. the remaining high-confidence snapshot candidate (`ScalesFloor`)
-2. remaining `Other` classes with custom runtime references beyond the generic pass
+1. remaining `Other` classes with custom runtime references beyond the generic pass
 
 ## World-resync alignment backlog
 
