@@ -214,6 +214,10 @@ public:
 
     Floor *raw_get(Field &f) override { return f.floor; }
     void raw_set(Field &f, Floor *x) override { f.floor = x; }
+    void dispose(Floor *f) override {
+        if (f && !multiplayer::sim_snapshot::TryPreserveDisposedGridObject(f))
+            DisposeObject(f);
+    }
 };
 
 /*
@@ -223,6 +227,10 @@ class ItemLayer : public Layer<Item> {
 private:
     Item *raw_get(Field &f) override { return f.item; }
     void raw_set(Field &f, Item *x) override { f.item = x; }
+    void dispose(Item *it) override {
+        if (it && !multiplayer::sim_snapshot::TryPreserveDisposedGridObject(it))
+            DisposeObject(it);
+    }
 };
 
 /*
@@ -238,7 +246,7 @@ private:
     void dispose(Stone *st) override {
         if (st) {
             SendMessage(st, "disconnect");
-            if (!multiplayer::sim_snapshot::TryPreserveDisposedMovableStone(st))
+            if (!multiplayer::sim_snapshot::TryPreserveDisposedGridObject(st))
                 DisposeObject(st);
         }
     }

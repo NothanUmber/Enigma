@@ -34,53 +34,53 @@ namespace sim_snapshot {
 
 namespace {
 
-std::unordered_map<int, int> g_retained_movable_snapshot_refs;
-std::unordered_map<int, Stone *> g_preserved_disposed_movable_stones;
+std::unordered_map<int, int> g_retained_grid_snapshot_refs;
+std::unordered_map<int, GridObject *> g_preserved_disposed_grid_objects;
 
-void release_retained_movable_ids(const std::vector<int> &object_ids) {
+void release_retained_grid_ids(const std::vector<int> &object_ids) {
     for (int object_id : object_ids) {
-        auto it_ref = g_retained_movable_snapshot_refs.find(object_id);
-        if (it_ref == g_retained_movable_snapshot_refs.end())
+        auto it_ref = g_retained_grid_snapshot_refs.find(object_id);
+        if (it_ref == g_retained_grid_snapshot_refs.end())
             continue;
         if (--it_ref->second == 0) {
-            g_retained_movable_snapshot_refs.erase(it_ref);
-            auto it_preserved = g_preserved_disposed_movable_stones.find(object_id);
-            if (it_preserved == g_preserved_disposed_movable_stones.end())
+            g_retained_grid_snapshot_refs.erase(it_ref);
+            auto it_preserved = g_preserved_disposed_grid_objects.find(object_id);
+            if (it_preserved == g_preserved_disposed_grid_objects.end())
                 continue;
-            Stone *preserved = it_preserved->second;
-            g_preserved_disposed_movable_stones.erase(it_preserved);
+            GridObject *preserved = it_preserved->second;
+            g_preserved_disposed_grid_objects.erase(it_preserved);
             if (preserved)
                 preserved->dispose();
         }
     }
 }
 
-void retain_snapshot_movable_stones(Snapshot &snap) {
-    if (snap.movable_stones.empty()) {
-        snap.retained_movable_stones.reset();
+void retain_snapshot_grid_objects(Snapshot &snap) {
+    if (snap.object_states.empty()) {
+        snap.retained_grid_objects.reset();
         return;
     }
-    std::shared_ptr<Snapshot::RetainedMovableStones> retained =
-        std::make_shared<Snapshot::RetainedMovableStones>();
-    retained->object_ids.reserve(snap.movable_stones.size());
-    for (const auto &stone : snap.movable_stones) {
-        if (stone.object_id < 0)
+    std::shared_ptr<Snapshot::RetainedGridObjects> retained =
+        std::make_shared<Snapshot::RetainedGridObjects>();
+    retained->object_ids.reserve(snap.object_states.size());
+    for (const auto &obj : snap.object_states) {
+        if (obj.object_id < 0)
             continue;
-        retained->object_ids.push_back(stone.object_id);
-        ++g_retained_movable_snapshot_refs[stone.object_id];
+        retained->object_ids.push_back(obj.object_id);
+        ++g_retained_grid_snapshot_refs[obj.object_id];
     }
-    snap.retained_movable_stones = retained;
+    snap.retained_grid_objects = retained;
 }
 
-Stone *take_preserved_disposed_movable_stone(int object_id) {
-    auto it = g_preserved_disposed_movable_stones.find(object_id);
-    if (it == g_preserved_disposed_movable_stones.end())
+GridObject *take_preserved_disposed_grid_object(int object_id) {
+    auto it = g_preserved_disposed_grid_objects.find(object_id);
+    if (it == g_preserved_disposed_grid_objects.end())
         return nullptr;
-    Stone *stone = it->second;
-    g_preserved_disposed_movable_stones.erase(it);
-    if (stone)
-        stone->MpReattachToRepositoryForSnapshotPreserve();
-    return stone;
+    GridObject *obj = it->second;
+    g_preserved_disposed_grid_objects.erase(it);
+    if (obj)
+        obj->MpReattachToRepositoryForSnapshotPreserve();
+    return obj;
 }
 
 ActorInfoSnapshot capture_actorinfo(const ActorInfo &ai) {
@@ -201,7 +201,7 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
             continue;
         Stone *missing = dynamic_cast<Stone *>(Object::getObject(e.object_id));
         if (!missing)
-            missing = take_preserved_disposed_movable_stone(e.object_id);
+            missing = dynamic_cast<Stone *>(take_preserved_disposed_grid_object(e.object_id));
         if (!missing || !missing->is_movable())
             continue;
         if (ShogunStone *hidden = dynamic_cast<ShogunStone *>(missing)) {
@@ -309,6 +309,89 @@ void restore_movable_stone_positions(const std::vector<Snapshot::MovableStone> &
     }
 }
 
+GridObject *get_grid_object_at(GridLayer layer, GridPos pos) {
+    switch (layer) {
+    case GRID_FLOOR:
+        return GetFloor(pos);
+    case GRID_ITEMS:
+        return GetItem(pos);
+    case GRID_STONES:
+        return GetStone(pos);
+    default:
+        return nullptr;
+    }
+}
+
+GridObject *yield_grid_object_for_snapshot_restore(GridLayer layer, GridPos pos) {
+    switch (layer) {
+    case GRID_FLOOR:
+        return YieldFloorForSnapshotRestore(pos);
+    case GRID_ITEMS:
+        return YieldItemForSnapshotRestore(pos);
+    case GRID_STONES:
+        return YieldStoneForSnapshotRestore(pos);
+    default:
+        return nullptr;
+    }
+}
+
+void set_grid_object_for_snapshot_restore(GridLayer layer, GridPos pos, GridObject *obj) {
+    if (!obj)
+        return;
+    switch (layer) {
+    case GRID_FLOOR:
+        SetFloorForSnapshotRestore(pos, dynamic_cast<Floor *>(obj));
+        return;
+    case GRID_ITEMS:
+        SetItemForSnapshotRestore(pos, dynamic_cast<Item *>(obj));
+        return;
+    case GRID_STONES:
+        SetStoneForSnapshotRestore(pos, dynamic_cast<Stone *>(obj));
+        return;
+    default:
+        return;
+    }
+}
+
+void preserve_or_dispose_grid_object(GridObject *obj) {
+    if (!obj)
+        return;
+    if (!TryPreserveDisposedGridObject(obj))
+        DisposeObject(obj);
+}
+
+void restore_grid_object_layout(const std::vector<ObjectStateSnapshot> &wanted) {
+    for (const auto &snap : wanted) {
+        if (snap.object_id < 0 || snap.layer == GRID_COUNT || snap.x < 0 || snap.y < 0)
+            continue;
+        const GridPos pos(snap.x, snap.y);
+        GridObject *current = get_grid_object_at(snap.layer, pos);
+        if (current && current->getId() == snap.object_id)
+            continue;
+
+        if (current)
+            preserve_or_dispose_grid_object(yield_grid_object_for_snapshot_restore(snap.layer, pos));
+
+        GridObject *want = dynamic_cast<GridObject *>(Object::getObject(snap.object_id));
+        if (!want)
+            want = take_preserved_disposed_grid_object(snap.object_id);
+        if (!want)
+            continue;
+
+        if (want->isDisplayable()) {
+            const GridPos current_pos = want->get_pos();
+            if (current_pos != pos) {
+                GridObject *lifted = yield_grid_object_for_snapshot_restore(snap.layer, current_pos);
+                if (lifted && lifted != want)
+                    preserve_or_dispose_grid_object(lifted);
+            }
+        }
+
+        if (!get_grid_object_at(snap.layer, pos))
+            set_grid_object_for_snapshot_restore(snap.layer, pos, want);
+    }
+}
+
 }  // namespace
 
 Snapshot::AnimatedGridModel::AnimatedGridModel(const AnimatedGridModel &other)
@@ -332,8 +415,8 @@ Snapshot::AnimatedGridModel &Snapshot::AnimatedGridModel::operator=(const Animat
 
 Snapshot::AnimatedGridModel::~AnimatedGridModel() = default;
 
-Snapshot::RetainedMovableStones::~RetainedMovableStones() {
-    release_retained_movable_ids(object_ids);
+Snapshot::RetainedGridObjects::~RetainedGridObjects() {
+    release_retained_grid_ids(object_ids);
 }
 
 ActorSnapshot CaptureActor(const Actor &actor) {
@@ -410,7 +493,7 @@ Snapshot Capture() {
             }
         }
     }
-    retain_snapshot_movable_stones(snap);
+    retain_snapshot_grid_objects(snap);
 
     std::vector<Actor *> actors;
     GetActors(actors);
@@ -428,6 +511,7 @@ void Restore(const Snapshot &snap) {
     server::RandomState = snap.random_state;
     server::LevelTime = snap.level_time;
     restore_movable_stone_positions(snap.movable_stones);
+    restore_grid_object_layout(snap.object_states);
     RestoreObjectStates(snap.object_states);
     RestoreOtherStates(snap.other_states);
     // Laser beams are runtime graph objects, not part of the grid-object snapshot.
@@ -471,18 +555,18 @@ void Restore(const Snapshot &snap) {
     }
 }
 
-bool TryPreserveDisposedMovableStone(Stone *stone) {
-    if (!stone || !stone->is_movable())
+bool TryPreserveDisposedGridObject(GridObject *obj) {
+    if (!obj)
         return false;
-    const int object_id = stone->getId();
-    auto it = g_retained_movable_snapshot_refs.find(object_id);
-    if (it == g_retained_movable_snapshot_refs.end() || it->second <= 0)
+    const int object_id = obj->getId();
+    auto it = g_retained_grid_snapshot_refs.find(object_id);
+    if (it == g_retained_grid_snapshot_refs.end() || it->second <= 0)
         return false;
-    UnnameObject(stone);
-    if (TimeHandler *th = dynamic_cast<TimeHandler *>(stone))
+    UnnameObject(obj);
+    if (TimeHandler *th = dynamic_cast<TimeHandler *>(obj))
         GameTimer.remove_all_alarms(th);
-    stone->MpDetachFromRepositoryForSnapshotPreserve();
-    g_preserved_disposed_movable_stones[object_id] = stone;
+    obj->MpDetachFromRepositoryForSnapshotPreserve();
+    g_preserved_disposed_grid_objects[object_id] = obj;
     return true;
 }
 

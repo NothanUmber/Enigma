@@ -69,6 +69,9 @@ struct Action {
 
 struct ObjectStateSnapshot {
     int object_id = -1;
+    GridLayer layer = GRID_COUNT;
+    int x = -1;
+    int y = -1;
     int state = 0;
     uint32_t flags = 0;
     Object::MpAttrSnapshot attrs;
@@ -349,6 +352,8 @@ void TouchStone(GridPos pos);
 void SetItem(GridPos p, Item *it);
 Item *GetItem(GridPos p);
 Item *YieldItem(GridPos p);
+Item *YieldItemForSnapshotRestore(GridPos p);
+void SetItemForSnapshotRestore(GridPos p, Item *it);
 void KillItem(GridPos p);
 
 /* -------------------- Floors -------------------- */
@@ -356,6 +361,8 @@ void KillItem(GridPos p);
 void SetFloor(GridPos p, Floor *st);
 Floor *GetFloor(GridPos p);
 void KillFloor(GridPos p);
+Floor *YieldFloorForSnapshotRestore(GridPos p);
+void SetFloorForSnapshotRestore(GridPos p, Floor *st);
 void CoverFloor(const GridPos &p, std::string kind);
 
 /* -------------------- Explosions -------------------- */

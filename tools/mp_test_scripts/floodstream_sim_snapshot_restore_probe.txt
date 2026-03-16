@@ -1,0 +1,49 @@
+# Probe FloodStream sim snapshot restore after an idle water floor is activated
+# but before it floods one adjacent floodable floor. Restore should bring back
+# the pre-spread layout and the same pending alarm so the adjacent floor floods
+# again on the same timeline.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23485 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23485 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/mptest_floodstream_snapshot_1"
+sleep 1500
+both START_GAME
+host STREAM_STATE interval_ms=50
+wait role=host contains="sv_world_init=1" timeout_ms=5000
+
+host GET_CELL x=3 y=2
+host GET_CELL x=4 y=2
+host GET_GAME_TIMER_ALARMS
+host SEND_CELL_MESSAGE x=3 y=2 layer=fl message=open
+host GET_CELL x=3 y=2
+host GET_CELL x=4 y=2
+host GET_GAME_TIMER_ALARMS
+host SIM_SNAPSHOT_SAVE
+
+sleep 520
+host GET_CELL x=3 y=2
+host GET_CELL x=4 y=2
+host GET_GAME_TIMER_ALARMS
+
+host SIM_SNAPSHOT_LOAD
+host GET_CELL x=3 y=2
+host GET_CELL x=4 y=2
+host GET_GAME_TIMER_ALARMS
+
+sleep 520
+host GET_CELL x=3 y=2
+host GET_CELL x=4 y=2
+host GET_GAME_TIMER_ALARMS
+
+both QUIT

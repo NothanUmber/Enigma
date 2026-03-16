@@ -106,8 +106,18 @@ relying on prediction for them.
   - but verify carefully because teleport timing and force-field registration are delicate
 
 - `src/floors/FloodStream.cc`
-  - mostly looks covered by `state` + `GameTimer`
-  - still worth checking because flood propagation depends on callbacks and surrounding cells
+  - verified by `tools/mp_test_scripts/floodstream_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_floodstream_snapshot_1`,
+    send `open` to an idle `fl_water`, save while it is `FLOODING`
+    (`fl_snap=1`) with one pending 0.500s alarm and the adjacent
+    `floodable=true` `fl_rough` still dry, then let baseline flood-replace that
+    neighbor with `fl_water`; after `SIM_SNAPSHOT_LOAD`, the source returns to
+    `FLOODING`, the adjacent floor is restored to `fl_rough`, and the next
+    520ms interval floods that same neighbor again
+  - this needed a generic snapshot-restore fix: replaced grid objects are now
+    retained and can be reinserted at their saved layer/position before state
+    restore, instead of staying stuck as post-save replacements
+  - vortex / wormhole flood spread via `warpSpreadPos(true)` is still unverified
 
 - `src/stones/MonoFlopStone.cc`
   - non-laser timer path verified by

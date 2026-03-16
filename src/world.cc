@@ -2084,19 +2084,22 @@ void CaptureObjectStates(std::vector<ObjectStateSnapshot> &states) {
     for (int y = 0; y < level->h; ++y) {
         for (int x = 0; x < level->w; ++x) {
             Field &f = level->fields(x, y);
-            auto capture = [&states](GridObject *obj) {
+            auto capture = [&states, x, y](GridObject *obj, GridLayer layer) {
                 if (!obj)
                     return;
                 ObjectStateSnapshot snap;
                 snap.object_id = obj->getId();
+                snap.layer = layer;
+                snap.x = x;
+                snap.y = y;
                 snap.state = obj->MpCaptureStateForSnapshot();
                 snap.flags = obj->MpCaptureFlagsForSnapshot();
                 obj->MpCaptureAttrsForSnapshot(snap.attrs);
                 states.push_back(std::move(snap));
             };
-            capture(f.floor);
-            capture(f.item);
-            capture(f.stone);
+            capture(f.floor, GRID_FLOOR);
+            capture(f.item, GRID_ITEMS);
+            capture(f.stone, GRID_STONES);
         }
     }
 }
@@ -2309,6 +2312,36 @@ void SetFloor(GridPos p, Floor *fl) {
             st->on_floor_change();
 }
 
+Floor *YieldFloorForSnapshotRestore(GridPos p) {
+    Field *f = level->get_field(p);
+    if (!f)
+        return nullptr;
+    Floor *fl = f->floor;
+    if (!fl)
+        return nullptr;
+    if (Value name = fl->getAttr("name"))
+        NamePosition(p, name.to_string());
+    display::KillModel(GridLoc(GRID_FLOOR, p));
+    f->floor = nullptr;
+    fl->MpSetGridPosForSnapshot(GridPos(-1, -1));
+    return fl;
+}
+
+void SetFloorForSnapshotRestore(GridPos p, Floor *fl) {
+    if (!fl)
+        return;
+    Field *f = level->get_field(p);
+    if (!f) {
+        DisposeObject(fl);
+        return;
+    }
+    ASSERT(f->floor == nullptr, XLevelRuntime, "snapshot restore floor target occupied");
+    f->floor = fl;
+    fl->MpSetGridPosForSnapshot(p);
+    if (Value name = fl->getAttr("name"))
+        NamePosition(p, name.to_string());
+}
+
 void CoverFloor(const GridPos &p, std::string kind) {
     Floor *fl = GetFloor(p);
     Item *it = GetItem(p);
@@ -2430,9 +2463,37 @@ Item *YieldItem(GridPos p) {
     return level->it_layer.yield(p);
 }
 
+Item *YieldItemForSnapshotRestore(GridPos p) {
+    Field *f = level->get_field(p);
+    if (!f)
+        return nullptr;
+    Item *it = f->item;
+    if (!it)
+        return nullptr;
+    display::KillModel(GridLoc(GRID_ITEMS, p));
+    f->item = nullptr;
+    it->MpSetGridPosForSnapshot(GridPos(-1, -1));
+    return it;
+}
+
 void SetItem(GridPos p, Item *it) {
     MaybeRecalcLight(p);
     level->it_layer.set(p, it);
+}
+
+void SetItemForSnapshotRestore(GridPos p, Item *it) {
+    if (!it)
+        return;
+    Field *f = level->get_field(p);
+    if (!f) {
+        DisposeObject(it);
+        return;
+    }
+    ASSERT(f->item == nullptr, XLevelRuntime, "snapshot restore item target occupied");
+    f->item = it;
+    it->MpSetGridPosForSnapshot(p);
+    if (Value name = it->getAttr("name"))
+        NameObject(it, name.to_string());
 }
 
 /* -------------------- Actor manipulation -------------------- */
