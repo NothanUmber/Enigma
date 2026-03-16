@@ -70,6 +70,19 @@ namespace enigma {
             }
         }
     }
+
+    bool Magnet::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (isDisplayable() && snapshot_state != state) {
+            if (snapshot_state == ON)
+                AddForceField(this);
+            else
+                RemoveForceField(this);
+        }
+        state = snapshot_state;
+        if (isDisplayable())
+            init_model();
+        return true;
+    }
     
     void Magnet::init_model() {
         set_model(ecl::strf("it_magnet_%s", state == ON ? "on" : "off"));

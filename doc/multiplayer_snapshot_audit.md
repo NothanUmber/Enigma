@@ -102,8 +102,16 @@ relying on prediction for them.
   - cluster logic and pending explosion state may rely on those flags
 
 - `src/items/WormHole.cc`
-  - state encodes engage/warp progress, which is good
-  - but verify carefully because teleport timing and force-field registration are delicate
+  - verified by `tools/mp_test_scripts/wormhole_sim_snapshot_forcefield_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_wormhole_snapshot_1`,
+    save while an `it_wormhole_on` is idle, then send `close` so it becomes
+    `it_wormhole_off` and removes its force field; after `SIM_SNAPSHOT_LOAD`,
+    the same restored `it_wormhole_on` again pulls an off-center marble from
+    `(4.25,2.5)` and teleports it to `(8.5,2.5)` just like baseline
+  - this needed a small restore hook because force-field registration lives in
+    `setState` / `on_creation`, while generic snapshot restore only writes the
+    internal state and reinitializes the model
+  - nonzero `interval` engaged timing is still unverified
 
 - `src/floors/FloodStream.cc`
   - verified by `tools/mp_test_scripts/floodstream_sim_snapshot_restore_probe.txt`

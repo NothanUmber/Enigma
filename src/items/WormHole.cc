@@ -74,6 +74,19 @@ namespace enigma {
             }
         }
     }
+
+    bool WormHole::MpRestoreStateForSnapshot(int snapshot_state) {
+        if (isDisplayable() && ((snapshot_state ^ state) & 1) != 0) {
+            if ((snapshot_state & 1) != 0)
+                AddForceField(this);
+            else
+                RemoveForceField(this);
+        }
+        state = snapshot_state;
+        if (isDisplayable())
+            init_model();
+        return true;
+    }
     
     void WormHole::on_creation (GridPos p) {
         Item::on_creation (p);
