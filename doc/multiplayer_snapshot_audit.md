@@ -136,10 +136,22 @@ relying on prediction for them.
     alarm; after `SIM_SNAPSHOT_LOAD`, the same animated `ON_TIMER` state and
     pending alarm are restored, and 220ms later the stone again settles to
     `st_snap=0` with model `st_monoflop` and no remaining alarm
-  - no gameplay hook was needed here; generic internal-state snapshots plus
-    `GameTimer` restore already preserve the touch-triggered timer path
-  - laser-specific `ON_LASER` / light-dir handling in `objFlags` is still
-    unverified
+  - laser path verified by
+    `tools/mp_test_scripts/monoflop_laser_sim_snapshot_restore_probe.txt`
+  - exact verified case: in
+    `enigma_experimental/mptest_monoflop_laser_snapshot_1`, open a
+    `st_laser_e` so the adjacent `st_laserflop` enters `ON_LASER`
+    (`st_snap=2`) with beam item `it_laserbeam` present at `(3,2)`, save, then
+    close the laser so baseline removes the beam, puts the flop into
+    `ON_TIMER` (`st_snap=3`), and 220ms later settles it to `OFF`; after
+    `SIM_SNAPSHOT_LOAD`, the same lit beam cell and `ON_LASER` state are
+    restored, and the next `close` again yields beam removal, `ON_TIMER`, and
+    the same 220ms timeout back to `OFF`
+  - this needed a generic snapshot fix: runtime `it_laserbeam` objects are no
+    longer captured/restored as normal grid items, and are instead rebuilt only
+    from current laser emitters after load
+  - generic internal-state snapshots plus `GameTimer` restore are sufficient
+    once runtime laser beams stay out of the saved object-state model
 
 ## Dedicated non-grid snapshot scope
 

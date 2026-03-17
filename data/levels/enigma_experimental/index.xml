@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <index xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="index.xsd">
 
-  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="25" title="Experimental"/>
+  <info enigma="1.00" group="Development" location="70300" network="false" owner="Enigma Team" release="1" revision="26" title="Experimental"/>
 
   <attributes/>
 
@@ -30,6 +30,7 @@
     <level _seq="22" _title="MP MonoFlop Snapshot Probe" _xpath="./mptest_monoflop_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_monoflop_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="23" _title="MP FloodStream Snapshot Probe" _xpath="./mptest_floodstream_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_floodstream_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
     <level _seq="24" _title="MP WormHole Snapshot Probe" _xpath="./mptest_wormhole_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_wormhole_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
+    <level _seq="25" _title="MP MonoFlop Laser Snapshot Probe" _xpath="./mptest_monoflop_laser_snapshot_1" author="Codex" ctrl="force" easy="false" id="mptest_monoflop_laser_snapshot" rel="1" rev="1" score="1" target="time" unit="duration"/>
   </levels>
 
 </index>

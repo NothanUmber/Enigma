@@ -2087,6 +2087,8 @@ void CaptureObjectStates(std::vector<ObjectStateSnapshot> &states) {
             auto capture = [&states, x, y](GridObject *obj, GridLayer layer) {
                 if (!obj)
                     return;
+                if (dynamic_cast<LaserBeam *>(obj))
+                    return;
                 ObjectStateSnapshot snap;
                 snap.object_id = obj->getId();
                 snap.layer = layer;
