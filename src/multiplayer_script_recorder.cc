@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #ifdef WIN32
 #include <direct.h>
@@ -88,15 +89,152 @@ bool restore_layer_object(const GridPos &pos, GridLayer layer, const std::string
 
     if (!current)
         return false;
-    if (Stone *st = dynamic_cast<Stone *>(current)) {
-        if (OxydStone *ox = dynamic_cast<OxydStone *>(st)) {
-            ox->MpForceExternalState(want_state);
+    if (OxydStone *ox = dynamic_cast<OxydStone *>(current)) {
+        if (ox->MpRestoreStateForSnapshot(want_state))
             return true;
-        }
+        ox->MpForceExternalState(want_state);
+        return true;
     }
     if (!current->MpRestoreStateForSnapshot(want_state))
         current->setAttr("state", Value(want_state));
     return true;
+}
+
+struct WantedMovableStone {
+    int object_id = -1;
+    GridPos pos = GridPos(-1, -1);
+};
+
+void restore_movable_stones_by_kind(const Snapshot &snapshot) {
+    const int w = Width();
+    const int h = Height();
+    if (w <= 0 || h <= 0)
+        return;
+
+    auto key = [](int x, int y) -> uint32_t {
+        return (static_cast<uint32_t>(x) << 16) | static_cast<uint32_t>(y);
+    };
+    auto key_to_pos = [](uint32_t k) -> GridPos {
+        return GridPos(static_cast<int>((k >> 16) & 0xFFFFu), static_cast<int>(k & 0xFFFFu));
+    };
+    auto erase_id = [](std::vector<int> &ids, int object_id) {
+        ids.erase(std::remove(ids.begin(), ids.end(), object_id), ids.end());
+    };
+
+    std::unordered_map<std::string, std::vector<int>> available_ids_by_kind;
+    available_ids_by_kind.reserve(64);
+    std::unordered_map<int, uint32_t> current_pos_by_id;
+    current_pos_by_id.reserve(64);
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            Stone *st = GetStone(GridPos(x, y));
+            if (!st || !st->is_movable())
+                continue;
+            const int object_id = st->getId();
+            available_ids_by_kind[st->getKind()].push_back(object_id);
+            current_pos_by_id[object_id] = key(x, y);
+        }
+    }
+
+    std::unordered_map<std::string, std::vector<uint32_t>> wanted_positions_by_kind;
+    wanted_positions_by_kind.reserve(64);
+    std::vector<WantedMovableStone> wanted;
+    wanted.reserve(64);
+
+    for (const CellState &cell : snapshot.cells) {
+        if (cell.stone_kind.empty() || cell.stone_kind == kSnapshotNone)
+            continue;
+        const GridPos pos(cell.x, cell.y);
+        Stone *st = GetStone(pos);
+        if (st && st->is_movable() && st->getKind() == cell.stone_kind) {
+            const int object_id = st->getId();
+            erase_id(available_ids_by_kind[cell.stone_kind], object_id);
+            wanted.push_back(WantedMovableStone{object_id, pos});
+            continue;
+        }
+        wanted_positions_by_kind[cell.stone_kind].push_back(key(cell.x, cell.y));
+    }
+
+    for (auto &entry : wanted_positions_by_kind) {
+        std::vector<int> &ids = available_ids_by_kind[entry.first];
+        for (uint32_t dst : entry.second) {
+            if (ids.empty())
+                break;
+            const int object_id = ids.back();
+            ids.pop_back();
+            wanted.push_back(WantedMovableStone{object_id, key_to_pos(dst)});
+        }
+    }
+
+    std::unordered_map<uint32_t, uint32_t> src_to_dst;
+    std::unordered_map<uint32_t, uint32_t> src_by_dst;
+    src_to_dst.reserve(wanted.size());
+    src_by_dst.reserve(wanted.size());
+    for (const WantedMovableStone &entry : wanted) {
+        auto it = current_pos_by_id.find(entry.object_id);
+        if (it == current_pos_by_id.end())
+            continue;
+        const uint32_t src = it->second;
+        const uint32_t dst = key(entry.pos.x, entry.pos.y);
+        if (src == dst)
+            continue;
+        src_to_dst[src] = dst;
+        src_by_dst[dst] = src;
+    }
+
+    bool progressed = true;
+    while (progressed) {
+        progressed = false;
+        for (auto it = src_to_dst.begin(); it != src_to_dst.end(); ++it) {
+            const uint32_t src = it->first;
+            const uint32_t dst = it->second;
+            const GridPos dst_pos = key_to_pos(dst);
+            if (GetStone(dst_pos) != nullptr)
+                continue;
+            MoveStoneForSnapshotRestore(key_to_pos(src), dst_pos);
+            src_by_dst.erase(dst);
+            src_to_dst.erase(it);
+            progressed = true;
+            break;
+        }
+    }
+
+    while (!src_to_dst.empty()) {
+        const uint32_t start_src = src_to_dst.begin()->first;
+        const uint32_t start_dst = src_to_dst.begin()->second;
+        const GridPos start_src_pos = key_to_pos(start_src);
+        Stone *held = YieldStoneForSnapshotRestore(start_src_pos);
+        if (!held) {
+            src_by_dst.erase(start_dst);
+            src_to_dst.erase(start_src);
+            continue;
+        }
+
+        uint32_t empty = start_src;
+        while (empty != start_dst) {
+            auto it_prev = src_by_dst.find(empty);
+            if (it_prev == src_by_dst.end()) {
+                SetStoneForSnapshotRestore(start_src_pos, held);
+                held = nullptr;
+                src_to_dst.clear();
+                src_by_dst.clear();
+                break;
+            }
+            const uint32_t prev_src = it_prev->second;
+            MoveStoneForSnapshotRestore(key_to_pos(prev_src), key_to_pos(empty));
+            auto it_dst = src_to_dst.find(prev_src);
+            if (it_dst != src_to_dst.end())
+                src_to_dst.erase(it_dst);
+            src_by_dst.erase(it_prev);
+            empty = prev_src;
+        }
+        if (held) {
+            SetStoneForSnapshotRestore(key_to_pos(start_dst), held);
+            src_by_dst.erase(start_dst);
+            src_to_dst.erase(start_src);
+        }
+    }
 }
 
 }  // namespace
@@ -216,6 +354,8 @@ bool Restore(const Snapshot &snapshot) {
         WorldChangeNotificationGuard() { SetSuppressWorldChangeNotifications(true); }
         ~WorldChangeNotificationGuard() { SetSuppressWorldChangeNotifications(false); }
     } guard;
+
+    restore_movable_stones_by_kind(snapshot);
 
     for (const CellState &cell : snapshot.cells)
         restore_layer_object(GridPos(cell.x, cell.y), GRID_FLOOR, cell.floor_kind, cell.floor_state);
