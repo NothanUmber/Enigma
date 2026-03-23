@@ -6,10 +6,17 @@ stable target instead of drifting across iterations.
 
 ## Decision
 
-The current unstaged actor interpolation experiment should be reverted before
-continuing. The committed baseline is well-defined and playable; the current
-experiment is not. It is easier to implement the target model cleanly from that
-baseline than to repair the current partial actor-state machine in place.
+The branch now contains the mixed-time visual predictor this document was
+targeting:
+
+- remote actors stay truth-driven by default
+- locally affected remote actors persist in `LocalOwned`
+- overlapping real remote input enters `BlendToTruth`
+- locally changed world elements persist until truth catches up
+- lockstep world resync now follows the same semantic object-state contract
+
+The remaining work is acceptance coverage, broader gameplay soak testing, and
+later cleanup, not a revert of the current implementation.
 
 ## Core timeline
 
@@ -180,6 +187,20 @@ The target implementation is correct if all of the following hold:
    may require correction, but the transition is visually blended instead of
    abrupt.
 
+Current tested status on this branch:
+
+- `it_takes_two_visual_prediction_conflict_blend.txt`
+  - verifies conflict entry plus blend progression (`LocalOwned -> BlendToTruth`)
+- `good_company_rubberband_state_probe.txt`
+  - verifies coupled rubberband motion under high delay eventually settles back
+    to matching truth on both peers
+- `way_to_go_door_render_state_probe.txt`
+  - verifies a locally changed shogun/door interaction persists immediately in
+    the predicted view and later converges on the delayed peer
+- `open_sesame_door_render_probe.txt`
+  - provides an additional focused render-side persistence check for shogun
+    movement in a door-coupled setup
+
 ## Implementation roadmap
 
 Use this as the working TODO list. Each step should remain reviewable on its
@@ -193,7 +214,7 @@ Status markers:
 
 ### Step 1 — Persist actor prediction state across frames
 
-- Status: `[~]`
+- Status: `[x]`
 - Goal:
   - stop rebuilding replay-affected remote actors from current truth every
     render frame
@@ -224,7 +245,7 @@ Status markers:
 
 ### Step 2 — Release locally-owned remote actors only when both sides stand still
 
-- Status: `[ ]`
+- Status: `[x]`
 - Goal:
   - make ownership release deterministic and simple
   - avoid premature handoff while predicted rollout is still evolving
@@ -246,7 +267,7 @@ Status markers:
 
 ### Step 3 — Enter conflict mode when real remote input arrives during local ownership
 
-- Status: `[ ]`
+- Status: `[x]`
 - Goal:
   - handle the case where a remote actor is already locally owned and then the
     remote player starts influencing it before truth has caught up
@@ -270,7 +291,7 @@ Status markers:
 
 ### Step 4 — Blend both position and velocity in conflict mode
 
-- Status: `[ ]`
+- Status: `[x]`
 - Goal:
   - make conflict presentation visually plausible instead of mushy or abrupt
 - Files:
@@ -289,7 +310,7 @@ Status markers:
 
 ### Step 5 — Extend the same persistence rule from actors to locally changed world elements
 
-- Status: `[ ]`
+- Status: `[x]`
 - Goal:
   - make locally changed world state follow the same mixed-time semantics as
     actors

@@ -1,0 +1,44 @@
+# Probe rubberband-mediated actor/world persistence in Good Company.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=120
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=0
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23460 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23460 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxydlink03_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+# Move both marbles into the open center while keeping the level rubberband intact.
+both SET_ACTOR_POS player=0 x=22.50 y=6.50 vx=0.0 vy=0.0
+both SET_ACTOR_POS player=1 x=27.50 y=6.50 vx=0.0 vy=0.0
+
+both STATE_RENDER
+host HOLD_MOUSE_FORCE player=0 ticks=24 fx=260.0 fy=0.0
+
+sleep 120
+both STATE_RENDER
+
+sleep 500
+both STATE_RENDER
+
+sleep 1000
+both STATE_RENDER
+
+sleep 2000
+both STATE_RENDER
+
+sleep 2000
+both STATE_RENDER
+
+both QUIT
