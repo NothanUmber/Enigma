@@ -393,9 +393,11 @@ void ImageModel::get_extension(ecl::Rect &r) {
 ShadowModel::ShadowModel(Model *m, Model *sh) {
     model = m;
     shade = sh;
-    ecl::Rect r1, r2;
-    model->get_extension(r1);
-    shade->get_extension(r2);
+    ecl::Rect r1(0, 0, 0, 0), r2(0, 0, 0, 0);
+    if (model)
+        model->get_extension(r1);
+    if (shade)
+        shade->get_extension(r2);
     extension = boundingbox(r1, r2);
 }
 
@@ -405,34 +407,45 @@ ShadowModel::~ShadowModel() {
 }
 
 void ShadowModel::expose(ModelLayer *ml, int vx, int vy) {
-    model->expose(ml, vx, vy);
-    shade->expose(ml, vx, vy);
+    if (model)
+        model->expose(ml, vx, vy);
+    if (shade)
+        shade->expose(ml, vx, vy);
 }
 void ShadowModel::remove(ModelLayer *ml) {
-    shade->remove(ml);
-    model->remove(ml);
+    if (shade)
+        shade->remove(ml);
+    if (model)
+        model->remove(ml);
 }
 
 void ShadowModel::set_callback(ModelCallback *cb) {
-    model->set_callback(cb);
+    if (model)
+        model->set_callback(cb);
 }
 
 void ShadowModel::reverse() {
-    model->reverse();
-    shade->reverse();
+    if (model)
+        model->reverse();
+    if (shade)
+        shade->reverse();
 }
 
 void ShadowModel::restart() {
-    model->restart();
-    shade->restart();
+    if (model)
+        model->restart();
+    if (shade)
+        shade->restart();
 }
 
 void ShadowModel::draw(ecl::GC &gc, int x, int y) {
-    model->draw(gc, x, y);
+    if (model)
+        model->draw(gc, x, y);
 }
 
 void ShadowModel::draw_shadow(ecl::GC &gc, int x, int y) {
-    shade->draw(gc, x, y);
+    if (shade)
+        shade->draw(gc, x, y);
 }
 
 Model *ShadowModel::get_shadow() const {
@@ -440,7 +453,8 @@ Model *ShadowModel::get_shadow() const {
 }
 
 Model *ShadowModel::clone() {
-    return new ShadowModel(model->clone(), shade->clone());
+    return new ShadowModel(model ? model->clone() : nullptr,
+                           shade ? shade->clone() : nullptr);
 }
 
 void ShadowModel::get_extension(ecl::Rect &r) {
