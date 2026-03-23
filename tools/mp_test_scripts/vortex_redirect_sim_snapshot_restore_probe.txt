@@ -1,0 +1,52 @@
+# Probe Vortex sim snapshot restore after a sticky first destination redirect
+# has already advanced $dest_idx but before the second target warp occurs.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23488 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23488 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/mptest_vortex_redirect_snapshot_1"
+sleep 1500
+both START_GAME
+host STREAM_STATE interval_ms=50
+wait role=host contains="sv_world_init=1" timeout_ms=5000
+host SET_NAMED_DESTINATIONS name=source dests=blocked,final
+
+host GET_CELL x=3 y=2
+host GET_CELL_ATTR x=3 y=2 layer=it key=$dest_idx
+host SET_ACTOR_POS player=0 x=3.500 y=2.500 vx=0.0 vy=0.0
+sleep 450
+host GET_ACTOR_GRID player=0
+host GET_CELL x=3 y=2
+host GET_CELL_ATTR x=3 y=2 layer=it key=$dest_idx
+host GET_GAME_TIMER_ALARMS
+host SIM_SNAPSHOT_SAVE
+
+sleep 900
+host GET_ACTOR_GRID player=0
+host GET_CELL x=3 y=2
+host GET_CELL_ATTR x=3 y=2 layer=it key=$dest_idx
+host GET_GAME_TIMER_ALARMS
+
+host SIM_SNAPSHOT_LOAD
+host GET_ACTOR_GRID player=0
+host GET_CELL x=3 y=2
+host GET_CELL_ATTR x=3 y=2 layer=it key=$dest_idx
+host GET_GAME_TIMER_ALARMS
+
+sleep 900
+host GET_ACTOR_GRID player=0
+host GET_CELL x=3 y=2
+host GET_CELL_ATTR x=3 y=2 layer=it key=$dest_idx
+host GET_GAME_TIMER_ALARMS
+
+both QUIT

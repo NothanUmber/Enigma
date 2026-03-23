@@ -109,7 +109,15 @@ relying on prediction for them.
   - this needed a small restore hook because force-field registration lives in
     `setState` / `on_creation`, while generic snapshot restore only writes the
     internal state and reinitializes the model
-  - nonzero `interval` engaged timing is still unverified
+  - nonzero `interval` engaged timing is now verified by
+    `tools/mp_test_scripts/wormhole_interval_sim_snapshot_restore_probe.txt`
+  - exact verified case: in
+    `enigma_experimental/mptest_wormhole_interval_snapshot_1`, save after a
+    teleport has already engaged the wormhole lockout (`it_snap=3`) with one
+    pending 0.500s alarm; after `SIM_SNAPSHOT_LOAD`, the same pending alarm is
+    restored, an immediate retry at 120ms still leaves the marble at `(4,2)`,
+    and after the remaining 450ms delay the next retry again teleports it to
+    `(8,2)`
 
 - `src/floors/FloodStream.cc`
   - verified by `tools/mp_test_scripts/floodstream_sim_snapshot_restore_probe.txt`
@@ -123,7 +131,14 @@ relying on prediction for them.
   - this needed a generic snapshot-restore fix: replaced grid objects are now
     retained and can be reinserted at their saved layer/position before state
     restore, instead of staying stuck as post-save replacements
-  - vortex / wormhole flood spread via `warpSpreadPos(true)` is still unverified
+  - vortex / wormhole flood spread via `warpSpreadPos(true)` is now verified by
+    `tools/mp_test_scripts/floodwarp_sim_snapshot_restore_probe.txt`
+  - exact verified case: in `enigma_experimental/mptest_floodwarp_snapshot_1`,
+    save while both a wormhole-backed and an open-vortex-backed `fl_water` are
+    already `FLOODING` with pending 0.500s alarms and their remote target
+    floors at `(7,2)` / `(7,4)` still dry; after `SIM_SNAPSHOT_LOAD`, those
+    targets return to dry `fl_rough`, and the next 520ms interval floods both
+    same remote target cells again
 
 - `src/stones/MonoFlopStone.cc`
   - non-laser timer path verified by
@@ -199,9 +214,16 @@ runtime-model snapshotting should be enough:
   - after `SIM_SNAPSHOT_LOAD`, the restored sample matches the baseline 700ms
     later: both vortices return to `it_snap=0`, `GET_ACTOR_GRID player=0`
     reports `gx=6 gy=11`, and `GET_GAME_TIMER_ALARMS count=0`
-  - sticky-destination redirect via `$dest_idx > 0` remains unverified, but
-    this key direct vortex-to-vortex handoff no longer looks like a custom-hook
-    gap
+  - sticky-destination redirect via `$dest_idx > 0` is now verified by
+    `tools/mp_test_scripts/vortex_redirect_sim_snapshot_restore_probe.txt`
+  - exact verified case: in
+    `enigma_experimental/mptest_vortex_redirect_snapshot_1`, save after the
+    first destination has already been rejected and the source has advanced to
+    `$dest_idx=1` / `it_snap=4` with one pending 0.800s alarm while the actor
+    is still at the blocked midpoint `(6,2)`; after `SIM_SNAPSHOT_LOAD`, the
+    same `$dest_idx=1` redirect state and pending alarm are restored, and
+    900ms later the actor again ends at the final destination `(9,2)` while
+    the source returns to `it_snap=0`
 - `src/floors/ForwardFloor.cc`
   - verified by `tools/mp_test_scripts/forwardfloor_sim_snapshot_baseline_probe.txt`
     and `tools/mp_test_scripts/forwardfloor_sim_snapshot_restore_probe.txt`
@@ -220,9 +242,16 @@ runtime-model snapshotting should be enough:
     `SIM_SNAPSHOT_LOAD`, the restored `$ball_velocity=5.455,0.000` produces the
     same `CALL_CELL_ANIMCB` outcome and the target item again ends as
     `it_debris`
-  - automatic destination cycling via `$hitdestindex` is still unverified, but
-    the core "save before cannonball spawn, restore, then launch" path looks
-    covered by generic `$...` attr snapshots
+  - automatic destination cycling via `$hitdestindex` is now verified by
+    `tools/mp_test_scripts/spitter_cycle_sim_snapshot_restore_probe.txt`
+  - exact verified case: in
+    `enigma_experimental/mptest_spitter_cycle_snapshot_1`, configure two
+    persistent floor destinations `(8,2)` and `(8,4)`, save after the first
+    out-of-level `spit` while `st_spitter` is `LOADING` with
+    `$hitdestindex=1` and `$ball_velocity=9.091,0.000`, then settle back to
+    `ACTIVE` and spit again; baseline advances to `$hitdestindex=2` and
+    `$ball_velocity=9.091,3.636`, and after `SIM_SNAPSHOT_LOAD` the restored
+    first-shot state again produces that same second-shot cycling result
 - `src/stones/StoneImpulse.cc`
   - verified by `tools/mp_test_scripts/stoneimpulse_sim_snapshot_restore_probe.txt`
   - exact verified case: `SEND_CELL_IMPULSE dir=east` puts an oriented
@@ -232,9 +261,16 @@ runtime-model snapshotting should be enough:
     model `st_stoneimpulse_anim1`, and the same two `CALL_CELL_ANIMCB` steps
     again move only the east-side `st_box_wood` from `(5,2)` to `(6,2)` while
     the west-side box at `(3,2)` stays put
-  - the direct backfire-suppression path looks covered by generic state +
-    flags + `$...` attr snapshots; fellow/wire propagation through
-    `$impulse_source` is still unverified
+  - fellow/wire propagation through `$impulse_source` is now verified by
+    `tools/mp_test_scripts/stoneimpulse_wire_sim_snapshot_restore_probe.txt`
+  - exact verified case: in
+    `enigma_experimental/mptest_stoneimpulse_wire_snapshot_1`, send an
+    eastward impulse into wired source stone `a`, save while follower `b`
+    already carries `$impulse_source=858`, source `a` is at `st_snap=2`,
+    follower `b` is at `st_snap=1`, and the box is still at `(6,2)`; after
+    `SIM_SNAPSHOT_LOAD`, the same follower `$impulse_source` and intermediate
+    pair state are restored, and the next callback sequence again advances the
+    wired follower and moves the same east box on to `(7,2)`
 - `src/stones/CoinSlot.cc`
   - verified by `tools/mp_test_scripts/coinslot_sim_snapshot_restore_probe.txt`
   - exact verified case: saving in `enigma_experimental/mptest_coinslot_snapshot_1`

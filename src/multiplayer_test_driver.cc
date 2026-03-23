@@ -117,6 +117,22 @@ static std::string trim(const std::string &s) {
     return s.substr(b, e - b);
 }
 
+static std::vector<std::string> split_csv(const std::string &s) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (start <= s.size()) {
+        const size_t comma = s.find(',', start);
+        const size_t end = (comma == std::string::npos) ? s.size() : comma;
+        const std::string token = trim(s.substr(start, end - start));
+        if (!token.empty())
+            out.push_back(token);
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    return out;
+}
+
 static std::vector<std::string> split_ws(const std::string &s) {
     std::vector<std::string> out;
     std::string cur;
@@ -132,25 +148,6 @@ static std::vector<std::string> split_ws(const std::string &s) {
     }
     if (!cur.empty())
         out.push_back(cur);
-    return out;
-}
-
-static std::vector<std::string> split_csv(const std::string &s) {
-    std::vector<std::string> out;
-    std::string cur;
-    for (char ch : s) {
-        if (ch == ',') {
-            const std::string token = trim(cur);
-            if (!token.empty())
-                out.push_back(token);
-            cur.clear();
-            continue;
-        }
-        cur.push_back(ch);
-    }
-    const std::string token = trim(cur);
-    if (!token.empty())
-        out.push_back(token);
     return out;
 }
 
@@ -1360,6 +1357,141 @@ static bool handle_command(const std::string &line) {
            << " result=" << debug_value_string(reply);
         multiplayer::VisualPredictionInvalidate();
         send_ok("SEND_NAMED_MESSAGE", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_NAMED_DESTINATIONS") {
+        if (!world_accessible()) {
+            send_err("SET_NAMED_DESTINATIONS", "no_world");
+            return true;
+        }
+        std::string name;
+        std::string dests_raw;
+        {
+            const auto it_name = kv.find("name");
+            if (it_name != kv.end())
+                name = it_name->second;
+            const auto it_dests = kv.find("dests");
+            if (it_dests != kv.end())
+                dests_raw = it_dests->second;
+        }
+        if (name.empty() || dests_raw.empty()) {
+            send_err("SET_NAMED_DESTINATIONS", "missing_fields");
+            return true;
+        }
+        Object *obj = GetNamedObject(name);
+        if (!obj) {
+            send_err("SET_NAMED_DESTINATIONS", "target_not_found");
+            return true;
+        }
+        const std::vector<std::string> dest_names = split_csv(dests_raw);
+        if (dest_names.empty()) {
+            send_err("SET_NAMED_DESTINATIONS", "missing_destinations");
+            return true;
+        }
+        ObjectList dest_objects;
+        for (const std::string &dest_name : dest_names) {
+            Object *dest_obj = GetNamedObject(dest_name);
+            if (!dest_obj) {
+                send_err("SET_NAMED_DESTINATIONS", "destination_not_found");
+                return true;
+            }
+            dest_objects.push_back(dest_obj);
+        }
+        obj->setAttrChecked("destination", Value(dest_objects));
+        std::ostringstream os;
+        os << "name=" << name
+           << " target=" << object_debug_label(obj)
+           << " count=" << dest_objects.size()
+           << " dests=" << dests_raw;
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SET_NAMED_DESTINATIONS", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_CELL_DESTINATIONS") {
+        if (!world_accessible()) {
+            send_err("SET_CELL_DESTINATIONS", "no_world");
+            return true;
+        }
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("SET_CELL_DESTINATIONS", "missing_xy");
+            return true;
+        }
+        std::string layer;
+        std::string dests_raw;
+        {
+            const auto it_layer = kv.find("layer");
+            if (it_layer != kv.end())
+                layer = it_layer->second;
+            const auto it_dests = kv.find("dests");
+            if (it_dests != kv.end())
+                dests_raw = it_dests->second;
+        }
+        if (layer.empty() || dests_raw.empty()) {
+            send_err("SET_CELL_DESTINATIONS", "missing_fields");
+            return true;
+        }
+        GridObject *obj = grid_object_for_layer(layer, GridPos(x, y));
+        if (!obj) {
+            send_err("SET_CELL_DESTINATIONS", "target_not_found");
+            return true;
+        }
+        const std::vector<std::string> dest_specs = split_csv(dests_raw);
+        if (dest_specs.empty()) {
+            send_err("SET_CELL_DESTINATIONS", "missing_destinations");
+            return true;
+        }
+        ObjectList dest_objects;
+        for (const std::string &dest_spec : dest_specs) {
+            const size_t colon = dest_spec.find(':');
+            if (colon == std::string::npos) {
+                send_err("SET_CELL_DESTINATIONS", "bad_destination");
+                return true;
+            }
+            const std::string x_part = trim(dest_spec.substr(0, colon));
+            const std::string y_part = trim(dest_spec.substr(colon + 1));
+            if (x_part.empty() || y_part.empty()) {
+                send_err("SET_CELL_DESTINATIONS", "bad_destination");
+                return true;
+            }
+            char *end = NULL;
+            errno = 0;
+            const long dx = std::strtol(x_part.c_str(), &end, 10);
+            if (errno != 0 || end == x_part.c_str() || *end != '\0') {
+                send_err("SET_CELL_DESTINATIONS", "bad_destination");
+                return true;
+            }
+            errno = 0;
+            const long dy = std::strtol(y_part.c_str(), &end, 10);
+            if (errno != 0 || end == y_part.c_str() || *end != '\0') {
+                send_err("SET_CELL_DESTINATIONS", "bad_destination");
+                return true;
+            }
+            const GridPos dest_pos(static_cast<int>(dx), static_cast<int>(dy));
+            Object *dest_obj = GetItem(dest_pos);
+            if (!dest_obj)
+                dest_obj = GetStone(dest_pos);
+            if (!dest_obj)
+                dest_obj = GetFloor(dest_pos);
+            if (!dest_obj) {
+                send_err("SET_CELL_DESTINATIONS", "destination_not_found");
+                return true;
+            }
+            dest_objects.push_back(dest_obj);
+        }
+        obj->setAttrChecked("destination", Value(dest_objects));
+        std::ostringstream os;
+        os << "x=" << x
+           << " y=" << y
+           << " layer=" << layer
+           << " target=" << object_debug_label(obj)
+           << " count=" << dest_objects.size()
+           << " dests=" << dests_raw;
+        multiplayer::VisualPredictionInvalidate();
+        send_ok("SET_CELL_DESTINATIONS", os.str());
         return true;
     }
 

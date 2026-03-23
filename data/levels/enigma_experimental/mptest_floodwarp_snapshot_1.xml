@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<el:level xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://enigma-game.org/schema/level/1 level.xsd" xmlns:el="http://enigma-game.org/schema/level/1">
+  <el:protected>
+    <el:info el:type="level">
+      <el:identity el:title="MP Flood Warp Snapshot Probe" el:subtitle="" el:id="mptest_floodwarp_snapshot"/>
+      <el:version el:score="1" el:release="1" el:revision="1" el:status="released"/>
+      <el:author el:name="Codex" el:email="" el:homepage=""/>
+      <el:copyright>Copyright © 2026</el:copyright>
+      <el:license el:type="GPL v2.0 or above" el:open="true"/>
+      <el:compatibility el:enigma="1.10"/>
+      <el:modes el:easy="false" el:single="true" el:network="true"/>
+      <el:comments>
+        <el:code>Minimal FloodStream snapshot probe for wormhole and vortex warpSpreadPos flood propagation.</el:code>
+      </el:comments>
+      <el:score el:easy="-" el:difficult="-"/>
+    </el:info>
+    <el:luamain><![CDATA[
+ti[" "] = {"fl_sahara"}
+ti["#"] = {"st_rawglass"}
+ti["a"] = {"fl_rough", floodable=true, name="dest_worm"}
+ti["b"] = {"fl_rough", floodable=true, name="dest_vortex"}
+ti["w"] = ti({"fl_water", interval=0.5}) .. ti({"it_wormhole", name="worm", range=0.0, strength=0.0})
+ti["v"] = ti({"fl_water", interval=0.5}) .. ti({"it_vortex_open", name="vortex"})
+
+wo(ti, " ", {
+    "#############",
+    "#           #",
+    "#  w###a    #",
+    "#           #",
+    "#  v###b    #",
+    "#           #",
+    "#############",
+})
+
+wo[{1,5}] = {"#ac_marble_black"}
+wo[{2,5}] = {"#ac_marble_white"}
+    ]]></el:luamain>
+    <el:i18n>
+      <el:string el:key="title">
+        <el:english el:translate="false"/>
+      </el:string>
+    </el:i18n>
+  </el:protected>
+</el:level>
