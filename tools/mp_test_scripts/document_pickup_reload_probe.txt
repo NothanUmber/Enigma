@@ -1,0 +1,38 @@
+# Repro probe for reload after a fresh document pickup without setup restore.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimAll value=0
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=120
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=0
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=0
+both SET_INT key=MultiplayerDebugNetSimDropPct value=0
+both SET_INT key=MultiplayerDebugNetSimDupPct value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23473 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23473 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+host SET_ITEM x=6 y=6 kind=it_document
+host GET_CELL x=6 y=6
+host SET_ACTOR_POS player=0 x=6.250 y=6.500 vx=3.000 vy=0.000
+sleep 400
+host GET_INV player=0
+host GET_CELL x=6 y=6
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 2500
+
+host STATE
+client STATE
+
+both QUIT

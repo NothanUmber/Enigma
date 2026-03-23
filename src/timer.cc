@@ -128,6 +128,30 @@ void Timer::remove_all_alarms(TimeHandler *th) {
     }
 }
 
+bool Timer::snapshot_alarm(TimeHandler *th, AlarmSnapshot &out, int alarmnr) const {
+    for (const auto &alarm : self->alarms) {
+        if (!alarm.has_handler(th, alarmnr) || alarm.removed)
+            continue;
+        out.interval = alarm.interval;
+        out.timeleft = alarm.timeleft;
+        out.repeatp = alarm.repeatp;
+        out.alarmnr = alarm.alarmnr;
+        const Object *obj = dynamic_cast<const Object *>(alarm.handler);
+        out.handler_object_id = obj ? obj->getId() : -1;
+        return true;
+    }
+    return false;
+}
+
+void Timer::restore_alarm(TimeHandler *th, double interval, double timeleft, bool repeatp, int alarmnr) {
+    ASSERT(th != nullptr, XLevelRuntime, "Timer error: restore_alarm with null handler");
+    ASSERT(interval > 0, XLevelRuntime, "Timer error: restore_alarm interval <= 0 seconds");
+    ASSERT(!repeatp || interval >= 0.01, XLevelRuntime,
+           "Timer error: restore_alarm looping interval < 0.01 seconds");
+    self->alarms.push_back(Alarm(th, interval, repeatp, alarmnr));
+    self->alarms.back().timeleft = timeleft;
+}
+
 void Timer::tick(double dtime) {
     self->handlers.remove(nullptr);  // remove inactive entries
     for (auto &handler : self->handlers)

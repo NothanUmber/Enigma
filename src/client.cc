@@ -76,6 +76,20 @@ void set_mousespeed(double speed) {
     Msg_ShowText(ecl::strf(_("Mouse speed: %d"), s), false, 2.0);
 }
 
+void toggle_client_desync_hold() {
+    if (!multiplayer::IsActive())
+        return;
+    if (multiplayer::IsHost()) {
+        Msg_ShowText("Client desync hold is only available on clients.", false, 2.0);
+        return;
+    }
+    const bool enabled = !multiplayer::ClientDesyncHoldEnabled();
+    multiplayer::SetClientDesyncHold(enabled);
+    Msg_ShowText(enabled ? "Client desync hold enabled: local sim continues, host receives empty input, repair is suppressed."
+                         : "Client desync hold disabled: normal authoritative input and repair resumed.",
+                 false, 3.0);
+}
+
 /*! Generate the message that is displayed when the level starts. */
 std::string displayedLevelInfo(lev::Proxy *level) {
     std::string text;
@@ -606,6 +620,12 @@ void Client::on_keydown(SDL_Event &e) {
     if (keymod & KMOD_CTRL) {
         switch (keysym) {
         case SDLK_a: server::Msg_Command("restart"); break;
+        case SDLK_d:
+            if (keymod & KMOD_SHIFT && multiplayer::IsActive()) {
+                toggle_client_desync_hold();
+                break;
+            }
+            break;
         case SDLK_F3:
             if (keymod & KMOD_SHIFT) {
                 // force a reload from file
@@ -692,6 +712,10 @@ void Client::on_keydown(SDL_Event &e) {
         case SDLK_F5: Msg_AdvanceLevel(lev::ADVANCE_UNSOLVED); break;
         case SDLK_F6: Msg_JumpBack(); break;
         case SDLK_F8:
+            if (multiplayer::IsActive() && (keymod & KMOD_SHIFT)) {
+                toggle_client_desync_hold();
+                break;
+            }
             if (multiplayer::IsActive()) {
                 display::ToggleMultiplayerStatsOverlay();
                 // The overlay is drawn directly on the game screen. Force a full redraw when

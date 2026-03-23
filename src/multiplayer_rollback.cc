@@ -110,6 +110,8 @@ bool should_enable() {
     // Only clients use rollback/replay for resync reconciliation.
     if (internal::g_session.host)
         return false;
+    if (internal::g_session.client_desync_hold)
+        return false;
     if (!input::ZerofillMissingInputsEnabled())
         return false;
     if (!options::GetBool("MultiplayerDebugRollbackEnabled"))
@@ -237,6 +239,11 @@ void Reset() {
     g_pending_tick = UINT32_MAX;
     g_pending_resync = false;
     g_replaying = false;
+}
+
+void ClearPendingReconcile() {
+    g_pending_tick = UINT32_MAX;
+    g_pending_resync = false;
 }
 
 bool TryQueueReconcileResyncState(const protocol::ResyncState &state) {

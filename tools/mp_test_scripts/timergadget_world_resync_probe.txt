@@ -1,0 +1,38 @@
+# Probe TimerGadget world-resync parity for same-external-state hidden phase repair.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23483 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23483 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/mptest_timergadget_snapshot_1"
+sleep 1500
+both START_GAME
+sleep 1000
+
+sleep 100
+host GET_CELL x=5 y=2
+both GET_TIMERGADGET_STATE name=timer
+host CALL_CELL_ANIMCB x=5 y=2 layer=st
+both GET_CELL x=5 y=2
+both GET_TIMERGADGET_STATE name=timer
+
+client FORCE_TIMERGADGET_STATE name=timer internal=2 alarm_left=0.050 alarm_interval=0.200 alarm_repeat=1
+client GET_CELL x=5 y=2
+client GET_TIMERGADGET_STATE name=timer
+
+sleep 80
+both GET_CELL x=5 y=2
+both GET_TIMERGADGET_STATE name=timer
+
+both QUIT

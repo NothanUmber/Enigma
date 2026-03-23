@@ -1,0 +1,38 @@
+# Probe ThiefFloor semantic world-resync parity for same-kind hidden bag repair.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=1
+
+host START_HOST session=1 seed=1 expected=2 port=23472 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23472 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/floors_1"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both SET_INV player=0 items=it_extralife
+both CALL_CELL_ACTOR_ENTER x=181 y=5 layer=fl player=0
+both CALL_CELL_ANIMCB x=181 y=5 layer=fl
+both CALL_CELL_ANIMCB x=181 y=5 layer=fl
+both GET_CELL x=181 y=5
+both GET_THIEFFLOOR_STATE x=181 y=5
+
+client FORCE_THIEFFLOOR_BAG x=181 y=5 items=it_wrench
+client GET_CELL x=181 y=5
+client GET_THIEFFLOOR_STATE x=181 y=5
+
+sleep 200
+both GET_CELL x=181 y=5
+both GET_THIEFFLOOR_STATE x=181 y=5
+
+both QUIT

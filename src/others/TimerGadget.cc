@@ -20,6 +20,12 @@
 #include "timer.hh"
 
 namespace enigma {
+    namespace {
+        const char *const kSemanticAlarmLeftField = "$mp_alarm_left";
+        const char *const kSemanticAlarmIntervalField = "$mp_alarm_interval";
+        const char *const kSemanticAlarmRepeatField = "$mp_alarm_repeat";
+    }  // namespace
+
     TimerGadget::TimerGadget() : Other() {
         state = ON;
     }
@@ -30,6 +36,56 @@ namespace enigma {
     
     std::string TimerGadget::getClass() const {
         return "ot_timer";
+    }
+
+    void TimerGadget::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        semantic.logical_state = state;
+        semantic.flags = MpCaptureFlagsForSnapshot();
+        semantic.fields.clear();
+        semantic.refs.clear();
+
+        Timer::AlarmSnapshot alarm;
+        if (GameTimer.snapshot_alarm(const_cast<TimerGadget *>(this), alarm)) {
+            semantic.fields.emplace_back(kSemanticAlarmLeftField, Value(alarm.timeleft));
+            semantic.fields.emplace_back(kSemanticAlarmIntervalField, Value(alarm.interval));
+            semantic.fields.emplace_back(kSemanticAlarmRepeatField, Value(alarm.repeatp));
+        }
+    }
+
+    bool TimerGadget::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        (void)ctx;
+        double alarm_left = 0.0;
+        double alarm_interval = 0.0;
+        bool alarm_repeat = false;
+        bool have_alarm_left = false;
+        bool have_alarm_interval = false;
+        bool have_alarm_repeat = false;
+
+        for (const auto &field : semantic.fields) {
+            if (field.first == kSemanticAlarmLeftField) {
+                alarm_left = static_cast<double>(field.second);
+                have_alarm_left = true;
+            } else if (field.first == kSemanticAlarmIntervalField) {
+                alarm_interval = static_cast<double>(field.second);
+                have_alarm_interval = true;
+            } else if (field.first == kSemanticAlarmRepeatField) {
+                alarm_repeat = field.second.to_bool();
+                have_alarm_repeat = true;
+            }
+        }
+
+        MpRestoreFlagsForSnapshot(semantic.flags);
+        state = semantic.logical_state;
+        GameTimer.remove_all_alarms(this);
+        if (have_alarm_left && have_alarm_interval) {
+            const bool repeat = have_alarm_repeat ? alarm_repeat : false;
+            GameTimer.restore_alarm(this, alarm_interval, alarm_left, repeat);
+        }
+        return true;
+    }
+
+    bool TimerGadget::MpNeedsSemanticWorldResync() const {
+        return true;
     }
 
     int TimerGadget::externalState() const {

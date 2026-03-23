@@ -334,3 +334,43 @@ Status markers:
   - provoke a world divergence intentionally
   - verify that the repaired peer behaves the same afterwards, not just looks
     the same immediately
+
+### Known follow-up — Timed semantic state transport
+
+The current Step 6 semantic world-resync path is good enough to align object
+state semantically, but timed objects expose one remaining cleanup target.
+
+Current side effect:
+
+- some objects now export live timer countdown state as ordinary semantic
+  fields
+- for example, `TimerGadget` currently transports its internal phase together
+  with remaining alarm time
+- world-state semantic comparison is exact, so a small difference in remaining
+  time can trigger a semantic re-apply even when gameplay has not meaningfully
+  diverged
+- that can cause a live repeating timer to be re-armed from host world state
+  more often than is ideal, producing avoidable timing churn or slight visual
+  wobble under jitter/load
+
+Why this is not the long-term model:
+
+- durable semantic state and live clock position are not the same thing
+- "timer is in ON_TRUE phase" is semantic state
+- "next fire happens in 0.11s" is a moving timing coordinate and should not be
+  treated like a normal equality-compared field
+
+Proposed cleanup:
+
+- keep durable object semantics in the existing semantic-state channel
+- move timed phase transport toward host tick anchored data such as:
+  - next alarm tick
+  - or phase start tick plus interval
+- extend the world-resync apply context so objects can reconcile timed state
+  against packet tick and current local tick instead of restoring a stale raw
+  `timeleft`
+- add a tolerance / deadband so tiny countdown drift does not trigger alarm
+  teardown and rebuild
+- keep this generic in timer infrastructure so the same model can be reused by
+  `TimerGadget`, `TimerStone`, `MonoFlopStone`, and similar timer-backed
+  objects

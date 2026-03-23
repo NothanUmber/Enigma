@@ -98,6 +98,17 @@ std::string stable_world_kind(Object *obj) {
     }
     return obj->getKind();
 }
+
+bool client_desync_hold_active() {
+    return g_session.active && !g_session.host && g_session.client_desync_hold;
+}
+
+void apply_client_input_and_record_authoritative(uint32_t tick, unsigned player,
+                                                 const input::PlayerInput &sim_input,
+                                                 const input::PlayerInput &authoritative_input) {
+    input::EnqueueInput(tick, player, sim_input);
+    rollback::RecordInput(tick, player, authoritative_input);
+}
 }  // namespace
 
 bool abort_session_with_message(const char *message) {
@@ -1209,8 +1220,7 @@ bool handle_client_input_packet(const char *data, size_t len) {
     pi.mouse_force = ecl::V2(input_msg.mouse_x, input_msg.mouse_y);
     pi.rotate_steps = input_msg.rotate_steps;
     pi.activate_count = input_msg.activate_count;
-    input::EnqueueInput(input_msg.tick, input_msg.player, pi);
-    rollback::RecordInput(input_msg.tick, input_msg.player, pi);
+    apply_client_input_and_record_authoritative(input_msg.tick, input_msg.player, pi, pi);
     return true;
 }
 
@@ -1256,8 +1266,7 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
             }
             continue;
         }
-        input::EnqueueInput(tick, bundle.player, pi);
-        rollback::RecordInput(tick, bundle.player, pi);
+        apply_client_input_and_record_authoritative(tick, bundle.player, pi, pi);
     }
     if (have_late) {
         const unsigned player_id = static_cast<unsigned>(bundle.player);
@@ -1271,8 +1280,8 @@ bool handle_client_input_bundle_packet(const char *data, size_t len) {
             (player_id < input::kMaxPlayers && g_session.late_mouse_valid[player_id] &&
              g_session.late_mouse_applied_tick[player_id] == current_tick);
         if (!late_agg.empty() && (!input::HasInput(current_tick, player_id) || already_late)) {
-            input::EnqueueInput(current_tick, bundle.player, late_agg);
-            rollback::RecordInput(current_tick, bundle.player, late_agg);
+            apply_client_input_and_record_authoritative(current_tick, bundle.player, late_agg,
+                                                        late_agg);
         }
     }
     return true;
@@ -1353,6 +1362,11 @@ bool handle_client_sync_packet(const char *data, size_t len) {
     protocol::SyncPacket sync;
     if (!protocol::decode_sync(buf, sync))
         return false;
+    if (client_desync_hold_active()) {
+        if (debug_enabled())
+            debug_log("mp drop sync: client desync hold tick=%u", sync.tick);
+        return true;
+    }
     uint32_t local_tick = input::CurrentTick();
     if (local_tick < sync.tick) {
         g_session.pending_sync = sync;
@@ -1377,6 +1391,11 @@ bool handle_client_resync_state_packet(const char *data, size_t len) {
     protocol::ResyncState state;
     if (!protocol::decode_resync_state(buf, state))
         return false;
+    if (client_desync_hold_active()) {
+        if (debug_enabled())
+            debug_log("mp drop resync state: client desync hold tick=%u", state.tick);
+        return true;
+    }
     if (g_session.active && state.epoch == g_session.input_epoch) {
         // NET_RESYNC_STATE can be sent via unreliable broadcast (debug/remote-control mode).
         // That path can reorder packets. Applying an older snapshot after a newer one
@@ -1418,6 +1437,11 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
         return false;
     if (!g_session.active)
         return true;
+    if (client_desync_hold_active()) {
+        if (debug_enabled())
+            debug_log("mp drop world-state: client desync hold tick=%u", pkt.tick);
+        return true;
+    }
     if (pkt.epoch != g_session.input_epoch)
         return true;
     if (!g_session.host) {
@@ -2418,6 +2442,7 @@ void send_local_inputs() {
         return;
     const bool remote_control_local_ball =
         (!g_session.host && options::GetBool("MultiplayerDebugRemoteControlLocalBall"));
+    const bool client_desync_hold = client_desync_hold_active();
     uint32_t current_tick = input::CurrentTick();
     uint32_t delay = g_session.input_delay ? g_session.input_delay : kInputDelay;
     uint32_t target_tick = current_tick + delay;
@@ -2478,9 +2503,17 @@ void send_local_inputs() {
         input::PlayerInput local_sim = send;
         if (remote_control_local_ball)
             local_sim.mouse_force = ecl::V2(0.0f, 0.0f);
-        input::EnqueueInput(pkt.tick, g_session.local_player, local_sim);
-        rollback::RecordInput(pkt.tick, g_session.local_player, local_sim);
-        g_session.local_history[pkt.tick] = send;
+        input::PlayerInput authoritative = send;
+        if (client_desync_hold) {
+            // Manual desync mode: keep applying the player's real input locally, but send
+            // empty authoritative input so the host stays on truth time and the client can
+            // later repair back to host state.
+            local_sim = send;
+            authoritative = input::PlayerInput();
+        }
+        apply_client_input_and_record_authoritative(pkt.tick, g_session.local_player, local_sim,
+                                                    authoritative);
+        g_session.local_history[pkt.tick] = authoritative;
         applied_actions = true;
         ++g_session.next_local_tick;
     }

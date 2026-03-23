@@ -80,6 +80,8 @@ void SessionCancelClientJoin(const char *reason);
 void SessionTick(double dtime);
 void SessionShutdown();
 void SessionSetInputClockFrozen(bool frozen);
+void SessionSetClientDesyncHold(bool enabled);
+bool SessionClientDesyncHoldEnabled();
 void SessionBuildStatsOverlayLines(std::vector<std::string> &lines,
                                    ::enigma::multiplayer::StatsOverlayPage page);
 

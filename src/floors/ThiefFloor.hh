@@ -22,6 +22,7 @@
 #define THIEFFLOOR_HH
 
 #include "floors.hh"
+#include <vector>
 
 namespace enigma {
 
@@ -55,6 +56,9 @@ namespace enigma {
         virtual Value message(const Message &m);
         virtual void MpCaptureAttrsForSnapshot(MpAttrSnapshot &attrs) const override;
         virtual void MpRestoreAttrsForSnapshot(const MpAttrSnapshot &attrs) override;
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         
         // StateObject interface
         virtual void setState(int extState);
@@ -67,6 +71,11 @@ namespace enigma {
                 
         // ModelCallback interface  - Animation callback
         virtual void animcb();
+
+        int MpDebugVictimId() const { return victimId; }
+        size_t MpDebugHiddenBagCount() const;
+        std::string MpDebugHiddenBagFirstKind() const;
+        bool MpDebugSetHiddenBagKinds(const std::vector<std::string> &kinds);
 
     private:
         int victimId;

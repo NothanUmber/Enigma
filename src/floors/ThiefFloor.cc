@@ -33,6 +33,7 @@ namespace enigma {
 
         const char *const kSnapshotVictimIdAttr = "$mp_thief_victim_id";
         const char *const kSnapshotBagAttr = "$mp_thief_bag";
+        const char *const kSemanticVictimStableIdField = "$mp_thief_victim_stable_id";
 
         struct DetachedItemSnapshot {
             std::string kind;
@@ -324,6 +325,53 @@ namespace enigma {
             bag = restore_bag_snapshot(encoded_bag, get_pos());
     }
 
+    void ThiefFloor::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        semantic.logical_state = state;
+        semantic.flags = 0;
+        semantic.fields.clear();
+        semantic.refs.clear();
+        if (Actor *victim = dynamic_cast<Actor *>(Object::getObject(victimId))) {
+            semantic.fields.emplace_back(kSemanticVictimStableIdField,
+                                         Value(static_cast<double>(victim->stable_id())));
+        }
+        if (BagItem *bag_item = dynamic_cast<BagItem *>(bag))
+            semantic.fields.emplace_back(kSnapshotBagAttr, Value(serialize_bag_snapshot(bag_item)));
+    }
+
+    bool ThiefFloor::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        (void)ctx;
+        int restored_victim_id = 0;
+        std::string encoded_bag;
+        for (const auto &field : semantic.fields) {
+            if (field.first == kSemanticVictimStableIdField) {
+                const unsigned stable_id = static_cast<unsigned>(static_cast<int>(field.second));
+                if (Actor *victim = FindActorByStableId(stable_id))
+                    restored_victim_id = victim->getId();
+            } else if (field.first == kSnapshotBagAttr) {
+                encoded_bag = field.second.to_string();
+            }
+        }
+
+        Item *restored_bag = NULL;
+        if (!encoded_bag.empty()) {
+            restored_bag = restore_bag_snapshot(encoded_bag, get_pos());
+            if (!restored_bag)
+                return false;
+        }
+
+        state = semantic.logical_state;
+        victimId = restored_victim_id;
+        if (bag != NULL)
+            delete bag;
+        bag = restored_bag;
+        init_model();
+        return true;
+    }
+
+    bool ThiefFloor::MpNeedsSemanticWorldResync() const {
+        return true;
+    }
+
     Value ThiefFloor::message(const Message &m) {
         if (m.message == "_capture" && (state == IDLE || state == DRUNKEN) && isDisplayable()) {
             // add items on grid pos that can be picked up to our bag
@@ -409,6 +457,45 @@ namespace enigma {
             default:
                 ASSERT(0, XLevelRuntime, "ThiefFloor: animcb called with inconsistent state");
         }
+    }
+
+    size_t ThiefFloor::MpDebugHiddenBagCount() const {
+        if (const BagItem *bag_item = dynamic_cast<const BagItem *>(bag))
+            return bag_item->MpContentsForSnapshot().size();
+        return 0;
+    }
+
+    std::string ThiefFloor::MpDebugHiddenBagFirstKind() const {
+        if (const BagItem *bag_item = dynamic_cast<const BagItem *>(bag)) {
+            const std::vector<Item *> &contents = bag_item->MpContentsForSnapshot();
+            if (!contents.empty() && contents.front())
+                return contents.front()->getKind();
+        }
+        return std::string();
+    }
+
+    bool ThiefFloor::MpDebugSetHiddenBagKinds(const std::vector<std::string> &kinds) {
+        BagItem *new_bag = NULL;
+        if (!kinds.empty()) {
+            new_bag = dynamic_cast<BagItem *>(MakeItem("it_bag"));
+            if (!new_bag)
+                return false;
+            new_bag->setOwnerPos(get_pos());
+            for (const std::string &kind : kinds) {
+                Item *item = MakeItem(kind.c_str());
+                if (!item) {
+                    delete new_bag;
+                    return false;
+                }
+                item->setOwnerPos(get_pos());
+                new_bag->add_item(item);
+            }
+        }
+
+        if (bag != NULL)
+            delete bag;
+        bag = new_bag;
+        return true;
     }
 
     void ThiefFloor::doSteal() {

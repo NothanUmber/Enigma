@@ -82,8 +82,10 @@ These classes already need and already have custom snapshot treatment:
 | `ShogunDot` | Yes | Yes | World resync now carries the same ON/OFF logical state through the semantic override path, matching snapshot restore without replaying target actions. |
 | `ShogunStone` | Yes | Yes | World resync now uses the same hole-mask semantic restore path, so same-kind repairs rebuild hidden sub-shogun topology instead of relying only on visible `kind`. |
 | `OxydStone` | Yes | Yes | World resync now preserves internal `CLOSED` / `OPEN_PAIR` / `OPENING` / `CLOSING` / `OPEN_SINGLE` via semantic `logical_state`, and `oxydcolor` now rides the same semantic field path instead of the ad hoc color transport. |
+| `PuzzleStone` | Yes | Yes | World resync now carries the snapshot-style internal state/flags plus the pending ignite alarm, so same-kind repairs restore hidden `SINGLE` semantics and `IGNITED` future behavior rather than only visible `kind/state`. |
 | `Rubberband` | Yes | Yes | World resync now carries semantic `Other` records for `Rubberband`, including stable actor-anchor refs and scalar runtime parameters, so same-kind repairs reconnect anchors and restore later band behavior. |
-| `ThiefFloor` | Yes | No | Sim snapshots now restore private `victimId` plus detached `it_bag` contents recursively; lockstep world resync still has no semantic transport for the hidden bag state. |
+| `ThiefFloor` | Yes | Yes | World resync now carries the same semantic victim actor identity (via stable actor id) plus detached hidden `it_bag` snapshot string, so same-kind repairs restore the thief's hidden stolen contents instead of only the visible floor state. |
+| `TimerGadget` | Yes | Yes | World resync now carries the timer's internal `ON_TRUE` / `ON_FALSE` phase plus active alarm timing via semantic `Other` state, so same-kind repairs restore repeating timer phase instead of only visible external ON/OFF. |
 | `Wire` | Yes | Yes | World resync now carries semantic `Other` records for `Wire`, so same-kind repairs reconnect both stone anchors and rebuild the corresponding fellows/wires lists. |
 
 ## High-confidence candidates for custom hooks
@@ -96,10 +98,6 @@ capture/restore support.
 These classes are not as clear-cut as the list above, but they do maintain
 runtime state outside the generic snapshot path and should be checked before
 relying on prediction for them.
-
-- `src/stones/PuzzleStone.cc`
-  - dynamic `objFlags` (`HOLLOW`, `VISITED`, `SINGLE`)
-  - cluster logic and pending explosion state may rely on those flags
 
 - `src/items/WormHole.cc`
   - verified by `tools/mp_test_scripts/wormhole_sim_snapshot_forcefield_probe.txt`
@@ -170,10 +168,19 @@ snapshot path. They should be audited with that in mind.
     switch again on the same timeline as baseline
   - no gameplay hook was needed here; the dedicated `Other` snapshot pass plus
     `GameTimer` restore already preserves this repeating-alarm phase case
-  - **World resync parity:** no current `Other` transport
+  - world resync also verified by
+    `tools/mp_test_scripts/timergadget_world_resync_probe.txt`
+  - exact verified case: after the first toggle has already happened, force
+    only the client's named `timer` object from `internal=3` back to
+    `internal=2` with `alarm_left=0.050` while the host stays at `internal=3`
+    with the same visible external ON state; the next host world-state repair
+    returns the client to `internal=3` with matching repeating-alarm timing
+  - this needed a small semantic `Other` hook so world resync carries the same
+    hidden timer phase and active alarm timing as the snapshot path
 
 - more generally: `src/others/*`
   - the dedicated non-grid snapshot pass now exists
+  - semantic `Other` world resync now also exists for classes that opt in
   - remaining work is per-class fidelity, not a missing top-level mechanism
 
 ## Likely fine with generic handling
@@ -305,7 +312,8 @@ state as `ShogunStone`, `Vortex`, or `ThiefFloor`.
 
 If we continue extending prediction/replay coverage, the next order should be:
 
-1. remaining `Other` classes with custom runtime references beyond the generic pass
+1. remaining classes whose hidden runtime state still needs explicit
+   world-resync verification beyond visible `kind/state`
 
 ## World-resync alignment backlog
 
@@ -315,8 +323,13 @@ The initial handled-object slice is now aligned for:
 - `ShogunDot`
 - `ShogunStone`
 - `OxydStone`
+- `PuzzleStone`
 - `Rubberband`
+- `ThiefFloor`
+- `TimerGadget`
 - `Wire`
 
-The next backlog is extending that same semantic contract to the remaining
-high-risk classes in the recommended-order list above.
+That initial semantic world-resync alignment backlog is now closed for the
+currently identified high-risk classes. The remaining work is continued
+verification of lower-risk candidates and any new drift cases that show up
+under prediction or host-driven world-state repair.

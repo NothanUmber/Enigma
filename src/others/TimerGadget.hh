@@ -42,6 +42,9 @@ namespace enigma {
 
         // Object interface
         virtual std::string getClass() const;
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         
         // StateObject interface
         virtual int externalState() const;

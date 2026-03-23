@@ -158,6 +158,33 @@ void SessionSetInputClockFrozen(bool frozen) {
     g_session.input_clock_accu = 0.0;
 }
 
+void SessionSetClientDesyncHold(bool enabled) {
+    if (!g_session.active || g_session.host)
+        return;
+    if (g_session.client_desync_hold == enabled)
+        return;
+    g_session.client_desync_hold = enabled;
+    g_session.has_pending_sync = false;
+    g_session.resync_inflight = false;
+    g_session.resync_inflight_timer = 0.0;
+    g_session.resync_cooldown = 0.0;
+    g_session.world_state_cooldown = 0.0;
+    g_session.resync_attempts = 0;
+    g_session.desync_streak = 0;
+    g_session.actor_desync_streak = 0;
+    g_session.world_only_desync_streak = 0;
+    g_session.desync_reported = false;
+    rollback::ClearPendingReconcile();
+    if (debug_enabled()) {
+        debug_log("mp client desync hold=%d tick=%u", enabled ? 1 : 0,
+                  static_cast<unsigned>(input::CurrentTick()));
+    }
+}
+
+bool SessionClientDesyncHoldEnabled() {
+    return g_session.active && !g_session.host && g_session.client_desync_hold;
+}
+
 namespace {
 
 const char *on_off(bool value) {
@@ -392,6 +419,8 @@ void SessionBuildStatsOverlayLines(std::vector<std::string> &lines,
         append_bool_option(lines, "MP zerofill", "MultiplayerDebugZeroFillInputs");
         append_bool_option(lines, "MP rollback", "MultiplayerDebugRollbackEnabled");
         append_bool_option(lines, "MP remote local ball", "MultiplayerDebugRemoteControlLocalBall");
+        lines.push_back(std::string("Client desync hold: ") +
+                        on_off(!g_session.host && g_session.client_desync_hold));
         append_bool_option(lines, "MP client auth pos", "MultiplayerDebugClientAuthBallPos");
         append_bool_option(lines, "MP host world only", "MultiplayerDebugHostOnlyWorldInteractions");
         append_int_option(lines, "Predict mouse ticks", "MultiplayerDebugPredictMissingMouseTicks");
@@ -573,6 +602,7 @@ void SessionPrimeInputQueueForNewLevel() {
 
     configure_input_session(g_session.expected_players);
     rollback::Reset();
+    g_session.client_desync_hold = false;
     g_session.desync_reported = false;
     g_session.phase = SessionState::Phase::WAITING_FOR_START;
     g_session.local_ready_sent = false;

@@ -12,15 +12,18 @@
 #include "display.hh"
 #include "enigma.hh"
 #include "game.hh"
+#include "floors/ThiefFloor.hh"
 #include "input.hh"
 #include "lev/Proxy.hh"
 #include "main.hh"
+#include "others/TimerGadget.hh"
 #include "others/Wire.hh"
 #include "options.hh"
 #include "player.hh"
 #include "Inventory.hh"
 #include "server.hh"
 #include "stones/OxydStone.hh"
+#include "stones/PuzzleStone.hh"
 #include "stones/ShogunStone.hh"
 #include "world.hh"
 
@@ -766,6 +769,7 @@ static void emit_state_snapshot() {
        << " mp_tcp_ready=" << tcp_ready
        << " mp_local_ready_sent=" << (s.local_ready_sent ? 1 : 0)
        << " mp_paused=" << (s.paused ? 1 : 0)
+       << " mp_desync_hold=" << (multiplayer::ClientDesyncHoldEnabled() ? 1 : 0)
        << " sv_world_init=" << (server::WorldInitialized ? 1 : 0)
        << " net=" << (input::IsNetworked() ? 1 : 0)
        << " zerofill=" << (input::ZerofillMissingInputsEnabled() ? 1 : 0)
@@ -835,6 +839,26 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "PING") {
         send_ok("PING", "pong=1");
+        return true;
+    }
+
+    if (cmd == "GET_CLIENT_DESYNC_HOLD") {
+        std::ostringstream os;
+        os << "enabled=" << (multiplayer::ClientDesyncHoldEnabled() ? 1 : 0);
+        send_ok("GET_CLIENT_DESYNC_HOLD", os.str());
+        return true;
+    }
+
+    if (cmd == "SET_CLIENT_DESYNC_HOLD") {
+        int enabled_i = 0;
+        if (!parse_i32(kv, "enabled", enabled_i)) {
+            send_err("SET_CLIENT_DESYNC_HOLD", "missing_enabled");
+            return true;
+        }
+        multiplayer::SetClientDesyncHold(enabled_i != 0);
+        std::ostringstream os;
+        os << "enabled=" << (multiplayer::ClientDesyncHoldEnabled() ? 1 : 0);
+        send_ok("SET_CLIENT_DESYNC_HOLD", os.str());
         return true;
     }
 
@@ -1485,6 +1509,272 @@ static bool handle_command(const std::string &line) {
            << " external=" << static_cast<int>(oxyd->getAttr("state"))
            << " color=" << static_cast<int>(oxyd->getAttr("oxydcolor"));
         send_ok("GET_OXYD_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_THIEFFLOOR_STATE") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_THIEFFLOOR_STATE", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_THIEFFLOOR_STATE", "no_world");
+            return true;
+        }
+        ThiefFloor *thief = dynamic_cast<ThiefFloor *>(GetFloor(GridPos(x, y)));
+        if (!thief) {
+            send_err("GET_THIEFFLOOR_STATE", "no_thief");
+            return true;
+        }
+        const std::string first_kind = thief->MpDebugHiddenBagFirstKind();
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " kind=" << thief->getKind()
+           << " internal=" << thief->MpCaptureStateForSnapshot()
+           << " external=" << static_cast<int>(thief->getAttr("state"))
+           << " victim=" << thief->MpDebugVictimId()
+           << " hidden_bag=" << (thief->MpDebugHiddenBagCount() > 0 ? 1 : 0)
+           << " bag_count=" << thief->MpDebugHiddenBagCount()
+           << " bag_first=" << (first_kind.empty() ? "-" : first_kind);
+        send_ok("GET_THIEFFLOOR_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_THIEFFLOOR_BAG") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("FORCE_THIEFFLOOR_BAG", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_THIEFFLOOR_BAG", "no_world");
+            return true;
+        }
+        ThiefFloor *thief = dynamic_cast<ThiefFloor *>(GetFloor(GridPos(x, y)));
+        if (!thief) {
+            send_err("FORCE_THIEFFLOOR_BAG", "no_thief");
+            return true;
+        }
+        std::string items;
+        const auto it = kv.find("items");
+        if (it != kv.end())
+            items = it->second;
+        if (items.empty()) {
+            send_err("FORCE_THIEFFLOOR_BAG", "missing_items");
+            return true;
+        }
+        std::vector<std::string> kinds;
+        if (items != "-" && items != "none")
+            kinds = split_csv(items);
+        if (!thief->MpDebugSetHiddenBagKinds(kinds)) {
+            send_err("FORCE_THIEFFLOOR_BAG", "bad_item");
+            return true;
+        }
+        multiplayer::VisualPredictionInvalidate();
+        const std::string first_kind = thief->MpDebugHiddenBagFirstKind();
+        std::ostringstream os;
+        os << "x=" << x << " y=" << y
+           << " bag_count=" << thief->MpDebugHiddenBagCount()
+           << " bag_first=" << (first_kind.empty() ? "-" : first_kind);
+        send_ok("FORCE_THIEFFLOOR_BAG", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_TIMERGADGET_STATE") {
+        if (!world_accessible()) {
+            send_err("GET_TIMERGADGET_STATE", "no_world");
+            return true;
+        }
+        std::string name;
+        const auto it_name = kv.find("name");
+        if (it_name != kv.end())
+            name = it_name->second;
+        if (name.empty()) {
+            send_err("GET_TIMERGADGET_STATE", "missing_name");
+            return true;
+        }
+        TimerGadget *timer = dynamic_cast<TimerGadget *>(GetNamedObject(name));
+        if (!timer) {
+            send_err("GET_TIMERGADGET_STATE", "no_timer");
+            return true;
+        }
+        Timer::AlarmSnapshot alarm;
+        const bool have_alarm = GameTimer.snapshot_alarm(timer, alarm);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "name=" << name
+           << " id=" << timer->getId()
+           << " internal=" << timer->MpCaptureStateForSnapshot()
+           << " external=" << static_cast<int>(timer->getAttr("state"))
+           << " has_alarm=" << (have_alarm ? 1 : 0);
+        if (have_alarm) {
+            os << " alarm_left=" << alarm.timeleft
+               << " alarm_interval=" << alarm.interval
+               << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
+               << " alarm_nr=" << alarm.alarmnr;
+        }
+        send_ok("GET_TIMERGADGET_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_TIMERGADGET_STATE") {
+        if (!world_accessible()) {
+            send_err("FORCE_TIMERGADGET_STATE", "no_world");
+            return true;
+        }
+        std::string name;
+        const auto it_name = kv.find("name");
+        if (it_name != kv.end())
+            name = it_name->second;
+        if (name.empty()) {
+            send_err("FORCE_TIMERGADGET_STATE", "missing_name");
+            return true;
+        }
+        TimerGadget *timer = dynamic_cast<TimerGadget *>(GetNamedObject(name));
+        if (!timer) {
+            send_err("FORCE_TIMERGADGET_STATE", "no_timer");
+            return true;
+        }
+
+        int internal = timer->MpCaptureStateForSnapshot();
+        parse_i32(kv, "internal", internal);
+        timer->MpRestoreStateForSnapshot(internal);
+
+        GameTimer.remove_all_alarms(timer);
+        double alarm_left = 0.0;
+        if (parse_f64(kv, "alarm_left", alarm_left)) {
+            double alarm_interval = 0.0;
+            if (!parse_f64(kv, "alarm_interval", alarm_interval))
+                alarm_interval = static_cast<double>(timer->getAttr("interval"));
+            int alarm_repeat_i = 0;
+            if (!parse_i32(kv, "alarm_repeat", alarm_repeat_i))
+                alarm_repeat_i = timer->getAttr("loop").to_bool() ? 1 : 0;
+            GameTimer.restore_alarm(timer, alarm_interval, alarm_left, alarm_repeat_i != 0);
+        }
+
+        multiplayer::VisualPredictionInvalidate();
+        Timer::AlarmSnapshot alarm;
+        const bool have_alarm = GameTimer.snapshot_alarm(timer, alarm);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "name=" << name
+           << " id=" << timer->getId()
+           << " internal=" << timer->MpCaptureStateForSnapshot()
+           << " external=" << static_cast<int>(timer->getAttr("state"))
+           << " has_alarm=" << (have_alarm ? 1 : 0);
+        if (have_alarm) {
+            os << " alarm_left=" << alarm.timeleft
+               << " alarm_interval=" << alarm.interval
+               << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
+               << " alarm_nr=" << alarm.alarmnr;
+        }
+        send_ok("FORCE_TIMERGADGET_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "GET_PUZZLESTONE_STATE") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("GET_PUZZLESTONE_STATE", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("GET_PUZZLESTONE_STATE", "no_world");
+            return true;
+        }
+        PuzzleStone *puzzle = dynamic_cast<PuzzleStone *>(GetStone(GridPos(x, y)));
+        if (!puzzle) {
+            send_err("GET_PUZZLESTONE_STATE", "no_puzzle");
+            return true;
+        }
+        Timer::AlarmSnapshot alarm;
+        const bool have_alarm = GameTimer.snapshot_alarm(puzzle, alarm);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "x=" << x
+           << " y=" << y
+           << " kind=" << puzzle->getKind()
+           << " internal=" << puzzle->MpCaptureStateForSnapshot()
+           << " external=" << static_cast<int>(puzzle->getAttr("state"))
+           << " single=" << (puzzle->MpDebugIsSingle() ? 1 : 0)
+           << " has_alarm=" << (have_alarm ? 1 : 0);
+        if (have_alarm) {
+            os << " alarm_left=" << alarm.timeleft
+               << " alarm_interval=" << alarm.interval
+               << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
+               << " alarm_nr=" << alarm.alarmnr;
+        }
+        send_ok("GET_PUZZLESTONE_STATE", os.str());
+        return true;
+    }
+
+    if (cmd == "FORCE_PUZZLESTONE_STATE") {
+        int x = 0;
+        int y = 0;
+        if (!parse_i32(kv, "x", x) || !parse_i32(kv, "y", y)) {
+            send_err("FORCE_PUZZLESTONE_STATE", "missing_xy");
+            return true;
+        }
+        if (!world_accessible()) {
+            send_err("FORCE_PUZZLESTONE_STATE", "no_world");
+            return true;
+        }
+        PuzzleStone *puzzle = dynamic_cast<PuzzleStone *>(GetStone(GridPos(x, y)));
+        if (!puzzle) {
+            send_err("FORCE_PUZZLESTONE_STATE", "no_puzzle");
+            return true;
+        }
+
+        int internal = puzzle->MpCaptureStateForSnapshot();
+        if (parse_i32(kv, "internal", internal))
+            puzzle->MpRestoreStateForSnapshot(internal);
+
+        int single_i = 0;
+        if (parse_i32(kv, "single", single_i))
+            puzzle->MpDebugSetSingle(single_i != 0);
+
+        int clear_alarm_i = 0;
+        const bool clear_alarm = parse_i32(kv, "clear_alarm", clear_alarm_i) && clear_alarm_i != 0;
+        double alarm_left = 0.0;
+        const bool have_alarm_left = parse_f64(kv, "alarm_left", alarm_left);
+        if (clear_alarm || have_alarm_left) {
+            GameTimer.remove_all_alarms(puzzle);
+            if (have_alarm_left) {
+                double alarm_interval = 0.2;
+                parse_f64(kv, "alarm_interval", alarm_interval);
+                int alarm_repeat_i = 0;
+                parse_i32(kv, "alarm_repeat", alarm_repeat_i);
+                GameTimer.restore_alarm(puzzle, alarm_interval, alarm_left, alarm_repeat_i != 0);
+            }
+        }
+
+        multiplayer::VisualPredictionInvalidate();
+        Timer::AlarmSnapshot alarm;
+        const bool have_alarm = GameTimer.snapshot_alarm(puzzle, alarm);
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(3);
+        os << "x=" << x
+           << " y=" << y
+           << " kind=" << puzzle->getKind()
+           << " internal=" << puzzle->MpCaptureStateForSnapshot()
+           << " external=" << static_cast<int>(puzzle->getAttr("state"))
+           << " single=" << (puzzle->MpDebugIsSingle() ? 1 : 0)
+           << " has_alarm=" << (have_alarm ? 1 : 0);
+        if (have_alarm) {
+            os << " alarm_left=" << alarm.timeleft
+               << " alarm_interval=" << alarm.interval
+               << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
+               << " alarm_nr=" << alarm.alarmnr;
+        }
+        send_ok("FORCE_PUZZLESTONE_STATE", os.str());
         return true;
     }
 

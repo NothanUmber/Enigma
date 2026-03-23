@@ -129,6 +129,12 @@ bool Inventory::is_empty() const {
 
 void Inventory::add_item(Item *i) 
 {
+    if (i && std::find(m_items.begin(), m_items.end(), i) != m_items.end()) {
+        // Never store the same live item pointer twice. Duplicate pickup delivery can
+        // otherwise turn inventory clear/restart into a double-delete.
+        i->setOwner(ownerId);
+        return;
+    }
     ItemHolder *firstHolder = dynamic_cast<ItemHolder*>(get_item(0));
     ItemHolder *addHolder = dynamic_cast<ItemHolder*>(i);
     if (firstHolder && !firstHolder->is_full() &&  

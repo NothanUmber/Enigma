@@ -24,10 +24,17 @@
 #include "main.hh"
 #include "player.hh"
 #include "server.hh"
+#include "timer.hh"
 #include "world.hh"
 #include <algorithm>
 
 namespace enigma {
+    namespace {
+        const char *const kSemanticAlarmLeftField = "$mp_alarm_left";
+        const char *const kSemanticAlarmIntervalField = "$mp_alarm_interval";
+        const char *const kSemanticAlarmRepeatField = "$mp_alarm_repeat";
+    }  // namespace
+
     PuzzleStone::PuzzleStone(int color, std::string connections, bool hollow) : Stone() {
         setAttr("color", color);
         setAttr("connections", connections);
@@ -60,6 +67,55 @@ namespace enigma {
             return (bool)(objFlags & OBJBIT_HOLLOW);
         }
         return Stone::getAttr(key);
+    }
+
+    void PuzzleStone::MpCaptureSemanticState(MpSemanticState &semantic) const {
+        Stone::MpCaptureSemanticState(semantic);
+
+        Timer::AlarmSnapshot alarm;
+        if (GameTimer.snapshot_alarm(const_cast<PuzzleStone *>(this), alarm)) {
+            semantic.fields.emplace_back(kSemanticAlarmLeftField, Value(alarm.timeleft));
+            semantic.fields.emplace_back(kSemanticAlarmIntervalField, Value(alarm.interval));
+            semantic.fields.emplace_back(kSemanticAlarmRepeatField, Value(alarm.repeatp));
+        }
+    }
+
+    bool PuzzleStone::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
+        double alarm_left = 0.0;
+        double alarm_interval = 0.0;
+        bool alarm_repeat = false;
+        bool have_alarm_left = false;
+        bool have_alarm_interval = false;
+        bool have_alarm_repeat = false;
+
+        MpSemanticState filtered = semantic;
+        filtered.fields.clear();
+        for (const auto &field : semantic.fields) {
+            if (field.first == kSemanticAlarmLeftField) {
+                alarm_left = static_cast<double>(field.second);
+                have_alarm_left = true;
+            } else if (field.first == kSemanticAlarmIntervalField) {
+                alarm_interval = static_cast<double>(field.second);
+                have_alarm_interval = true;
+            } else if (field.first == kSemanticAlarmRepeatField) {
+                alarm_repeat = field.second.to_bool();
+                have_alarm_repeat = true;
+            } else {
+                filtered.fields.push_back(field);
+            }
+        }
+
+        Stone::MpApplySemanticState(filtered, ctx);
+        GameTimer.remove_all_alarms(this);
+        if (have_alarm_left && have_alarm_interval) {
+            const bool repeat = have_alarm_repeat ? alarm_repeat : false;
+            GameTimer.restore_alarm(this, alarm_interval, alarm_left, repeat);
+        }
+        return true;
+    }
+
+    bool PuzzleStone::MpNeedsSemanticWorldResync() const {
+        return true;
     }
 
     Value PuzzleStone::message(const Message &m) {

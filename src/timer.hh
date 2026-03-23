@@ -67,6 +67,9 @@ public:
     void set_alarm(TimeHandler *th, double interval, bool repeatp = false, int alarmnr = 0);
     double remove_alarm(TimeHandler *th, int alarmnr = 0);
     void remove_all_alarms(TimeHandler *th);
+    bool snapshot_alarm(TimeHandler *th, AlarmSnapshot &out, int alarmnr = 0) const;
+    void restore_alarm(TimeHandler *th, double interval, double timeleft, bool repeatp = false,
+                       int alarmnr = 0);
     void clear();
 
     void tick(double dtime);

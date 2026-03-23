@@ -87,6 +87,9 @@ namespace enigma {
         virtual void setAttr(const std::string& key, const Value &val);
         virtual Value getAttr(const std::string &key) const;
         virtual Value message(const Message &m);
+        virtual void MpCaptureSemanticState(MpSemanticState &state) const override;
+        virtual bool MpApplySemanticState(const MpSemanticState &state, MpApplyContext ctx) override;
+        virtual bool MpNeedsSemanticWorldResync() const override;
         
         // StateObject interface
 //        virtual int externalState() const;
@@ -116,6 +119,15 @@ namespace enigma {
         
         // TimeHandler interface
         virtual void alarm();
+
+        // Debug/test support
+        bool MpDebugIsSingle() const { return (objFlags & OBJBIT_SINGLE) != 0; }
+        void MpDebugSetSingle(bool single) {
+            if (single)
+                objFlags |= OBJBIT_SINGLE;
+            else
+                objFlags &= ~OBJBIT_SINGLE;
+        }
         
     private:
         void markPuzzle(bool visited);

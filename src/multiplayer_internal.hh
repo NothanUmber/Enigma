@@ -238,6 +238,7 @@ struct LobbyState {
     uint32_t input_clock_tick = 0;
     double input_clock_accu = 0.0;
     bool input_clock_frozen = false;
+    bool client_desync_hold = false;
     double sync_timer = 0.0;
     uint32_t last_host_resync_broadcast_tick = UINT32_MAX;
     uint32_t last_host_world_state_broadcast_tick = UINT32_MAX;

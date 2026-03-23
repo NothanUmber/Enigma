@@ -67,6 +67,15 @@ void SetInputClockFrozen(bool frozen) {
     internal::SessionSetInputClockFrozen(frozen);
 }
 
+void SetClientDesyncHold(bool enabled) {
+    internal::SessionSetClientDesyncHold(enabled);
+    VisualPredictionInvalidate();
+}
+
+bool ClientDesyncHoldEnabled() {
+    return internal::SessionClientDesyncHoldEnabled();
+}
+
 void BuildStatsOverlayLines(std::vector<std::string> &lines, StatsOverlayPage page) {
     internal::SessionBuildStatsOverlayLines(lines, page);
 }

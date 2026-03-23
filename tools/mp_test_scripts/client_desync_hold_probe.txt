@@ -1,0 +1,47 @@
+# Focused probe for manual-desync mode:
+# - client enables desync hold
+# - client continues applying its real input locally
+# - host receives empty authoritative input for that client
+# - host/client actor state diverges
+# - disabling the hold allows host resync to repair the client again
+
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugHostBroadcastResyncStrideTicks value=1
+both SET_INT key=MultiplayerDebugHostBroadcastWorldStateStrideTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23487 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23487 host_ip=127.0.0.1 host_id=mptest-host
+
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_vii/ais05_1"
+sleep 500
+both START_GAME
+sleep 500
+
+client GET_CLIENT_DESYNC_HOLD
+client STATE_RENDER
+host STATE_RENDER
+
+client SET_CLIENT_DESYNC_HOLD enabled=1
+client GET_CLIENT_DESYNC_HOLD
+client HOLD_MOUSE_FORCE player=1 ticks=60 fx=-1.0 fy=0.0
+sleep 800
+
+client STATE_RENDER
+host STATE_RENDER
+
+client SET_CLIENT_DESYNC_HOLD enabled=0
+client GET_CLIENT_DESYNC_HOLD
+sleep 1000
+
+client STATE_RENDER
+host STATE_RENDER
+
+both QUIT

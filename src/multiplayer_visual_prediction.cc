@@ -80,6 +80,8 @@ uint32_t configured_delay_ticks() {
 }
 
 bool prediction_enabled_now() {
+    if (ClientDesyncHoldEnabled())
+        return false;
     return IsActive() && input::IsNetworked() &&
            options::GetBool("MultiplayerDebugVisualPrediction");
 }

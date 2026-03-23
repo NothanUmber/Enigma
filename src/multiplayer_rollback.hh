@@ -20,6 +20,7 @@ bool IsReplaying();
 uint32_t EarliestTick(uint32_t current_tick);
 
 void Reset();
+void ClearPendingReconcile();
 
 // Record a (tick, player) input sample as received/known. If this input arrives
 // for an already simulated tick, rollback may be requested.

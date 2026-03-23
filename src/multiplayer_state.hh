@@ -33,6 +33,8 @@ void RequestPause(bool paused);
 void SetMenuOpen(bool open);
 void RequestAbort();
 void SetInputClockFrozen(bool frozen);
+void SetClientDesyncHold(bool enabled);
+bool ClientDesyncHoldEnabled();
 void VisualPredictionOnBeforeSimTick(double timestep);
 void VisualPredictionOnAfterSimTick();
 void VisualPredictionBeginRender();
