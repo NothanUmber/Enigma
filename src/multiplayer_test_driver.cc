@@ -767,6 +767,9 @@ static void emit_state_snapshot() {
        << " mp_local_ready_sent=" << (s.local_ready_sent ? 1 : 0)
        << " mp_paused=" << (s.paused ? 1 : 0)
        << " mp_desync_hold=" << (multiplayer::ClientDesyncHoldEnabled() ? 1 : 0)
+       << " mp_ws_recv=" << static_cast<unsigned long long>(s.telemetry.world_state_packets_recv)
+       << " mp_ws_state=" << static_cast<unsigned long long>(s.telemetry.world_state_state_applied)
+       << " mp_ws_sem=" << static_cast<unsigned long long>(s.telemetry.world_state_semantic_applied)
        << " sv_world_init=" << (server::WorldInitialized ? 1 : 0)
        << " net=" << (input::IsNetworked() ? 1 : 0)
        << " zerofill=" << (input::ZerofillMissingInputsEnabled() ? 1 : 0)
@@ -1745,6 +1748,7 @@ static bool handle_command(const std::string &line) {
            << " has_alarm=" << (have_alarm ? 1 : 0);
         if (have_alarm) {
             os << " alarm_left=" << alarm.timeleft
+               << " alarm_tick=" << static_cast<unsigned>(alarm.next_tick)
                << " alarm_interval=" << alarm.interval
                << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
                << " alarm_nr=" << alarm.alarmnr;
@@ -1801,6 +1805,7 @@ static bool handle_command(const std::string &line) {
            << " has_alarm=" << (have_alarm ? 1 : 0);
         if (have_alarm) {
             os << " alarm_left=" << alarm.timeleft
+               << " alarm_tick=" << static_cast<unsigned>(alarm.next_tick)
                << " alarm_interval=" << alarm.interval
                << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
                << " alarm_nr=" << alarm.alarmnr;
@@ -1839,6 +1844,7 @@ static bool handle_command(const std::string &line) {
            << " has_alarm=" << (have_alarm ? 1 : 0);
         if (have_alarm) {
             os << " alarm_left=" << alarm.timeleft
+               << " alarm_tick=" << static_cast<unsigned>(alarm.next_tick)
                << " alarm_interval=" << alarm.interval
                << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
                << " alarm_nr=" << alarm.alarmnr;
@@ -1902,6 +1908,7 @@ static bool handle_command(const std::string &line) {
            << " has_alarm=" << (have_alarm ? 1 : 0);
         if (have_alarm) {
             os << " alarm_left=" << alarm.timeleft
+               << " alarm_tick=" << static_cast<unsigned>(alarm.next_tick)
                << " alarm_interval=" << alarm.interval
                << " alarm_repeat=" << (alarm.repeatp ? 1 : 0)
                << " alarm_nr=" << alarm.alarmnr;

@@ -30,7 +30,7 @@
 
 namespace enigma {
     namespace {
-        const char *const kSemanticAlarmLeftField = "$mp_alarm_left";
+        const char *const kSemanticAlarmTickField = "$mp_alarm_tick";
         const char *const kSemanticAlarmIntervalField = "$mp_alarm_interval";
         const char *const kSemanticAlarmRepeatField = "$mp_alarm_repeat";
     }  // namespace
@@ -74,26 +74,29 @@ namespace enigma {
 
         Timer::AlarmSnapshot alarm;
         if (GameTimer.snapshot_alarm(const_cast<PuzzleStone *>(this), alarm)) {
-            semantic.fields.emplace_back(kSemanticAlarmLeftField, Value(alarm.timeleft));
+            semantic.fields.emplace_back(kSemanticAlarmTickField, Value(static_cast<double>(alarm.next_tick)));
             semantic.fields.emplace_back(kSemanticAlarmIntervalField, Value(alarm.interval));
             semantic.fields.emplace_back(kSemanticAlarmRepeatField, Value(alarm.repeatp));
         }
     }
 
     bool PuzzleStone::MpApplySemanticState(const MpSemanticState &semantic, MpApplyContext ctx) {
-        double alarm_left = 0.0;
+        uint32_t alarm_tick = 0;
         double alarm_interval = 0.0;
         bool alarm_repeat = false;
-        bool have_alarm_left = false;
+        bool have_alarm_tick = false;
         bool have_alarm_interval = false;
         bool have_alarm_repeat = false;
 
         MpSemanticState filtered = semantic;
         filtered.fields.clear();
         for (const auto &field : semantic.fields) {
-            if (field.first == kSemanticAlarmLeftField) {
-                alarm_left = static_cast<double>(field.second);
-                have_alarm_left = true;
+            if (field.first == kSemanticAlarmTickField) {
+                const double tick_value = static_cast<double>(field.second);
+                if (tick_value >= 0.0) {
+                    alarm_tick = static_cast<uint32_t>(tick_value);
+                    have_alarm_tick = true;
+                }
             } else if (field.first == kSemanticAlarmIntervalField) {
                 alarm_interval = static_cast<double>(field.second);
                 have_alarm_interval = true;
@@ -107,9 +110,9 @@ namespace enigma {
 
         Stone::MpApplySemanticState(filtered, ctx);
         GameTimer.remove_all_alarms(this);
-        if (have_alarm_left && have_alarm_interval) {
+        if (have_alarm_tick && have_alarm_interval) {
             const bool repeat = have_alarm_repeat ? alarm_repeat : false;
-            GameTimer.restore_alarm(this, alarm_interval, alarm_left, repeat);
+            GameTimer.restore_alarm_at_tick(this, alarm_interval, alarm_tick, repeat);
         }
         return true;
     }

@@ -105,6 +105,19 @@ def _parse_state_evt(line: str) -> Optional[Dict[str, Any]]:
     return out
 
 
+def _parse_line_numeric_field(line: str, field: str) -> Optional[float]:
+    toks = line.split()
+    if len(toks) < 2:
+        return None
+    kv = _parse_kv(toks[1:])
+    if field not in kv:
+        return None
+    iv = _try_parse_int(kv[field])
+    if iv is not None:
+        return float(iv)
+    return _try_parse_float(kv[field])
+
+
 @dataclass
 class PeerConn:
     sock: socket.socket
@@ -270,6 +283,57 @@ class Controller:
                     return line
             self.pump(timeout_s=0.05)
         raise RuntimeError(f"timeout waiting for role={role} contains={needle!r}")
+
+    def wait_line_field_compare(
+        self,
+        *,
+        role_a: str,
+        contains_a: str,
+        field_a: str,
+        role_b: str,
+        contains_b: str,
+        field_b: str,
+        timeout_s: float,
+        start_idx: Optional[int] = None,
+        min_delta: Optional[float] = None,
+        max_delta: Optional[float] = None,
+        min_abs_delta: Optional[float] = None,
+        max_abs_delta: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        deadline = time.time() + timeout_s
+        idx = len(self.events) if start_idx is None else max(0, start_idx)
+        value_a: Optional[float] = None
+        value_b: Optional[float] = None
+        while time.time() < deadline:
+            while idx < len(self.events):
+                _ts, role, line = self.events[idx]
+                idx += 1
+                if role == role_a and contains_a in line:
+                    parsed = _parse_line_numeric_field(line, field_a)
+                    if parsed is not None:
+                        value_a = parsed
+                if role == role_b and contains_b in line:
+                    parsed = _parse_line_numeric_field(line, field_b)
+                    if parsed is not None:
+                        value_b = parsed
+                if value_a is None or value_b is None:
+                    continue
+                delta = value_a - value_b
+                if _state_delta_matches(
+                    delta,
+                    min_delta=min_delta,
+                    max_delta=max_delta,
+                    min_abs_delta=min_abs_delta,
+                    max_abs_delta=max_abs_delta,
+                ):
+                    return value_a, value_b
+            self.pump(timeout_s=0.05)
+        raise RuntimeError(
+            f"timeout waiting for parsed delta({role_a}.{field_a} - {role_b}.{field_b})"
+            f" to satisfy contains_a={contains_a!r} contains_b={contains_b!r}"
+            f" min_delta={min_delta} max_delta={max_delta}"
+            f" min_abs_delta={min_abs_delta} max_abs_delta={max_abs_delta}"
+        )
 
 
 def _get_numeric_state_value(ctrl: Controller, role: str, field: str) -> Optional[float]:
@@ -527,6 +591,40 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                     )
                 continue
 
+            if op == "wait_state_stable":
+                kv = _parse_kv(toks[1:])
+                role = kv.get("role", "").lower()
+                field = kv.get("field", "")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                stable_ms = int(kv.get("stable_ms", "0"))
+                if role not in ("host", "client"):
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_stable role=host|client required")
+                if not field:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_stable field=... required")
+                if stable_ms <= 0:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_stable stable_ms>0 required")
+
+                deadline = time.time() + (timeout_ms / 1000.0)
+                stable_deadline: Optional[float] = None
+                last_value: Optional[float] = None
+                while time.time() < deadline:
+                    ctrl.pump(timeout_s=0.05)
+                    cur_val = _get_numeric_state_value(ctrl, role, field)
+                    if cur_val is None:
+                        continue
+                    if last_value is None or cur_val != last_value:
+                        last_value = cur_val
+                        stable_deadline = time.time() + (stable_ms / 1000.0)
+                        continue
+                    if stable_deadline is not None and time.time() >= stable_deadline:
+                        break
+                else:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: timeout waiting for {role} {field} to stay unchanged"
+                        f" for {stable_ms}ms"
+                    )
+                continue
+
             if op == "wait_state_compare":
                 kv = _parse_kv(toks[1:])
                 role_a = kv.get("role_a", "").lower()
@@ -578,6 +676,57 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                         f" to satisfy min_delta={min_delta} max_delta={max_delta}"
                         f" min_abs_delta={min_abs_delta} max_abs_delta={max_abs_delta}"
                     )
+                continue
+
+            if op == "wait_line_field_compare":
+                kv = _parse_kv(toks[1:])
+                role_a = kv.get("role_a", "").lower()
+                role_b = kv.get("role_b", "").lower()
+                contains_a = kv.get("contains_a", "")
+                contains_b = kv.get("contains_b", contains_a)
+                field_a = kv.get("field_a", "")
+                field_b = kv.get("field_b", "")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                min_delta = _try_parse_float(kv["min_delta"]) if "min_delta" in kv else None
+                max_delta = _try_parse_float(kv["max_delta"]) if "max_delta" in kv else None
+                min_abs_delta = _try_parse_float(kv["min_abs_delta"]) if "min_abs_delta" in kv else None
+                max_abs_delta = _try_parse_float(kv["max_abs_delta"]) if "max_abs_delta" in kv else None
+                if role_a not in ("host", "client") or role_b not in ("host", "client"):
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_line_field_compare role_a=host|client and role_b=host|client required"
+                    )
+                if not contains_a or not contains_b:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_line_field_compare contains_a=... and contains_b=... required"
+                    )
+                if not field_a or not field_b:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_line_field_compare field_a=... and field_b=... required"
+                    )
+                if (
+                    min_delta is None
+                    and max_delta is None
+                    and min_abs_delta is None
+                    and max_abs_delta is None
+                ):
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_line_field_compare requires delta or abs-delta bounds"
+                    )
+
+                ctrl.wait_line_field_compare(
+                    role_a=role_a,
+                    contains_a=contains_a,
+                    field_a=field_a,
+                    role_b=role_b,
+                    contains_b=contains_b,
+                    field_b=field_b,
+                    timeout_s=timeout_ms / 1000.0,
+                    start_idx=len(ctrl.events),
+                    min_delta=min_delta,
+                    max_delta=max_delta,
+                    min_abs_delta=min_abs_delta,
+                    max_abs_delta=max_abs_delta,
+                )
                 continue
 
             raise RuntimeError(f"{script_path}:{lineno}: unknown op {op!r}")

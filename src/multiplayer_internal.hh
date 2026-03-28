@@ -372,6 +372,10 @@ struct LobbyState {
         uint64_t resync_applied = 0;
         uint64_t resync_inflight_timeouts = 0;
         uint64_t resync_giveups = 0;
+
+        uint64_t world_state_packets_recv = 0;
+        uint64_t world_state_state_applied = 0;
+        uint64_t world_state_semantic_applied = 0;
     };
     Telemetry telemetry;
 };

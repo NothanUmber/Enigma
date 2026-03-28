@@ -186,13 +186,21 @@ This is the remaining architectural follow-up already noted in
 
 Status on March 28, 2026:
 
-- explicitly deferred after the test-hardening/cleanup pass
-- current risk:
-  - under jitter/load, tiny timer drift can still trigger unnecessary semantic
-    re-apply and timer re-arm churn for timer-backed objects
-- why deferred:
-  - the right fix still wants dedicated timer-infrastructure work rather than a
-    probe-only patch, and it is separable from the regression hardening work
+- implemented after the cleanup checkpoint commit
+- current model:
+  - timed semantic phase now transports absolute `alarm_tick` instead of raw
+    live countdown `timeleft`
+  - timer-backed semantic objects restore from tick-anchored phase through
+    generic timer infrastructure, so delayed packets no longer rebuild the same
+    timer phase every world-state broadcast
+- current coverage:
+  - `tools/mp_test_scripts/timergadget_timed_world_resync_probe.txt` drives a
+    delayed world-state scenario and checks that semantic-apply telemetry finds
+    a stable quiet window while world-state packets keep arriving
+- remaining optional follow-up:
+  - `TimerStone` and `MonoFlopStone` still use ordinary timer behavior but are
+    not currently in the semantic world-resync path, so no further timed cleanup
+    is required for this branch
 
 ### Problem
 
@@ -206,25 +214,20 @@ and re-arm a repeating timer more often than necessary.
 ### Cleanup direction
 
 - keep durable semantic state in the existing semantic channel
-- move timed phase transport toward host-tick-anchored data
-  - `next_alarm_tick`
-  - or `phase_start_tick + interval`
-- extend apply context so timed objects can reconcile packet time against local
-  time instead of restoring stale raw `timeleft`
-- add a drift deadband so tiny countdown mismatches do not rebuild alarms
-- implement this generically in timer infrastructure first, then reuse it for:
-  - `TimerGadget`
-  - `TimerStone`
-  - `MonoFlopStone`
-  - any similar timer-backed object found later
+- use host-tick-anchored phase data (`alarm_tick`) for semantic timer transport
+- restore timer-backed semantic objects relative to local `CurrentTick()` via
+  generic timer helpers instead of copying stale raw `timeleft`
+- keep interval/repeat semantics unchanged so true phase transitions still
+  advance normally
+- accept one semantic repair when the timer genuinely advances to a new cycle,
+  but avoid repeated semantic churn for the same due tick
 
 ### Follow-up testing for timed cleanup
 
-- rerun semantic world-resync probes for timed objects under jitter/load
-- add one dedicated jitter-focused probe where timer countdown differs slightly
-  but should not trigger a semantic rebuild
-- verify that repeated host world-state broadcasts do not cause visible timer
-  wobble on the client
+- reran timed semantic world-resync under delayed world-state traffic
+- added a dedicated jitter-focused probe for `TimerGadget`
+- confirmed that semantic-apply telemetry now reaches stable windows instead of
+  incrementing on every broadcast of the same timer phase
 
 ## Harness and Documentation Cleanup
 
@@ -246,5 +249,5 @@ This follow-up work is in a good state when:
    maintained set
 3. the manual soak matrix has been run on the key levels under multiple delay
    profiles
-4. the timed semantic-state cleanup is either implemented or explicitly
-   deferred with its risk clearly documented
+4. the timed semantic-state cleanup is implemented and covered by a delayed
+   world-state regression

@@ -19,6 +19,7 @@
 #define ENIGMA_TIMER_HH
 
 #include "ecl_util.hh"
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -55,6 +56,7 @@ public:
         int handler_object_id = -1;
         double interval = 0.0;
         double timeleft = 0.0;
+        uint32_t next_tick = 0;
         bool repeatp = false;
         int alarmnr = 0;
     };
@@ -70,6 +72,8 @@ public:
     bool snapshot_alarm(TimeHandler *th, AlarmSnapshot &out, int alarmnr = 0) const;
     void restore_alarm(TimeHandler *th, double interval, double timeleft, bool repeatp = false,
                        int alarmnr = 0);
+    void restore_alarm_at_tick(TimeHandler *th, double interval, uint32_t next_tick,
+                               bool repeatp = false, int alarmnr = 0);
     void clear();
 
     void tick(double dtime);

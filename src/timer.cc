@@ -17,9 +17,13 @@
  */
 #include "timer.hh"
 
+#include "input.hh"
+
 #include <list>
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include "ecl_util.hh"
@@ -83,6 +87,30 @@ bool Alarm::has_handler(TimeHandler *th, int n) const {
     return (handler == th) && (alarmnr == n);
 }
 
+uint32_t alarm_ticks_left(double timeleft) {
+    const double step = input::TickTimestep();
+    if (step <= 0.0)
+        return 1u;
+    const double raw_ticks = timeleft / step;
+    const double epsilon = 1e-6;
+    double rounded_up = std::ceil(raw_ticks - epsilon);
+    if (!(rounded_up >= 1.0))
+        rounded_up = 1.0;
+    const double max_tick = static_cast<double>(std::numeric_limits<uint32_t>::max());
+    if (rounded_up > max_tick)
+        rounded_up = max_tick;
+    return static_cast<uint32_t>(rounded_up);
+}
+
+double alarm_timeleft_for_tick(uint32_t next_tick) {
+    const double step = input::TickTimestep();
+    if (step <= 0.0)
+        return 0.01;
+    const uint32_t current_tick = input::CurrentTick();
+    const uint32_t ticks_left = (next_tick > current_tick) ? (next_tick - current_tick) : 1u;
+    return step * static_cast<double>(ticks_left);
+}
+
 } // namespace
 
 /* -------------------- Timer implementation -------------------- */
@@ -134,6 +162,7 @@ bool Timer::snapshot_alarm(TimeHandler *th, AlarmSnapshot &out, int alarmnr) con
             continue;
         out.interval = alarm.interval;
         out.timeleft = alarm.timeleft;
+        out.next_tick = input::CurrentTick() + alarm_ticks_left(alarm.timeleft);
         out.repeatp = alarm.repeatp;
         out.alarmnr = alarm.alarmnr;
         const Object *obj = dynamic_cast<const Object *>(alarm.handler);
@@ -150,6 +179,11 @@ void Timer::restore_alarm(TimeHandler *th, double interval, double timeleft, boo
            "Timer error: restore_alarm looping interval < 0.01 seconds");
     self->alarms.push_back(Alarm(th, interval, repeatp, alarmnr));
     self->alarms.back().timeleft = timeleft;
+}
+
+void Timer::restore_alarm_at_tick(TimeHandler *th, double interval, uint32_t next_tick, bool repeatp,
+                                  int alarmnr) {
+    restore_alarm(th, interval, alarm_timeleft_for_tick(next_tick), repeatp, alarmnr);
 }
 
 void Timer::tick(double dtime) {
@@ -179,6 +213,7 @@ Timer::Snapshot Timer::snapshot() const {
         AlarmSnapshot a;
         a.interval = alarm.interval;
         a.timeleft = alarm.timeleft;
+        a.next_tick = input::CurrentTick() + alarm_ticks_left(alarm.timeleft);
         a.repeatp = alarm.repeatp;
         a.alarmnr = alarm.alarmnr;
         const Object *obj = dynamic_cast<const Object *>(alarm.handler);

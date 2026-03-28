@@ -15,8 +15,12 @@ targeting:
 - locally changed world elements persist until truth catches up
 - lockstep world resync now follows the same semantic object-state contract
 
-The remaining work is acceptance coverage, broader gameplay soak testing, and
-later cleanup, not a revert of the current implementation.
+No further target-model implementation work is currently open in this document.
+The remaining branch work is broader gameplay soak testing plus maintenance and
+cleanup backlog tracked in `doc/multiplayer_visual_prediction_cleanup.md`.
+
+This document should therefore stay focused on the intended behavior and the
+completed six-step roadmap, not on post-roadmap backlog items.
 
 ## Core timeline
 
@@ -200,6 +204,9 @@ Current tested status on this branch:
 - `open_sesame_door_render_probe.txt`
   - provides an additional focused render-side persistence check for shogun
     movement in a door-coupled setup
+- `timergadget_timed_world_resync_probe.txt`
+  - verifies that delayed world-state traffic can repair a forced bad timer
+    phase without reapplying the same semantic timer state on every broadcast
 
 ## Implementation roadmap
 
@@ -356,42 +363,25 @@ Status markers:
   - verify that the repaired peer behaves the same afterwards, not just looks
     the same immediately
 
-### Known follow-up — Timed semantic state transport
+### Remaining branch work
 
-The current Step 6 semantic world-resync path is good enough to align object
-state semantically, but timed objects expose one remaining cleanup target.
+No open follow-up remains here at the target-model level.
 
-Current side effect:
+The timed semantic-state transport cleanup that used to be listed in this
+document is now implemented:
 
-- some objects now export live timer countdown state as ordinary semantic
-  fields
-- for example, `TimerGadget` currently transports its internal phase together
-  with remaining alarm time
-- world-state semantic comparison is exact, so a small difference in remaining
-  time can trigger a semantic re-apply even when gameplay has not meaningfully
-  diverged
-- that can cause a live repeating timer to be re-armed from host world state
-  more often than is ideal, producing avoidable timing churn or slight visual
-  wobble under jitter/load
+- timer-backed semantic resync transports host-tick-anchored `alarm_tick`
+  instead of raw moving countdown state
+- `TimerGadget` and `PuzzleStone` restore those timers through generic timer
+  helpers
+- the delayed regression `timergadget_timed_world_resync_probe.txt` covers the
+  intended non-churning behavior
 
-Why this is not the long-term model:
+What still remains is branch-level validation and maintenance, not additional
+target-model design work:
 
-- durable semantic state and live clock position are not the same thing
-- "timer is in ON_TRUE phase" is semantic state
-- "next fire happens in 0.11s" is a moving timing coordinate and should not be
-  treated like a normal equality-compared field
-
-Proposed cleanup:
-
-- keep durable object semantics in the existing semantic-state channel
-- move timed phase transport toward host tick anchored data such as:
-  - next alarm tick
-  - or phase start tick plus interval
-- extend the world-resync apply context so objects can reconcile timed state
-  against packet tick and current local tick instead of restoring a stale raw
-  `timeleft`
-- add a tolerance / deadband so tiny countdown drift does not trigger alarm
-  teardown and rebuild
-- keep this generic in timer infrastructure so the same model can be reused by
-  `TimerGadget`, `TimerStone`, `MonoFlopStone`, and similar timer-backed
-  objects
+- broader manual soak coverage on the key gameplay levels
+- any probe-set curation and regression promotion decisions tracked in
+  `doc/multiplayer_visual_prediction_cleanup.md`
+- if future timer-backed classes enter semantic world-resync, they should reuse
+  the same tick-anchored timer transport model

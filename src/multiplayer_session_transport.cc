@@ -1909,8 +1909,14 @@ bool handle_client_world_state_packet(const char *data, size_t len) {
                   static_cast<unsigned long long>(WorldGridStateChecksum()),
                   static_cast<unsigned long long>(WorldGridMovableStoneChecksum()));
     }
-    if (!g_session.host)
+    if (!g_session.host) {
+        g_session.telemetry.world_state_packets_recv += 1;
+        g_session.telemetry.world_state_state_applied +=
+            static_cast<uint64_t>(std::max(applied_state_changes, 0));
+        g_session.telemetry.world_state_semantic_applied +=
+            static_cast<uint64_t>(std::max(applied_semantic_changes, 0));
         g_session.last_accepted_world_state_tick = pkt.tick;
+    }
     return true;
 }
 
