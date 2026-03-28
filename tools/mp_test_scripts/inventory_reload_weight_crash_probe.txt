@@ -1,5 +1,6 @@
-# Repro probe for inventory teardown during a second level load.
-# The client gets a weight item, then the host triggers another LOAD_LEVEL.
+# Regression for inventory teardown during a second level load.
+# The client gets a weight item, then a new level load must replace it with the
+# destination level's fresh inventory state instead of crashing.
 
 host START_HOST session=1 seed=1 expected=2 port=23457 host_id=mptest-host
 client START_CLIENT session=1 seed=1 expected=2 port=23457 host_ip=127.0.0.1 host_id=mptest-host
@@ -13,9 +14,19 @@ sleep 1000
 
 client SET_INV player=1 items=it_weight
 client GET_INV player=1
-sleep 200
+wait_next role=client contains="OK cmd=GET_INV player=1 size=1 first=it_weight" timeout_ms=1500
 
 host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
 sleep 1500
+
+host GET_INV player=1
+wait_next role=host contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
+client GET_INV player=1
+wait_next role=client contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
+
+host STATE
+wait_next role=host contains="mp_epoch=2" timeout_ms=1500
+client STATE
+wait_next role=client contains="mp_epoch=2" timeout_ms=1500
 
 both QUIT

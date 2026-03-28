@@ -1,6 +1,6 @@
-# Focused repro for the Handle With Care finish crash.
-# Start from the recorded late-game setup, then push the host ball toward
-# the last unopened oxyd to trigger level finish.
+# Regression for the Handle With Care finish transition.
+# Start from the recorded late-game setup, trigger the last finish push, and
+# require a clean transition away from the old level state.
 
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
@@ -27,22 +27,30 @@ sleep 1000
 both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
 sleep 200
 
-both STATE
-host GET_OXYD_STATE x=18 y=2
-client GET_OXYD_STATE x=18 y=2
-host GET_CELL x=18 y=2
-client GET_CELL x=18 y=2
-
 both STREAM_STATE interval_ms=100
+
+host GET_OXYD_STATE x=18 y=2
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=18 y=2 kind=st_oxyd_b internal=0 external=0 color=2" timeout_ms=1500
+client GET_OXYD_STATE x=18 y=2
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=18 y=2 kind=st_oxyd_b internal=0 external=0 color=2" timeout_ms=1500
 
 # Push the host ball straight upward for a while from the recorded pre-finish state.
 host HOLD_MOUSE_FORCE player=0 ticks=350 fx=0.000 fy=-6.000
 
-sleep 5000
+wait_state_value role=host field=mp_epoch equals=2 timeout_ms=7000
+wait_state_value role=client field=mp_epoch equals=2 timeout_ms=7000
+wait_state_value role=host field=p0_x min_value=14.49 max_value=14.51 timeout_ms=2500
+wait_state_value role=host field=p0_y min_value=6.49 max_value=6.51 timeout_ms=2500
+wait_state_value role=client field=p0_x min_value=14.49 max_value=14.51 timeout_ms=2500
+wait_state_value role=client field=p0_y min_value=6.49 max_value=6.51 timeout_ms=2500
+wait_state_value role=host field=p1_x min_value=14.49 max_value=14.51 timeout_ms=2500
+wait_state_value role=host field=p1_y min_value=5.49 max_value=5.51 timeout_ms=2500
+wait_state_value role=client field=p1_x min_value=14.49 max_value=14.51 timeout_ms=2500
+wait_state_value role=client field=p1_y min_value=5.49 max_value=5.51 timeout_ms=2500
 
-host STATE
-client STATE
 host GET_OXYD_STATE x=18 y=2
+wait_next role=host contains="ERR cmd=GET_OXYD_STATE msg=no_oxyd" timeout_ms=1500
 client GET_OXYD_STATE x=18 y=2
+wait_next role=client contains="ERR cmd=GET_OXYD_STATE msg=no_oxyd" timeout_ms=1500
 
 both QUIT

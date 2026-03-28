@@ -2639,6 +2639,8 @@ uint64_t WorldChecksum() {
         uint32_t id = 0;
         int owner = -1;
         int controllers = 0;
+        int internal_state = 0;
+        int grabbed = 0;
         int64_t x = 0;
         int64_t y = 0;
         int64_t vx = 0;
@@ -2654,6 +2656,8 @@ uint64_t WorldChecksum() {
         if (owner.getType() != Value::NIL)
             d.owner = static_cast<int>(owner);
         d.controllers = actor->get_controllers();
+        d.internal_state = actor->snapshot_internal_state();
+        d.grabbed = actor->get_actorinfo()->grabbed ? 1 : 0;
         const ecl::V2 &pos = actor->get_pos();
         const ecl::V2 &vel = actor->get_vel();
         d.x = quantize(pos[0]);
@@ -2671,6 +2675,10 @@ uint64_t WorldChecksum() {
             return a.owner < b.owner;
         if (a.controllers != b.controllers)
             return a.controllers < b.controllers;
+        if (a.internal_state != b.internal_state)
+            return a.internal_state < b.internal_state;
+        if (a.grabbed != b.grabbed)
+            return a.grabbed < b.grabbed;
         if (a.x != b.x)
             return a.x < b.x;
         if (a.y != b.y)
@@ -2685,6 +2693,8 @@ uint64_t WorldChecksum() {
         hash_u64(h, static_cast<uint64_t>(d.id));
         hash_i64(h, static_cast<int64_t>(d.owner));
         hash_i64(h, static_cast<int64_t>(d.controllers));
+        hash_i64(h, static_cast<int64_t>(d.internal_state));
+        hash_i64(h, static_cast<int64_t>(d.grabbed));
         hash_i64(h, d.x);
         hash_i64(h, d.y);
         hash_i64(h, d.vx);

@@ -132,6 +132,8 @@ struct ResyncActorState {
     Uint16 color = 0xFFFF;
     // Stable identifier for resync matching when object ids diverge.
     Uint32 name_hash = 0;
+    Uint16 internal_state = 0;
+    Uint8 grabbed = 0;
     float x;
     float y;
     float vx;
@@ -1054,7 +1056,8 @@ inline void encode_resync_state(ecl::Buffer &buf, const ResyncState &msg) {
     for (const auto &actor : msg.actors) {
         buf << Uint32(actor.object_id) << Uint16(actor.actor_id) << Uint16(actor.owner)
             << float(actor.x) << float(actor.y) << float(actor.vx) << float(actor.vy)
-            << Uint32(actor.controllers) << Uint16(actor.color) << Uint32(actor.name_hash);
+            << Uint32(actor.controllers) << Uint16(actor.color) << Uint32(actor.name_hash)
+            << Uint16(actor.internal_state) << Uint8(actor.grabbed);
     }
 }
 
@@ -1087,8 +1090,10 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
         Uint32 controllers = 0;
         Uint16 color = 0xFFFF;
         Uint32 name_hash = 0;
+        Uint16 internal_state = 0;
+        Uint8 grabbed = 0;
         if (!(buf >> object_id >> actor_id >> owner >> x >> y >> vx >> vy >> controllers >> color >>
-              name_hash))
+              name_hash >> internal_state >> grabbed))
             return false;
         actor.object_id = object_id;
         actor.actor_id = actor_id;
@@ -1100,6 +1105,8 @@ inline bool decode_resync_state(ecl::Buffer &buf, ResyncState &msg) {
         actor.controllers = controllers;
         actor.color = color;
         actor.name_hash = name_hash;
+        actor.internal_state = internal_state;
+        actor.grabbed = grabbed;
         msg.actors.push_back(actor);
     }
     return true;

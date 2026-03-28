@@ -1,4 +1,6 @@
-# Probe render-side door opening in Way To Go under visual prediction, with actor state snapshots.
+# Regression for the Way To Go shogun/door interaction under visual prediction.
+# The predicted peer must diverge early, keep the local shogun/door state alive,
+# and then converge back onto the delayed truth state later.
 
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
@@ -24,24 +26,39 @@ both SET_ACTOR_POS player=0 x=7.50 y=7.60 vx=0.0 vy=0.0
 host HOLD_MOUSE_FORCE player=0 ticks=24 fx=0.0 fy=-260.0
 
 sleep 120
-both STATE_RENDER
-both GET_CELL_RENDER x=7 y=4
-both GET_CELL_RENDER x=7 y=5
-both GET_CELL_RENDER x=7 y=6
-both GET_CELL_RENDER x=2 y=6
+
+host GET_CELL_RENDER x=7 y=4
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=7 y=4 fl=fl_gray st=st_shogun_s it=it_shogun_s" timeout_ms=1500
+client GET_CELL_RENDER x=7 y=4
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=7 y=4 fl=fl_gray st=- it=it_shogun_s" timeout_ms=1500
+
+host GET_CELL_RENDER x=7 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=- it=-" timeout_ms=1500
+client GET_CELL_RENDER x=7 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=st_shogun_s it=-" timeout_ms=1500
+
+host GET_CELL_RENDER x=2 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=2 y=6 fl=fl_gray st=st_door_d it=- fl_state=0 st_state=0 it_state=- fl_snap=13 st_snap=3" timeout_ms=1500
+client GET_CELL_RENDER x=2 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=2 y=6 fl=fl_gray st=st_door_d it=- fl_state=0 st_state=0 it_state=- fl_snap=13 st_snap=0" timeout_ms=1500
 
 sleep 800
-both STATE_RENDER
-both GET_CELL_RENDER x=7 y=4
-both GET_CELL_RENDER x=7 y=5
-both GET_CELL_RENDER x=7 y=6
-both GET_CELL_RENDER x=2 y=6
+
+host GET_CELL_RENDER x=7 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=- it=-" timeout_ms=1500
+client GET_CELL_RENDER x=7 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=st_shogun_s it=-" timeout_ms=1500
 
 sleep 1000
-both STATE_RENDER
-both GET_CELL_RENDER x=7 y=4
-both GET_CELL_RENDER x=7 y=5
-both GET_CELL_RENDER x=7 y=6
-both GET_CELL_RENDER x=2 y=6
+
+host GET_CELL_RENDER x=7 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=- it=-" timeout_ms=1500
+client GET_CELL_RENDER x=7 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=7 y=6 fl=fl_gray st=- it=-" timeout_ms=1500
+
+host GET_CELL_RENDER x=2 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=2 y=6 fl=fl_gray st=st_door_d it=- fl_state=0 st_state=0 it_state=- fl_snap=13 st_snap=0" timeout_ms=1500
+client GET_CELL_RENDER x=2 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=2 y=6 fl=fl_gray st=st_door_d it=- fl_state=0 st_state=0 it_state=- fl_snap=13 st_snap=0" timeout_ms=1500
 
 both QUIT

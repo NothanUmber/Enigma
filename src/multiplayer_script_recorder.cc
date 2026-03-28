@@ -8,6 +8,7 @@
 #include "server.hh"
 #include "items/ShogunDot.hh"
 #include "stones/OxydStone.hh"
+#include "stones/PuzzleStone.hh"
 #include "world.hh"
 
 #include <algorithm>
@@ -41,8 +42,45 @@ std::string to_token(const T &value) {
     return os.str();
 }
 
+std::string stable_world_kind(Object *obj) {
+    if (!obj)
+        return std::string();
+    // Setup snapshots need template-backed kind names for runtime variants whose validator
+    // schema kind omits gameplay-significant shape data such as puzzle-stone connections.
+    if (PuzzleStone *ps = dynamic_cast<PuzzleStone *>(obj)) {
+        const int color = static_cast<int>(ps->getAttr("color"));
+        const std::string con = ps->getAttr("connections").to_string();
+        int bits = 0;
+        if (con.find('w') != std::string::npos)
+            bits |= 1;
+        if (con.find('s') != std::string::npos)
+            bits |= 2;
+        if (con.find('e') != std::string::npos)
+            bits |= 4;
+        if (con.find('n') != std::string::npos)
+            bits |= 8;
+        static const char *kSuffix[16] = {"",    "w",   "s",   "sw",  "e",   "ew",  "es",  "esw",
+                                          "n",   "nw",  "ns",  "nsw", "ne",  "new", "nes", "nesw"};
+        const char *base = "st_puzzle";
+        if (color == BLUE)
+            base = "st_puzzle_blue";
+        else if (color == YELLOW)
+            base = "st_puzzle_yellow";
+        const bool hollow = ps->getAttr("hollow").to_bool();
+        if (hollow && bits == 15)
+            return std::string(base) + "_nesw_hollow";
+        const char *suffix = kSuffix[bits & 15];
+        if (!suffix || !*suffix)
+            return base;
+        return std::string(base) + "_" + suffix;
+    }
+    return obj->getKind();
+}
+
 std::string kind_or_none(Object *obj) {
-    return obj ? obj->getKind() : kSnapshotNone;
+    if (!obj)
+        return kSnapshotNone;
+    return stable_world_kind(obj);
 }
 
 int state_or_zero(Object *obj) {
@@ -54,7 +92,7 @@ int state_or_zero(Object *obj) {
 bool restore_layer_object(const GridPos &pos, GridLayer layer, const std::string &want_kind, int want_state) {
     const bool want_none = want_kind.empty() || want_kind == kSnapshotNone;
     Object *current = GetObject(GridLoc(layer, pos));
-    const std::string current_kind = current ? current->getKind() : std::string(kSnapshotNone);
+    const std::string current_kind = current ? stable_world_kind(current) : std::string(kSnapshotNone);
     if (want_none) {
         if (current) {
             switch (layer) {
@@ -132,7 +170,7 @@ void restore_movable_stones_by_kind(const Snapshot &snapshot) {
             if (!st || !st->is_movable())
                 continue;
             const int object_id = st->getId();
-            available_ids_by_kind[st->getKind()].push_back(object_id);
+            available_ids_by_kind[stable_world_kind(st)].push_back(object_id);
             current_pos_by_id[object_id] = key(x, y);
         }
     }
@@ -147,7 +185,7 @@ void restore_movable_stones_by_kind(const Snapshot &snapshot) {
             continue;
         const GridPos pos(cell.x, cell.y);
         Stone *st = GetStone(pos);
-        if (st && st->is_movable() && st->getKind() == cell.stone_kind) {
+        if (st && st->is_movable() && stable_world_kind(st) == cell.stone_kind) {
             const int object_id = st->getId();
             erase_id(available_ids_by_kind[cell.stone_kind], object_id);
             wanted.push_back(WantedMovableStone{object_id, pos});

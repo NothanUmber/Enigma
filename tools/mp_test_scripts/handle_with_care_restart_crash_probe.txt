@@ -1,6 +1,5 @@
-# Repro probe for client crash during restart/reload of Handle With Care.
-# Load the level, restore the recorded late-game setup, then reload the same
-# level through the host load-level path.
+# Regression for restarting Handle With Care from the recorded late-game setup.
+# The second load must complete cleanly and land on the expected fresh level state.
 
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
@@ -27,17 +26,27 @@ sleep 1000
 both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
 sleep 500
 
-host STATE
-client STATE
 host GET_INV player=0
+wait_next role=host contains="OK cmd=GET_INV player=0 size=2 first=it_extralife" timeout_ms=1500
 host GET_INV player=1
+wait_next role=host contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
 client GET_INV player=0
+wait_next role=client contains="OK cmd=GET_INV player=0 size=2 first=it_extralife" timeout_ms=1500
 client GET_INV player=1
+wait_next role=client contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
 
+both STREAM_STATE interval_ms=100
 host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
-sleep 2500
 
-host STATE
-client STATE
+wait_state_value role=host field=mp_epoch equals=2 timeout_ms=5000
+wait_state_value role=client field=mp_epoch equals=2 timeout_ms=5000
+wait_state_value role=host field=p0_x min_value=5.99 max_value=6.01 timeout_ms=2500
+wait_state_value role=host field=p0_y min_value=5.99 max_value=6.01 timeout_ms=2500
+wait_state_value role=host field=p1_x min_value=6.49 max_value=6.51 timeout_ms=2500
+wait_state_value role=host field=p1_y min_value=5.49 max_value=5.51 timeout_ms=2500
+wait_state_value role=client field=p0_x min_value=5.99 max_value=6.01 timeout_ms=2500
+wait_state_value role=client field=p0_y min_value=5.99 max_value=6.01 timeout_ms=2500
+wait_state_value role=client field=p1_x min_value=6.49 max_value=6.51 timeout_ms=2500
+wait_state_value role=client field=p1_y min_value=5.49 max_value=5.51 timeout_ms=2500
 
 both QUIT

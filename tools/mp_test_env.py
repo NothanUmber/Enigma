@@ -254,9 +254,11 @@ class Controller:
         self.send("host", cmdline)
         self.send("client", cmdline)
 
-    def wait_line_contains(self, role: str, needle: str, timeout_s: float) -> str:
+    def wait_line_contains(
+        self, role: str, needle: str, timeout_s: float, start_idx: Optional[int] = None
+    ) -> str:
         deadline = time.time() + timeout_s
-        idx = 0
+        idx = len(self.events) if start_idx is None else max(0, start_idx)
         while time.time() < deadline:
             # Search any newly appended events first.
             while idx < len(self.events):
@@ -268,6 +270,52 @@ class Controller:
                     return line
             self.pump(timeout_s=0.05)
         raise RuntimeError(f"timeout waiting for role={role} contains={needle!r}")
+
+
+def _get_numeric_state_value(ctrl: Controller, role: str, field: str) -> Optional[float]:
+    cur = ctrl.last_state.get(role)
+    if not cur:
+        return None
+    cur_val = cur.get(field)
+    if not isinstance(cur_val, (int, float)):
+        return None
+    return float(cur_val)
+
+
+def _state_value_matches(
+    value: float,
+    *,
+    equals: Optional[float],
+    min_value: Optional[float],
+    max_value: Optional[float],
+) -> bool:
+    if equals is not None and value != equals:
+        return False
+    if min_value is not None and value < min_value:
+        return False
+    if max_value is not None and value > max_value:
+        return False
+    return True
+
+
+def _state_delta_matches(
+    delta: float,
+    *,
+    min_delta: Optional[float],
+    max_delta: Optional[float],
+    min_abs_delta: Optional[float],
+    max_abs_delta: Optional[float],
+) -> bool:
+    if min_delta is not None and delta < min_delta:
+        return False
+    if max_delta is not None and delta > max_delta:
+        return False
+    abs_delta = abs(delta)
+    if min_abs_delta is not None and abs_delta < min_abs_delta:
+        return False
+    if max_abs_delta is not None and abs_delta > max_abs_delta:
+        return False
+    return True
 
 
 def _tail_text(path: str, max_bytes: int = 16 * 1024) -> str:
@@ -387,7 +435,22 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                 timeout_ms = int(kv.get("timeout_ms", "5000"))
                 if not needle:
                     raise RuntimeError(f"{script_path}:{lineno}: wait requires contains=...")
-                ctrl.wait_line_contains(role=role, needle=needle, timeout_s=timeout_ms / 1000.0)
+                ctrl.wait_line_contains(role=role, needle=needle, timeout_s=timeout_ms / 1000.0, start_idx=0)
+                continue
+
+            if op == "wait_next":
+                kv = _parse_kv(toks[1:])
+                role = kv.get("role", "any").lower()
+                needle = kv.get("contains")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                if not needle:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_next requires contains=...")
+                ctrl.wait_line_contains(
+                    role=role,
+                    needle=needle,
+                    timeout_s=timeout_ms / 1000.0,
+                    start_idx=len(ctrl.events),
+                )
                 continue
 
             if op == "wait_state_change":
@@ -427,6 +490,93 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                 else:
                     raise RuntimeError(
                         f"{script_path}:{lineno}: timeout waiting for {role} {field} change >= {min_abs_delta}"
+                    )
+                continue
+
+            if op == "wait_state_value":
+                kv = _parse_kv(toks[1:])
+                role = kv.get("role", "").lower()
+                field = kv.get("field", "")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                equals = _try_parse_float(kv["equals"]) if "equals" in kv else None
+                min_value = _try_parse_float(kv["min_value"]) if "min_value" in kv else None
+                max_value = _try_parse_float(kv["max_value"]) if "max_value" in kv else None
+                if role not in ("host", "client"):
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_value role=host|client required")
+                if not field:
+                    raise RuntimeError(f"{script_path}:{lineno}: wait_state_value field=... required")
+                if equals is None and min_value is None and max_value is None:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_state_value requires equals=..., min_value=..., or max_value=..."
+                    )
+
+                deadline = time.time() + (timeout_ms / 1000.0)
+                while time.time() < deadline:
+                    ctrl.pump(timeout_s=0.05)
+                    cur_val = _get_numeric_state_value(ctrl, role, field)
+                    if cur_val is None:
+                        continue
+                    if _state_value_matches(
+                        cur_val, equals=equals, min_value=min_value, max_value=max_value
+                    ):
+                        break
+                else:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: timeout waiting for {role} {field} to satisfy"
+                        f" equals={equals} min_value={min_value} max_value={max_value}"
+                    )
+                continue
+
+            if op == "wait_state_compare":
+                kv = _parse_kv(toks[1:])
+                role_a = kv.get("role_a", "").lower()
+                role_b = kv.get("role_b", "").lower()
+                field_a = kv.get("field_a", "")
+                field_b = kv.get("field_b", "")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                min_delta = _try_parse_float(kv["min_delta"]) if "min_delta" in kv else None
+                max_delta = _try_parse_float(kv["max_delta"]) if "max_delta" in kv else None
+                min_abs_delta = _try_parse_float(kv["min_abs_delta"]) if "min_abs_delta" in kv else None
+                max_abs_delta = _try_parse_float(kv["max_abs_delta"]) if "max_abs_delta" in kv else None
+                if role_a not in ("host", "client") or role_b not in ("host", "client"):
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_state_compare role_a=host|client and role_b=host|client required"
+                    )
+                if not field_a or not field_b:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_state_compare field_a=... and field_b=... required"
+                    )
+                if (
+                    min_delta is None
+                    and max_delta is None
+                    and min_abs_delta is None
+                    and max_abs_delta is None
+                ):
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: wait_state_compare requires delta or abs-delta bounds"
+                    )
+
+                deadline = time.time() + (timeout_ms / 1000.0)
+                while time.time() < deadline:
+                    ctrl.pump(timeout_s=0.05)
+                    value_a = _get_numeric_state_value(ctrl, role_a, field_a)
+                    value_b = _get_numeric_state_value(ctrl, role_b, field_b)
+                    if value_a is None or value_b is None:
+                        continue
+                    delta = value_a - value_b
+                    if _state_delta_matches(
+                        delta,
+                        min_delta=min_delta,
+                        max_delta=max_delta,
+                        min_abs_delta=min_abs_delta,
+                        max_abs_delta=max_abs_delta,
+                    ):
+                        break
+                else:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: timeout waiting for delta({role_a}.{field_a} - {role_b}.{field_b})"
+                        f" to satisfy min_delta={min_delta} max_delta={max_delta}"
+                        f" min_abs_delta={min_abs_delta} max_abs_delta={max_abs_delta}"
                     )
                 continue
 

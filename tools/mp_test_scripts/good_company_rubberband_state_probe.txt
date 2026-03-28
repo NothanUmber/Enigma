@@ -1,4 +1,7 @@
-# Probe rubberband-mediated actor/world persistence in Good Company.
+# Regression for rubberband-mediated shared-state persistence in Good Company.
+# The host pushes into the coupled center under high delay; the client must see
+# the stressed mixed-time path, and both peers must later settle back to the
+# same final state.
 
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
@@ -23,22 +26,22 @@ sleep 1000
 both SET_ACTOR_POS player=0 x=22.50 y=6.50 vx=0.0 vy=0.0
 both SET_ACTOR_POS player=1 x=27.50 y=6.50 vx=0.0 vy=0.0
 
-both STATE_RENDER
+both STREAM_STATE interval_ms=50
 host HOLD_MOUSE_FORCE player=0 ticks=24 fx=260.0 fy=0.0
 
-sleep 120
-both STATE_RENDER
+wait_state_value role=client field=p0_vp_mode equals=2 timeout_ms=5000
 
-sleep 500
-both STATE_RENDER
-
-sleep 1000
-both STATE_RENDER
-
-sleep 2000
-both STATE_RENDER
-
-sleep 2000
-both STATE_RENDER
+wait_state_compare role_a=host field_a=p0_x role_b=client field_b=p0_x max_abs_delta=0.05 timeout_ms=12000
+wait_state_compare role_a=host field_a=p0_y role_b=client field_b=p0_y max_abs_delta=0.05 timeout_ms=12000
+wait_state_compare role_a=host field_a=p1_x role_b=client field_b=p1_x max_abs_delta=0.05 timeout_ms=12000
+wait_state_compare role_a=host field_a=p1_y role_b=client field_b=p1_y max_abs_delta=0.05 timeout_ms=12000
+wait_state_value role=host field=p0_vx min_value=-0.05 max_value=0.05 timeout_ms=4000
+wait_state_value role=host field=p1_vx min_value=-0.05 max_value=0.05 timeout_ms=4000
+wait_state_value role=client field=p0_vx min_value=-0.05 max_value=0.05 timeout_ms=4000
+wait_state_value role=client field=p1_vx min_value=-0.05 max_value=0.05 timeout_ms=4000
+wait_state_value role=host field=p0_vp_mode equals=0 timeout_ms=2000
+wait_state_value role=host field=p1_vp_mode equals=0 timeout_ms=2000
+wait_state_value role=client field=p0_vp_mode equals=0 timeout_ms=2000
+wait_state_value role=client field=p1_vp_mode equals=0 timeout_ms=2000
 
 both QUIT

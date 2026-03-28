@@ -759,10 +759,12 @@ protocol::ResyncState build_resync_state_snapshot() {
         else
             entry.color = static_cast<Uint16>(0xFFFF);
         entry.name_hash = stable_name_hash(actor);
+        entry.internal_state = static_cast<Uint16>(actor->snapshot_internal_state());
         entry.x = static_cast<float>(actor->get_pos()[0]);
         entry.y = static_cast<float>(actor->get_pos()[1]);
         entry.vx = static_cast<float>(actor->get_vel()[0]);
         entry.vy = static_cast<float>(actor->get_vel()[1]);
+        entry.grabbed = actor->get_actorinfo()->grabbed ? 1u : 0u;
         state.actors.push_back(entry);
     }
     return state;
@@ -901,6 +903,34 @@ void apply_resync_state(const protocol::ResyncState &state) {
         return true;
     };
 
+    auto apply_resync_grab = [](Actor *actor, const protocol::ResyncActorState &entry) {
+        if (!actor)
+            return;
+        ActorInfo *ai = actor->get_actorinfo();
+        if (!ai)
+            return;
+        const bool grabbed = entry.grabbed != 0;
+        ai->grabbed = grabbed;
+        if (!grabbed)
+            return;
+        ai->vel = ecl::V2(entry.vx, entry.vy);
+        ai->pos_force = ai->pos;
+        ai->forceacc = ecl::V2();
+        ai->force = ecl::V2();
+        ai->collforce = ecl::V2();
+        ai->friction = 0.0;
+        ai->contacts = ai->contacts_a;
+        ai->last_contacts = ai->contacts_b;
+        ai->contacts_count = 0;
+        ai->last_contacts_count = 0;
+    };
+
+    auto apply_resync_internal_state = [](Actor *actor, const protocol::ResyncActorState &entry) {
+        if (!actor)
+            return;
+        actor->restore_internal_state(static_cast<int>(entry.internal_state));
+    };
+
     unsigned applied = 0;
     unsigned object_id_matches = 0;
     float max_pos_delta = 0.0f;
@@ -920,8 +950,11 @@ void apply_resync_state(const protocol::ResyncState &state) {
         float d = std::sqrt(dx * dx + dy * dy);
         if (d > max_pos_delta)
             max_pos_delta = d;
-        if (!should_skip_actor(actor, entry.vx, entry.vy))
+        const bool skip_actor = should_skip_actor(actor, entry.vx, entry.vy);
+        if (!skip_actor)
             resync_teleport(actor, x, y, entry.vx, entry.vy);
+        apply_resync_internal_state(actor, entry);
+        apply_resync_grab(actor, entry);
         apply_resync_metadata(actor, entry.owner, entry.controllers, entry.color);
         used[actor] = true;
         applied += 1;
@@ -1000,8 +1033,11 @@ void apply_resync_state(const protocol::ResyncState &state) {
             float d = std::sqrt(dx * dx + dy * dy);
             if (d > max_pos_delta)
                 max_pos_delta = d;
-            if (!should_skip_actor(best, s.vx, s.vy))
+            const bool skip_actor = should_skip_actor(best, s.vx, s.vy);
+            if (!skip_actor)
                 resync_teleport(best, x, y, s.vx, s.vy);
+            apply_resync_internal_state(best, s);
+            apply_resync_grab(best, s);
             apply_resync_metadata(best, s.owner, s.controllers, s.color);
             used[best] = true;
             snap_used[idx] = 1;
@@ -1096,8 +1132,11 @@ void apply_resync_state(const protocol::ResyncState &state) {
                 float d = std::sqrt(dx * dx + dy * dy);
                 if (d > max_pos_delta)
                     max_pos_delta = d;
-                if (!should_skip_actor(actor, s.vx, s.vy))
+                const bool skip_actor = should_skip_actor(actor, s.vx, s.vy);
+                if (!skip_actor)
                     resync_teleport(actor, x, y, s.vx, s.vy);
+                apply_resync_internal_state(actor, s);
+                apply_resync_grab(actor, s);
                 apply_resync_metadata(actor, s.owner, s.controllers, s.color);
                 used[actor] = true;
                 snap_used[snap_idx] = 1;

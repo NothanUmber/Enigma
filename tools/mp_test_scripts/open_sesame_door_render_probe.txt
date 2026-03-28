@@ -1,4 +1,6 @@
-# Probe render-side door state in Open Sesame under visual prediction.
+# Regression for the Open Sesame door-coupled Per.Oxyd setup.
+# The predicted client must diverge from current truth immediately after the
+# local shogun push, persist that locally changed state, and later converge.
 
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
@@ -23,30 +25,39 @@ both SET_ACTOR_POS player=1 x=4.50 y=4.50 vx=0.0 vy=0.0
 
 # Put a large shogun just below the right-hand large dot so player 0 can push it up.
 both SET_STONE x=10 y=7 kind=st_shogun_l
-both GET_CELL x=10 y=6
-both GET_CELL x=10 y=7
-both GET_CELL x=14 y=2
-both GET_CELL x=5 y=10
 
 both SET_ACTOR_POS player=0 x=10.50 y=8.60 vx=0.0 vy=0.0
 host HOLD_MOUSE_FORCE player=0 ticks=6 fx=0.0 fy=-220.0
 
 sleep 80
-both GET_CELL_RENDER x=10 y=6
-both GET_CELL_RENDER x=10 y=7
-both GET_CELL_RENDER x=14 y=2
-both GET_CELL_RENDER x=5 y=10
+
+host GET_CELL_RENDER x=10 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=st_shogun_l it=it_shogun_l" timeout_ms=1500
+client GET_CELL_RENDER x=10 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=- it=it_shogun_l" timeout_ms=1500
+
+host GET_CELL_RENDER x=10 y=7
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=10 y=7 fl=fl_rough st=- it=-" timeout_ms=1500
+client GET_CELL_RENDER x=10 y=7
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=10 y=7 fl=fl_rough st=st_shogun_l it=-" timeout_ms=1500
 
 sleep 500
-both GET_CELL_RENDER x=10 y=6
-both GET_CELL_RENDER x=10 y=7
-both GET_CELL_RENDER x=14 y=2
-both GET_CELL_RENDER x=5 y=10
+
+host GET_CELL_RENDER x=10 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=st_shogun_l it=it_shogun_l" timeout_ms=1500
+client GET_CELL_RENDER x=10 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=- it=it_shogun_l" timeout_ms=1500
 
 sleep 1000
-both GET_CELL_RENDER x=10 y=6
-both GET_CELL_RENDER x=10 y=7
-both GET_CELL_RENDER x=14 y=2
-both GET_CELL_RENDER x=5 y=10
+
+host GET_CELL_RENDER x=10 y=6
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=st_shogun_l it=it_shogun_l" timeout_ms=1500
+client GET_CELL_RENDER x=10 y=6
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=10 y=6 fl=fl_rough st=st_shogun_l it=it_shogun_l" timeout_ms=1500
+
+host GET_CELL_RENDER x=10 y=7
+wait_next role=host contains="OK cmd=GET_CELL_RENDER x=10 y=7 fl=fl_rough st=- it=-" timeout_ms=1500
+client GET_CELL_RENDER x=10 y=7
+wait_next role=client contains="OK cmd=GET_CELL_RENDER x=10 y=7 fl=fl_rough st=- it=-" timeout_ms=1500
 
 both QUIT

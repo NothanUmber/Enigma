@@ -1,9 +1,7 @@
-# Focused probe for manual-desync mode:
-# - client enables desync hold
-# - client continues applying its real input locally
-# - host receives empty authoritative input for that client
-# - host/client actor state diverges
-# - disabling the hold allows host resync to repair the client again
+# Regression for manual client-desync hold:
+# - client diverges while hold is active
+# - host remains authoritative and unchanged by the held local input
+# - disabling the hold allows both peers to converge again
 
 both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
 both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
@@ -25,23 +23,34 @@ sleep 500
 both START_GAME
 sleep 500
 
+both STREAM_STATE interval_ms=50
+wait_state_value role=host field=p1_x min_value=4.49 max_value=4.51 timeout_ms=1500
+wait_state_value role=client field=p1_x min_value=4.49 max_value=4.51 timeout_ms=1500
+
 client GET_CLIENT_DESYNC_HOLD
-client STATE_RENDER
-host STATE_RENDER
+wait_next role=client contains="OK cmd=GET_CLIENT_DESYNC_HOLD enabled=0" timeout_ms=1500
 
 client SET_CLIENT_DESYNC_HOLD enabled=1
+wait_next role=client contains="OK cmd=SET_CLIENT_DESYNC_HOLD enabled=1" timeout_ms=1500
 client GET_CLIENT_DESYNC_HOLD
+wait_next role=client contains="OK cmd=GET_CLIENT_DESYNC_HOLD enabled=1" timeout_ms=1500
 client HOLD_MOUSE_FORCE player=1 ticks=60 fx=-1.0 fy=0.0
-sleep 800
 
-client STATE_RENDER
-host STATE_RENDER
+wait_state_value role=client field=mp_desync_hold equals=1 timeout_ms=1500
+wait_state_change role=client field=p1_x min_abs_delta=0.05 timeout_ms=2500
+wait_state_value role=host field=p1_x min_value=4.49 max_value=4.51 timeout_ms=2500
+wait_state_value role=host field=p1_vx min_value=-0.05 max_value=0.05 timeout_ms=2500
+wait_state_compare role_a=client field_a=p1_x role_b=host field_b=p1_x min_abs_delta=0.05 timeout_ms=2500
 
 client SET_CLIENT_DESYNC_HOLD enabled=0
+wait_next role=client contains="OK cmd=SET_CLIENT_DESYNC_HOLD enabled=0" timeout_ms=1500
 client GET_CLIENT_DESYNC_HOLD
-sleep 1000
+wait_next role=client contains="OK cmd=GET_CLIENT_DESYNC_HOLD enabled=0" timeout_ms=1500
 
-client STATE_RENDER
-host STATE_RENDER
+wait_state_value role=client field=mp_desync_hold equals=0 timeout_ms=2000
+wait_state_compare role_a=client field_a=p1_x role_b=host field_b=p1_x max_abs_delta=0.02 timeout_ms=5000
+wait_state_compare role_a=client field_a=p1_y role_b=host field_b=p1_y max_abs_delta=0.02 timeout_ms=5000
+wait_state_value role=host field=p1_vx min_value=-0.05 max_value=0.05 timeout_ms=5000
+wait_state_value role=client field=p1_vx min_value=-0.05 max_value=0.05 timeout_ms=5000
 
 both QUIT

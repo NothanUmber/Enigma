@@ -1,0 +1,57 @@
+# Regression for PuzzleStone setup snapshots preserving per-stone orientation.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=1
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23487 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23487 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_experimental/mptest_puzzlestone_world_resync_1"
+sleep 1500
+both START_GAME
+sleep 1000
+
+# Move three distinct PuzzleStone orientations into a saved target layout.
+both MOVE_STONE from_x=3 from_y=2 to_x=3 to_y=1
+both MOVE_STONE from_x=4 from_y=2 to_x=4 to_y=1
+both MOVE_STONE from_x=6 from_y=2 to_x=8 to_y=2
+host GET_CELL_ATTR x=3 y=1 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=3 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=e" timeout_ms=1500
+host GET_CELL_ATTR x=4 y=1 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=4 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=w" timeout_ms=1500
+host GET_CELL_ATTR x=8 y=2 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=8 y=2 layer=stone kind=st_puzzle attr_exists=1 type=string value=" timeout_ms=1500
+host SETUP_SAVE_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup
+wait_next role=host contains="OK cmd=SETUP_SAVE_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup" timeout_ms=1500
+
+# Scramble the live stones into a different scan order so bare-kind restore remaps them wrongly.
+both MOVE_STONE from_x=3 from_y=1 to_x=6 to_y=1
+both MOVE_STONE from_x=4 from_y=1 to_x=7 to_y=1
+both MOVE_STONE from_x=8 from_y=2 to_x=5 to_y=3
+
+host SETUP_LOAD_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup
+wait_next role=host contains="OK cmd=SETUP_LOAD_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup" timeout_ms=1500
+client SETUP_LOAD_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup
+wait_next role=client contains="OK cmd=SETUP_LOAD_FILE path=/tmp/puzzlestone_setup_snapshot_probe.mpsetup" timeout_ms=1500
+
+host GET_CELL_ATTR x=3 y=1 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=3 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=e" timeout_ms=1500
+host GET_CELL_ATTR x=4 y=1 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=4 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=w" timeout_ms=1500
+host GET_CELL_ATTR x=8 y=2 layer=stone key=connections
+wait_next role=host contains="OK cmd=GET_CELL_ATTR x=8 y=2 layer=stone kind=st_puzzle attr_exists=1 type=string value=" timeout_ms=1500
+
+client GET_CELL_ATTR x=3 y=1 layer=stone key=connections
+wait_next role=client contains="OK cmd=GET_CELL_ATTR x=3 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=e" timeout_ms=1500
+client GET_CELL_ATTR x=4 y=1 layer=stone key=connections
+wait_next role=client contains="OK cmd=GET_CELL_ATTR x=4 y=1 layer=stone kind=st_puzzle attr_exists=1 type=string value=w" timeout_ms=1500
+client GET_CELL_ATTR x=8 y=2 layer=stone key=connections
+wait_next role=client contains="OK cmd=GET_CELL_ATTR x=8 y=2 layer=stone kind=st_puzzle attr_exists=1 type=string value=" timeout_ms=1500
+
+both QUIT

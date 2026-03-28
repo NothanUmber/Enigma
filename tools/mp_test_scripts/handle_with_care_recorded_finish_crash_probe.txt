@@ -1,10 +1,13 @@
-# Recorded by the in-game multiplayer script recorder.
-# Use Shift+F11 while recording to refresh the setup snapshot.
+# Recorded late-game replay for Handle With Care.
+# Use Shift+F11 while recording to refresh the setup snapshot. The maintained
+# check here is that the replay reaches the same late-game oxyd/inventory state
+# on both peers without crashing or drifting apart.
 both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
 both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
 both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
 both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
 both SET_BOOL key=MultiplayerDebugNetSimAll value=0
+both SET_BOOL key=MultiplayerDebugLogging value=1
 both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
 both SET_INT key=MultiplayerDebugInputDelayTicks value=120
 both SET_INT key=MultiplayerDebugTickLengthMs value=10
@@ -22,6 +25,8 @@ sleep 1000
 
 # Setup snapshot
 # Capture tick=5259
+# Refresh this setup file after stable-kind snapshot changes. Older captures
+# collapse puzzle-stone orientation and will replay with wrong geometry.
 both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
 sleep 200
 
@@ -135,46 +140,55 @@ host QUEUE_LOCAL_INPUT player=0 ticks_ahead=294 fx=0.000 fy=-3.000
 host QUEUE_LOCAL_INPUT player=0 ticks_ahead=300 fx=0.000 fy=-3.000
 sleep 4700
 
-host STATE
-client STATE
-host GET_INV player=0
-host GET_INV player=1
-client GET_INV player=0
-client GET_INV player=1
-host GET_OXYD_STATE x=18 y=2
-host GET_OXYD_STATE x=2 y=4
-host GET_OXYD_STATE x=4 y=4
-host GET_OXYD_STATE x=3 y=6
-host GET_OXYD_STATE x=2 y=8
-host GET_OXYD_STATE x=4 y=8
-client GET_OXYD_STATE x=18 y=2
-client GET_OXYD_STATE x=2 y=4
-client GET_OXYD_STATE x=4 y=4
-client GET_OXYD_STATE x=3 y=6
-client GET_OXYD_STATE x=2 y=8
-client GET_OXYD_STATE x=4 y=8
+wait_state_compare role_a=host field_a=p0_x role_b=client field_b=p0_x max_abs_delta=0.05 timeout_ms=5000
+wait_state_compare role_a=host field_a=p0_y role_b=client field_b=p0_y max_abs_delta=0.05 timeout_ms=5000
+wait_state_compare role_a=host field_a=p1_x role_b=client field_b=p1_x max_abs_delta=0.05 timeout_ms=5000
+wait_state_compare role_a=host field_a=p1_y role_b=client field_b=p1_y max_abs_delta=0.05 timeout_ms=5000
 
-# Final push to finish the level by opening the last oxyd.
+host GET_INV player=0
+wait_next role=host contains="OK cmd=GET_INV player=0 size=2 first=it_extralife" timeout_ms=1500
+host GET_INV player=1
+wait_next role=host contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
+client GET_INV player=0
+wait_next role=client contains="OK cmd=GET_INV player=0 size=2 first=it_extralife" timeout_ms=1500
+client GET_INV player=1
+wait_next role=client contains="OK cmd=GET_INV player=1 size=2 first=it_extralife" timeout_ms=1500
+
+host GET_OXYD_STATE x=18 y=2
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=18 y=2 kind=st_oxyd_b internal=0 external=0 color=2" timeout_ms=1500
+host GET_OXYD_STATE x=2 y=4
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=2 y=4 kind=st_oxyd_b internal=4 external=1 color=2" timeout_ms=1500
+host GET_OXYD_STATE x=4 y=4
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=4 y=4 kind=st_oxyd_b internal=1 external=2 color=0" timeout_ms=1500
+host GET_OXYD_STATE x=3 y=6
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=3 y=6 kind=st_oxyd_b internal=1 external=2 color=0" timeout_ms=1500
+host GET_OXYD_STATE x=2 y=8
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=2 y=8 kind=st_oxyd_b internal=1 external=2 color=1" timeout_ms=1500
+host GET_OXYD_STATE x=4 y=8
+wait_next role=host contains="OK cmd=GET_OXYD_STATE x=4 y=8 kind=st_oxyd_b internal=1 external=2 color=1" timeout_ms=1500
+
+client GET_OXYD_STATE x=18 y=2
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=18 y=2 kind=st_oxyd_b internal=0 external=0 color=2" timeout_ms=1500
+client GET_OXYD_STATE x=2 y=4
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=2 y=4 kind=st_oxyd_b internal=4 external=1 color=2" timeout_ms=1500
+client GET_OXYD_STATE x=4 y=4
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=4 y=4 kind=st_oxyd_b internal=1 external=2 color=0" timeout_ms=1500
+client GET_OXYD_STATE x=3 y=6
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=3 y=6 kind=st_oxyd_b internal=1 external=2 color=0" timeout_ms=1500
+client GET_OXYD_STATE x=2 y=8
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=2 y=8 kind=st_oxyd_b internal=1 external=2 color=1" timeout_ms=1500
+client GET_OXYD_STATE x=4 y=8
+wait_next role=client contains="OK cmd=GET_OXYD_STATE x=4 y=8 kind=st_oxyd_b internal=1 external=2 color=1" timeout_ms=1500
+
+# Historical follow-up: an extra late push used to leave the client in
+# grabbed-but-still-movable local state while the host had already entered the
+# non-movable vortex swallow state.
 host HOLD_MOUSE_FORCE player=0 ticks=160 fx=0.000 fy=-6.000
-sleep 2500
-
-host STATE
-client STATE
-host GET_INV player=0
-host GET_INV player=1
-client GET_INV player=0
-client GET_INV player=1
-host GET_OXYD_STATE x=18 y=2
-host GET_OXYD_STATE x=2 y=4
-host GET_OXYD_STATE x=4 y=4
-host GET_OXYD_STATE x=3 y=6
-host GET_OXYD_STATE x=2 y=8
-host GET_OXYD_STATE x=4 y=8
-client GET_OXYD_STATE x=18 y=2
-client GET_OXYD_STATE x=2 y=4
-client GET_OXYD_STATE x=4 y=4
-client GET_OXYD_STATE x=3 y=6
-client GET_OXYD_STATE x=2 y=8
-client GET_OXYD_STATE x=4 y=8
+wait_state_value role=host field=p0_grab equals=1 timeout_ms=5000
+wait_state_value role=client field=p0_grab equals=1 timeout_ms=5000
+wait_state_value role=host field=p0_mov equals=0 timeout_ms=5000
+wait_state_value role=client field=p0_mov equals=0 timeout_ms=5000
+wait_state_compare role_a=host field_a=p0_x role_b=client field_b=p0_x max_abs_delta=0.05 timeout_ms=5000
+wait_state_compare role_a=host field_a=p0_y role_b=client field_b=p0_y max_abs_delta=0.05 timeout_ms=5000
 
 both QUIT
