@@ -1,0 +1,21 @@
+# Repro probe for inventory teardown during a second level load.
+# The client gets a document item, then the host triggers another LOAD_LEVEL.
+
+host START_HOST session=1 seed=1 expected=2 port=23456 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23456 host_ip=127.0.0.1 host_id=mptest-host
+
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 1000
+both START_GAME
+sleep 1000
+
+client SET_INV player=1 items=it_document
+client GET_INV player=1
+sleep 200
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd04_2"
+sleep 1500
+
+both QUIT

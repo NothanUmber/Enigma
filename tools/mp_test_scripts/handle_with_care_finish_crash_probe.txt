@@ -1,0 +1,48 @@
+# Focused repro for the Handle With Care finish crash.
+# Start from the recorded late-game setup, then push the host ball toward
+# the last unopened oxyd to trigger level finish.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimAll value=0
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=120
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=0
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=0
+both SET_INT key=MultiplayerDebugNetSimDropPct value=0
+both SET_INT key=MultiplayerDebugNetSimDupPct value=0
+
+host START_HOST session=1 seed=4056814342 expected=2 port=23470 host_id=mptest-host
+client START_CLIENT session=1 seed=4056814342 expected=2 port=23470 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
+sleep 200
+
+both STATE
+host GET_OXYD_STATE x=18 y=2
+client GET_OXYD_STATE x=18 y=2
+host GET_CELL x=18 y=2
+client GET_CELL x=18 y=2
+
+both STREAM_STATE interval_ms=100
+
+# Push the host ball straight upward for a while from the recorded pre-finish state.
+host HOLD_MOUSE_FORCE player=0 ticks=350 fx=0.000 fy=-6.000
+
+sleep 5000
+
+host STATE
+client STATE
+host GET_OXYD_STATE x=18 y=2
+client GET_OXYD_STATE x=18 y=2
+
+both QUIT

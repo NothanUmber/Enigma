@@ -1,0 +1,43 @@
+# Repro probe for client crash during restart/reload of Handle With Care.
+# Load the level, restore the recorded late-game setup, then reload the same
+# level through the host load-level path.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimAll value=0
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=120
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=0
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=0
+both SET_INT key=MultiplayerDebugNetSimDropPct value=0
+both SET_INT key=MultiplayerDebugNetSimDupPct value=0
+
+host START_HOST session=1 seed=4056814342 expected=2 port=23471 host_id=mptest-host
+client START_CLIENT session=1 seed=4056814342 expected=2 port=23471 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
+sleep 500
+
+host STATE
+client STATE
+host GET_INV player=0
+host GET_INV player=1
+client GET_INV player=0
+client GET_INV player=1
+
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 2500
+
+host STATE
+client STATE
+
+both QUIT

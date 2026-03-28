@@ -1,0 +1,180 @@
+# Recorded by the in-game multiplayer script recorder.
+# Use Shift+F11 while recording to refresh the setup snapshot.
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=1
+both SET_BOOL key=MultiplayerDebugZeroFillInputs value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimAll value=0
+both SET_INT key=MultiplayerDebugPredictMissingMouseTicks value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=120
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_INT key=MultiplayerDebugNetSimDelayMs value=0
+both SET_INT key=MultiplayerDebugNetSimJitterMs value=0
+both SET_INT key=MultiplayerDebugNetSimDropPct value=0
+both SET_INT key=MultiplayerDebugNetSimDupPct value=0
+host START_HOST session=1 seed=4056814342 expected=2 port=23470 host_id=mptest-host
+client START_CLIENT session=1 seed=4056814342 expected=2 port=23470 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+host LOAD_LEVEL level_id="enigma_peroxyd/peroxyd02_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+# Setup snapshot
+# Capture tick=5259
+both SETUP_LOAD_FILE path="local/last_mp_recording_setup.mpsetup"
+sleep 200
+
+both STREAM_STATE interval_ms=100
+
+# Recorded local inputs
+# role=host local_player=0 base_tick=5259
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=108 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=109 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=110 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=111 fx=-3.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=112 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=113 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=114 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=116 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=118 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=119 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=120 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=121 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=122 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=123 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=124 fx=-3.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=125 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=126 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=128 fx=0.000 fy=-12.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=129 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=130 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=131 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=132 fx=3.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=133 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=134 fx=6.000 fy=-18.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=135 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=136 fx=0.000 fy=-12.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=137 fx=3.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=138 fx=0.000 fy=-18.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=139 fx=0.000 fy=-12.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=140 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=141 fx=3.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=142 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=144 fx=3.000 fy=-15.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=145 fx=3.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=146 fx=0.000 fy=-21.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=147 fx=0.000 fy=-12.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=148 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=149 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=150 fx=0.000 fy=-15.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=152 fx=6.000 fy=-18.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=153 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=154 fx=0.000 fy=-21.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=156 fx=0.000 fy=-18.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=157 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=158 fx=0.000 fy=-24.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=159 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=160 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=161 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=162 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=201 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=202 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=204 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=205 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=206 fx=3.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=208 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=209 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=210 fx=3.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=212 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=213 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=216 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=217 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=218 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=219 fx=0.000 fy=-9.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=220 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=221 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=222 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=224 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=226 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=229 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=230 fx=3.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=231 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=232 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=233 fx=3.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=234 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=236 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=238 fx=3.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=240 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=242 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=245 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=247 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=250 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=252 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=256 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=258 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=259 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=261 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=263 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=266 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=267 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=269 fx=0.000 fy=-6.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=270 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=271 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=273 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=276 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=279 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=281 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=284 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=286 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=289 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=290 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=291 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=292 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=294 fx=0.000 fy=-3.000
+host QUEUE_LOCAL_INPUT player=0 ticks_ahead=300 fx=0.000 fy=-3.000
+sleep 4700
+
+host STATE
+client STATE
+host GET_INV player=0
+host GET_INV player=1
+client GET_INV player=0
+client GET_INV player=1
+host GET_OXYD_STATE x=18 y=2
+host GET_OXYD_STATE x=2 y=4
+host GET_OXYD_STATE x=4 y=4
+host GET_OXYD_STATE x=3 y=6
+host GET_OXYD_STATE x=2 y=8
+host GET_OXYD_STATE x=4 y=8
+client GET_OXYD_STATE x=18 y=2
+client GET_OXYD_STATE x=2 y=4
+client GET_OXYD_STATE x=4 y=4
+client GET_OXYD_STATE x=3 y=6
+client GET_OXYD_STATE x=2 y=8
+client GET_OXYD_STATE x=4 y=8
+
+# Final push to finish the level by opening the last oxyd.
+host HOLD_MOUSE_FORCE player=0 ticks=160 fx=0.000 fy=-6.000
+sleep 2500
+
+host STATE
+client STATE
+host GET_INV player=0
+host GET_INV player=1
+client GET_INV player=0
+client GET_INV player=1
+host GET_OXYD_STATE x=18 y=2
+host GET_OXYD_STATE x=2 y=4
+host GET_OXYD_STATE x=4 y=4
+host GET_OXYD_STATE x=3 y=6
+host GET_OXYD_STATE x=2 y=8
+host GET_OXYD_STATE x=4 y=8
+client GET_OXYD_STATE x=18 y=2
+client GET_OXYD_STATE x=2 y=4
+client GET_OXYD_STATE x=4 y=4
+client GET_OXYD_STATE x=3 y=6
+client GET_OXYD_STATE x=2 y=8
+client GET_OXYD_STATE x=4 y=8
+
+both QUIT

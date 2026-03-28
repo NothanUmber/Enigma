@@ -1,0 +1,53 @@
+# Probe the authoritative timeline of the Way To Go shogun-door interaction.
+
+both SET_BOOL key=MultiplayerAutoDetectConnectivity value=0
+both SET_BOOL key=MultiplayerDebugVisualPrediction value=0
+both SET_INT key=MultiplayerDebugInputDelayTicks value=0
+both SET_INT key=MultiplayerDebugTickLengthMs value=10
+both SET_BOOL key=MultiplayerDebugRollbackEnabled value=0
+both SET_BOOL key=MultiplayerDebugNetSimEnabled value=0
+
+host START_HOST session=1 seed=1 expected=2 port=23458 host_id=mptest-host
+client START_CLIENT session=1 seed=1 expected=2 port=23458 host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+host LOAD_LEVEL level_id="enigma_i/daniel09_2"
+sleep 1500
+both START_GAME
+sleep 1000
+
+both SET_ACTOR_POS player=1 x=16.50 y=10.50 vx=0.0 vy=0.0
+both SET_ACTOR_POS player=0 x=7.50 y=7.60 vx=0.0 vy=0.0
+host HOLD_MOUSE_FORCE player=0 ticks=24 fx=0.0 fy=-260.0
+
+sleep 200
+host GET_CELL x=7 y=4
+host GET_CELL x=7 y=5
+host GET_CELL x=7 y=6
+host GET_CELL x=2 y=6
+
+sleep 300
+host GET_CELL x=7 y=4
+host GET_CELL x=7 y=5
+host GET_CELL x=7 y=6
+host GET_CELL x=2 y=6
+
+sleep 300
+host GET_CELL x=7 y=4
+host GET_CELL x=7 y=5
+host GET_CELL x=7 y=6
+host GET_CELL x=2 y=6
+
+sleep 300
+host GET_CELL x=7 y=4
+host GET_CELL x=7 y=5
+host GET_CELL x=7 y=6
+host GET_CELL x=2 y=6
+
+sleep 400
+host GET_CELL x=7 y=4
+host GET_CELL x=7 y=5
+host GET_CELL x=7 y=6
+host GET_CELL x=2 y=6
+
+both QUIT
