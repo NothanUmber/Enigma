@@ -1,0 +1,40 @@
+services:
+  enigma-mp:
+    build:
+      context: .
+    image: enigma-mp:latest
+    container_name: enigma-mp
+    restart: unless-stopped
+    ports:
+      - "12347:12347/udp"
+      - "12348:12348/udp"
+      - "12349:12349/tcp"
+    expose:
+      - "12347/tcp"
+      - "12350/tcp"
+    environment:
+      LOBBY_HTTP_ENABLE: "1"
+      LOBBY_HTTP_HOST: "0.0.0.0"
+      LOBBY_HTTP_PORT: "12347"
+      LOBBY_HTTP_PATH: "/lobby"
+      WS_RELAY_ENABLE: "1"
+      WS_RELAY_HOST: "0.0.0.0"
+      WS_RELAY_PORT: "12350"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: enigma-mp-nginx
+    restart: unless-stopped
+    depends_on:
+      - enigma-mp
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NGINX_ENIGMA_SERVER_NAME: "${NGINX_ENIGMA_SERVER_NAME:-_}"
+      NGINX_ENIGMA_TLS_CERT: "${NGINX_ENIGMA_TLS_CERT:-fullchain.pem}"
+      NGINX_ENIGMA_TLS_KEY: "${NGINX_ENIGMA_TLS_KEY:-privkey.pem}"
+    volumes:
+      - ./deploy/nginx/enigma.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+      - ./deploy/nginx/acme:/var/www/certbot:ro

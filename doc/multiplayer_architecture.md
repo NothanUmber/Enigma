@@ -700,6 +700,53 @@ The container entrypoint now accepts:
 - `WS_RELAY_HOST=<bind-host>`
 - `WS_RELAY_PORT=<bind-port>`
 
+### Docker Compose (VM + nginx reverse proxy)
+
+For the intended production-style setup, the repository now also includes:
+
+- [docker-compose.nginx.yml](/Users/ferdinand/dev/git/Enigma/docker-compose.nginx.yml)
+- [deploy/nginx/enigma.conf.template](/Users/ferdinand/dev/git/Enigma/deploy/nginx/enigma.conf.template)
+
+This keeps the proxy-friendly backends internal to Docker and lets nginx expose:
+
+- `https://<public-host>/lobby`
+- `wss://<public-host>/relay`
+
+while still publishing the fast-path ports directly:
+
+- `12347/udp`
+- `12348/udp`
+- `12349/tcp`
+
+Usage on the VM:
+
+```sh
+docker compose -f docker-compose.nginx.yml up -d --build
+```
+
+Before starting it, place TLS files in:
+
+- [deploy/nginx/certs](/Users/ferdinand/dev/git/Enigma/deploy/nginx/certs)
+
+Expected default filenames:
+
+- `fullchain.pem`
+- `privkey.pem`
+
+You can override the nginx server name and cert filenames via environment:
+
+```sh
+export NGINX_ENIGMA_SERVER_NAME=example.com
+export NGINX_ENIGMA_TLS_CERT=fullchain.pem
+export NGINX_ENIGMA_TLS_KEY=privkey.pem
+docker compose -f docker-compose.nginx.yml up -d --build
+```
+
+With that setup, clients should use:
+
+- `MultiplayerLobbyControlUrl=https://<public-host>/lobby`
+- `MultiplayerWebSocketRelayUrl=wss://<public-host>/relay`
+
 ### Manual (no Docker)
 
 On Ubuntu/Debian you typically want:
