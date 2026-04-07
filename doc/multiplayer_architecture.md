@@ -27,6 +27,10 @@ may press `ESC` to open their own menu as well. The session resumes once all men
 Open **Options -> Multiplayer** and set:
 
 - **Lobby/Relay Server**: hostname or IP of the shared server (default: `CHANGEME`)
+- **Lobby control URL**: optional `http://` or `https://` URL for room create/join/poll/leave/start
+  when UDP lobby traffic is blocked (for example `https://example.com/lobby`)
+- **WebSocket relay URL**: optional `ws://` or `wss://` URL for the proxy-friendly gameplay fallback
+  (for example `wss://example.com/relay`)
 - Ports:
   - Lobby (UDP, default 12347)
   - UDP relay (UDP, default 12348)
@@ -34,6 +38,7 @@ Open **Options -> Multiplayer** and set:
 - Connection strategies (toggles):
   - Direct connect
   - UDP relay
+  - WebSocket relay
   - TCP relay
 - Connectivity:
   - Presets: **Good / Normal / Bad** apply a tuned set of multiplayer runtime settings.
@@ -48,12 +53,13 @@ Notes:
 - While a game is running, transport/lobby settings are intentionally not editable in Options.
   Some runtime-tuning settings in `MP Debug`, `MP Sync`, and `MP Netsim` are editable (host-only);
   values that cannot safely be changed during gameplay are shown grey/locked.
-- If Internet mode is selected but the server is still unresolved (for example `CHANGEME`),
-  the lobby shows a warning to configure the lobby/relay host in Options.
+- If Internet mode is selected but the server is still unresolved (for example `CHANGEME`) and no
+  explicit control/relay URLs are configured, the lobby shows a warning to configure the Internet
+  server settings in Options.
 
 If multiple strategies are enabled, clients try them in this order:
 
-`Direct` -> `UDP relay` -> `TCP relay` (skipping disabled strategies).
+`Direct` -> `UDP relay` -> `WebSocket relay` -> `TCP relay` (skipping disabled strategies).
 
 ### LAN mode (local network)
 
@@ -136,12 +142,14 @@ Ports:
 
 Internet discovery (room codes):
 
-- Server: `tools/internet_lobby_server.py` (UDP, default 12347)
+- Server: `tools/internet_lobby_server.py` (UDP on `12347/udp`, optional HTTP control on `12347/tcp`)
 - Room membership uses Create/Join/Leave/Poll requests.
 - Poll/Join responses can include room member ids + display names (used by the lobby player list).
 - If the host leaves, the room is removed immediately (clients are forced out of that room).
 - On normal app shutdown, Enigma sends a best-effort `LEAVE` for the tracked current room.
 - Timeout is still used as fallback cleanup for orphaned rooms (for example crashes).
+- The client can fall back from UDP room traffic to an explicit HTTP(S) control URL while keeping
+  the visible `server` field as a plain host name for direct/UDP cases.
 
 `LobbyStart` carries session metadata:
 
@@ -654,9 +662,10 @@ The refactor splits multiplayer into small translation units with focused respon
 
 For Internet play, both services can be run in one container:
 
-- `tools/internet_lobby_server.py` (UDP lobby)
+- `tools/internet_lobby_server.py` (UDP lobby + HTTP control fallback)
 - `tools/relay_server.cc` (UDP ENet relay)
 - `tools/tcp_relay_server.cc` (TCP relay fallback)
+- `tools/ws_relay_server.py` (WebSocket gameplay relay)
 
 The Docker image builds the UDP relay against distro ENet (`libenet-dev`) to match typical client
 builds that use system ENet.
@@ -665,10 +674,31 @@ builds that use system ENet.
 docker build -t enigma-mp .
 docker run --rm \
   -p 12347:12347/udp \
+  -p 12347:12347/tcp \
   -p 12348:12348/udp \
   -p 12349:12349/tcp \
+  -p 12350:12350/tcp \
   enigma-mp
 ```
+
+Port summary for the current container image:
+
+- `12347/udp`: room-code Internet lobby
+- `12347/tcp`: HTTP lobby/control fallback (suitable reverse-proxy backend for `https://.../lobby`)
+- `12348/udp`: UDP gameplay relay
+- `12349/tcp`: raw TCP gameplay relay
+- `12350/tcp`: WebSocket gameplay relay
+
+The container entrypoint now accepts:
+
+- `LOBBY_UDP_ENABLE=0|1`
+- `LOBBY_HTTP_ENABLE=0|1`
+- `LOBBY_HTTP_HOST=<bind-host>`
+- `LOBBY_HTTP_PORT=<bind-port>`
+- `LOBBY_HTTP_PATH=/lobby`
+- `WS_RELAY_ENABLE=0|1`
+- `WS_RELAY_HOST=<bind-host>`
+- `WS_RELAY_PORT=<bind-port>`
 
 ### Manual (no Docker)
 
@@ -679,9 +709,21 @@ On Ubuntu/Debian you typically want:
 
 Then run:
 
-- `python3 tools/internet_lobby_server.py --host 0.0.0.0 --port 12347`
+- `python3 tools/internet_lobby_server.py --host 0.0.0.0 --port 12347 --http-path /lobby`
 - `./enigma-relay --host 0.0.0.0 --port 12348`
 - `./enigma-tcp-relay --host 0.0.0.0 --port 12349`
+- `python3 tools/ws_relay_server.py 0.0.0.0 12350`
+
+For a direct VM smoke test of the new proxy-capable path, point both clients at:
+
+- `MultiplayerLobbyControlUrl=http://<vm-hostname>:12347/lobby`
+- `MultiplayerWebSocketRelayUrl=ws://<vm-hostname>:12350/relay`
+
+For a more production-like setup, keep the backends on `12347/tcp` and `12350/tcp`
+and expose them through a reverse proxy as:
+
+- `https://<public-host>/lobby`
+- `wss://<public-host>/relay`
 
 ## Regression tests (ad-hoc)
 

@@ -336,6 +336,86 @@ class Controller:
         )
 
 
+@dataclass
+class ManagedProc:
+    name: str
+    popen: subprocess.Popen
+    log_path: str
+    logf: object
+
+
+class ProcManager:
+    def __init__(self, workdir: str) -> None:
+        self.workdir = workdir
+        self.procs: Dict[str, ManagedProc] = {}
+
+    def start(self, name: str, cmdline: str, cwd: str = "") -> None:
+        if not name:
+            raise RuntimeError("proc_start requires a non-empty name")
+        if not cmdline:
+            raise RuntimeError(f"proc_start name={name}: missing cmd")
+        self.stop(name, missing_ok=True)
+        argv = shlex.split(cmdline, comments=False, posix=True)
+        if not argv:
+            raise RuntimeError(f"proc_start name={name}: empty argv")
+        log_path = os.path.join(self.workdir, f"proc-{name}.log")
+        logf = open(log_path, "wb")
+        popen = subprocess.Popen(
+            argv,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            cwd=(cwd or None),
+            env=dict(os.environ),
+        )
+        self.procs[name] = ManagedProc(name=name, popen=popen, log_path=log_path, logf=logf)
+
+    def wait_contains(self, name: str, needle: str, timeout_s: float) -> None:
+        proc = self.procs.get(name)
+        if proc is None:
+            raise RuntimeError(f"proc_wait: unknown process {name!r}")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            text = _tail_text(proc.log_path, max_bytes=128 * 1024)
+            if needle in text:
+                return
+            rc = proc.popen.poll()
+            if rc is not None:
+                raise RuntimeError(
+                    f"proc_wait: process {name!r} exited rc={rc} before log contained {needle!r}\n"
+                    f"----- {name} log (tail) -----\n{text}"
+                )
+            time.sleep(0.05)
+        raise RuntimeError(
+            f"proc_wait: timeout waiting for process {name!r} log to contain {needle!r}\n"
+            f"----- {name} log (tail) -----\n{_tail_text(proc.log_path, max_bytes=128 * 1024)}"
+        )
+
+    def stop(self, name: str, missing_ok: bool = False) -> None:
+        proc = self.procs.get(name)
+        if proc is None:
+            if missing_ok:
+                return
+            raise RuntimeError(f"proc_stop: unknown process {name!r}")
+        try:
+            if proc.popen.poll() is None:
+                proc.popen.terminate()
+                try:
+                    proc.popen.wait(timeout=2.0)
+                except Exception:
+                    proc.popen.kill()
+                    proc.popen.wait(timeout=2.0)
+        finally:
+            try:
+                proc.logf.close()
+            except Exception:
+                pass
+            self.procs.pop(name, None)
+
+    def close(self) -> None:
+        for name in list(self.procs.keys()):
+            self.stop(name, missing_ok=True)
+
+
 def _get_numeric_state_value(ctrl: Controller, role: str, field: str) -> Optional[float]:
     cur = ctrl.last_state.get(role)
     if not cur:
@@ -457,7 +537,7 @@ def _spawn_enigma(
     return subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT, env=env), logf
 
 
-def _run_script(ctrl: Controller, script_path: str) -> None:
+def _run_script(ctrl: Controller, proc_mgr: ProcManager, script_path: str) -> None:
     with open(script_path, "r", encoding="utf-8") as f:
         for lineno, raw in enumerate(f, start=1):
             line = raw.strip()
@@ -515,6 +595,36 @@ def _run_script(ctrl: Controller, script_path: str) -> None:
                     timeout_s=timeout_ms / 1000.0,
                     start_idx=len(ctrl.events),
                 )
+                continue
+
+            if op == "proc_start":
+                kv = _parse_kv(toks[1:])
+                name = kv.get("name", "")
+                cmdline = kv.get("cmd", "")
+                cwd = kv.get("cwd", "")
+                if not name or not cmdline:
+                    raise RuntimeError(f"{script_path}:{lineno}: proc_start requires name=... cmd=...")
+                proc_mgr.start(name=name, cmdline=cmdline, cwd=cwd)
+                continue
+
+            if op == "proc_wait":
+                kv = _parse_kv(toks[1:])
+                name = kv.get("name", "")
+                needle = kv.get("contains", "")
+                timeout_ms = int(kv.get("timeout_ms", "5000"))
+                if not name or not needle:
+                    raise RuntimeError(
+                        f"{script_path}:{lineno}: proc_wait requires name=... contains=..."
+                    )
+                proc_mgr.wait_contains(name=name, needle=needle, timeout_s=timeout_ms / 1000.0)
+                continue
+
+            if op == "proc_stop":
+                kv = _parse_kv(toks[1:])
+                name = kv.get("name", "")
+                if not name:
+                    raise RuntimeError(f"{script_path}:{lineno}: proc_stop requires name=...")
+                proc_mgr.stop(name=name)
                 continue
 
             if op == "wait_state_change":
@@ -782,6 +892,7 @@ def main(argv: List[str]) -> int:
     ctrl_log_path = os.path.join(tmp_root, "controller.log")
     ctrl_logf: Optional[object] = open(ctrl_log_path, "w", encoding="utf-8", errors="replace")
     ctrl = Controller(expected=2, controller_log=ctrl_logf)
+    proc_mgr = ProcManager(tmp_root)
     port = ctrl.listen(ns.host, ns.port)
     connect = f"{ns.host}:{port}"
 
@@ -813,7 +924,7 @@ def main(argv: List[str]) -> int:
         if "host" not in ctrl.by_role or "client" not in ctrl.by_role:
             raise RuntimeError("timeout waiting for host+client HELLO")
 
-        _run_script(ctrl, ns.script)
+        _run_script(ctrl, proc_mgr, ns.script)
         return 0
     except Exception as e:
         # Helpful diagnostics: show logs if something prevented startup/HELLO.
@@ -822,6 +933,9 @@ def main(argv: List[str]) -> int:
             dump = _dump_last_states(ctrl)
             if dump:
                 print(dump, flush=True)
+            for name, proc in sorted(proc_mgr.procs.items()):
+                print(f"----- proc-{name}.log (tail) -----", flush=True)
+                print(_tail_text(proc.log_path), flush=True)
             if os.path.exists(log_host):
                 print("----- host.log (tail) -----", flush=True)
                 print(_tail_text(log_host), flush=True)
@@ -874,6 +988,7 @@ def main(argv: List[str]) -> int:
                 pass
 
         ctrl.close()
+        proc_mgr.close()
 
 
 if __name__ == "__main__":

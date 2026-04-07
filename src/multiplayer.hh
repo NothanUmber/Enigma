@@ -50,12 +50,14 @@ bool InternetLeaveRoom(const std::string &server, const std::string &room_code,
 void InternetLeaveTrackedRoomOnShutdown();
 void SetRelayServer(const std::string &server);
 void SetTcpRelayServer(const std::string &server);
+void SetWebSocketRelayUrl(const std::string &url);
 
 enum class TransportKind {
     NONE = 0,
     DIRECT = 1,
     UDP_RELAY = 2,
-    TCP_RELAY = 3
+    WS_RELAY = 3,
+    TCP_RELAY = 4
 };
 
 // For clients: which transport is currently used to talk to the host.

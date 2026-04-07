@@ -84,6 +84,7 @@ int keep_ticks() {
         case TransportKind::UDP_RELAY:
             back = internal::kInputBundleBackTicksUdpRelay;
             break;
+        case TransportKind::WS_RELAY:
         case TransportKind::TCP_RELAY:
             back = internal::kInputBundleBackTicksTcpRelay;
             break;

@@ -151,6 +151,35 @@ enum class HostSource {
     TCP_RELAY = 2
 };
 
+enum class StreamRelayMode {
+    NONE = 0,
+    TCP = 1,
+    WEBSOCKET = 2
+};
+
+struct RelayRouteKey {
+    HostSource source = HostSource::UDP_RELAY;
+    Uint32 client_id = 0;
+
+    bool operator==(const RelayRouteKey &other) const {
+        return source == other.source && client_id == other.client_id;
+    }
+};
+
+struct RelayRouteKeyHash {
+    size_t operator()(const RelayRouteKey &key) const {
+        return (static_cast<size_t>(key.client_id) << 2) ^
+               static_cast<size_t>(key.source);
+    }
+};
+
+struct RelayRemoteRoute {
+    HostSource source = HostSource::UDP_RELAY;
+    Uint32 client_id = 0;
+    unsigned player_id = 0;
+    bool ready = false;
+};
+
 #ifdef WIN32
 using TcpSocket = SOCKET;
 constexpr TcpSocket kInvalidTcpSocket = INVALID_SOCKET;
@@ -158,6 +187,23 @@ constexpr TcpSocket kInvalidTcpSocket = INVALID_SOCKET;
 using TcpSocket = int;
 constexpr TcpSocket kInvalidTcpSocket = -1;
 #endif
+
+struct StreamRelayConnection {
+    StreamRelayMode mode = StreamRelayMode::NONE;
+    TcpSocket socket = kInvalidTcpSocket;
+    std::vector<uint8_t> rx;
+    uint32_t frame_len = 0;
+    std::deque<std::vector<uint8_t>> frames;
+    std::vector<uint8_t> ws_message;
+    std::vector<uint8_t> ws_handshake_request;
+    size_t ws_handshake_offset = 0;
+    void *ws_easy = nullptr;
+    void *ws_multi = nullptr;
+    std::string ws_accept_value;
+    bool ws_connecting = false;
+    bool ws_open = false;
+    bool ws_message_active = false;
+};
 
 struct LobbyPeerEntry {
     LobbyPeer peer;
@@ -212,13 +258,8 @@ struct LobbyState {
 	    ENetPeer *relay_peer = nullptr;
 	    std::unordered_map<ENetPeer *, unsigned> peer_players;
     std::unordered_map<ENetPeer *, bool> peer_ready;
-    std::unordered_map<Uint32, unsigned> relay_players;
-    std::unordered_map<Uint32, bool> relay_ready;
-    TcpSocket tcp_relay_socket = kInvalidTcpSocket;
-    std::vector<uint8_t> tcp_relay_rx;
-    uint32_t tcp_relay_frame_len = 0;
-    std::unordered_map<Uint32, unsigned> tcp_relay_players;
-    std::unordered_map<Uint32, bool> tcp_relay_ready;
+    StreamRelayConnection stream_relay;
+    std::unordered_map<RelayRouteKey, RelayRemoteRoute, RelayRouteKeyHash> relay_routes;
     // Host-side player id allocation.
     //
     // We deliberately do not assume that direct connects succeed bidirectionally:
@@ -384,6 +425,7 @@ extern LobbyState g_lobby;
 extern SessionState g_session;
 extern std::string g_relay_server;
 extern std::string g_tcp_relay_server;
+extern std::string g_websocket_relay_url;
 
 bool debug_enabled();
 bool force_relay_enabled();
@@ -418,6 +460,62 @@ bool tcp_try_extract_frame(std::vector<uint8_t> &rx, uint32_t &pending_len,
                            std::vector<uint8_t> &out);
 bool tcp_connect_timeout(const std::string &host, Uint16 port, Uint32 timeout_ms,
                          TcpSocket &out);
+
+bool stream_relay_connected(const StreamRelayConnection &relay);
+bool stream_relay_is_websocket(const StreamRelayConnection &relay);
+TransportKind stream_relay_transport_kind(const StreamRelayConnection &relay);
+TcpSocket stream_relay_native_socket(const StreamRelayConnection &relay);
+void stream_relay_reset(StreamRelayConnection &relay);
+void stream_relay_adopt_socket(StreamRelayConnection &relay, TcpSocket socket);
+bool stream_relay_connect_timeout(const std::string &host, Uint16 port, Uint32 timeout_ms,
+                                  StreamRelayConnection &relay);
+bool stream_relay_begin_websocket_connect(const std::string &url, Uint32 timeout_ms,
+                                          StreamRelayConnection &relay);
+bool stream_relay_connect_websocket_timeout(const std::string &url, Uint32 timeout_ms,
+                                            StreamRelayConnection &relay);
+bool stream_relay_poll_connect(StreamRelayConnection &relay, Uint32 timeout_ms, bool &connected);
+bool stream_relay_wait_readable(const StreamRelayConnection &relay, Uint32 timeout_ms,
+                                bool &ready);
+bool stream_relay_wait_writable(const StreamRelayConnection &relay, Uint32 timeout_ms,
+                                bool &ready);
+bool stream_relay_finish_connect(const StreamRelayConnection &relay, bool &connected);
+bool stream_relay_send_frame(StreamRelayConnection &relay, const void *data, size_t len);
+bool stream_relay_send_host_hello(StreamRelayConnection &relay, Uint32 session_id);
+bool stream_relay_send_client_hello(StreamRelayConnection &relay, Uint32 session_id);
+bool stream_relay_send_payload(StreamRelayConnection &relay, Uint32 session_id,
+                               Uint32 client_id, const ecl::Buffer &payload);
+bool stream_relay_send_payload(StreamRelayConnection &relay, Uint32 session_id,
+                               Uint32 client_id, const std::vector<uint8_t> &payload);
+bool stream_relay_pump(StreamRelayConnection &relay);
+bool stream_relay_next_frame(StreamRelayConnection &relay, std::vector<uint8_t> &out);
+
+bool host_source_is_relay(HostSource source);
+bool transport_uses_stream_relay(TransportKind transport);
+TransportKind transport_kind_for_host_source(HostSource source);
+RelayRouteKey make_relay_route_key(HostSource source, Uint32 client_id);
+RelayRemoteRoute *find_relay_route(SessionState &session, HostSource source, Uint32 client_id);
+const RelayRemoteRoute *find_relay_route(const SessionState &session, HostSource source,
+                                         Uint32 client_id);
+bool lookup_relay_player(const SessionState &session, HostSource source, Uint32 client_id,
+                         unsigned &player_id);
+void upsert_relay_route(SessionState &session, HostSource source, Uint32 client_id,
+                        unsigned player_id, bool ready);
+bool remove_relay_route(SessionState &session, HostSource source, Uint32 client_id,
+                        unsigned *player_id);
+bool relay_route_ready(const SessionState &session, HostSource source, Uint32 client_id);
+void set_relay_route_ready(SessionState &session, HostSource source, Uint32 client_id, bool ready);
+unsigned relay_route_count(const SessionState &session, HostSource source);
+unsigned relay_ready_count(const SessionState &session, HostSource source);
+
+template <typename Fn>
+void for_each_relay_route(const SessionState &session, HostSource source, Fn fn) {
+    for (const auto &entry : session.relay_routes) {
+        const RelayRemoteRoute &route = entry.second;
+        if (route.source != source)
+            continue;
+        fn(route);
+    }
+}
 
 void encode_relay_header(ecl::Buffer &buf, RelayMessageType type, Uint32 session_id,
                          Uint32 client_id);

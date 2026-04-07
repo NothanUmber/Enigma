@@ -1,0 +1,59 @@
+# Full proxy-style fallback regression script:
+# - room-code lobby/control runs through the HTTP fallback
+# - gameplay runs through the WebSocket relay fallback
+# - direct / UDP relay / TCP relay are disabled so the end-to-end fallback is forced
+
+proc_start name=internet_lobby cmd="python3 -u tools/internet_lobby_server.py --host 127.0.0.1 --port 24670 --disable-udp"
+proc_wait name=internet_lobby contains="Lobby HTTP server listening on 127.0.0.1:24670/lobby" timeout_ms=15000
+proc_start name=ws_relay cmd="tools/mp_test_start_ws_relay.sh 127.0.0.1 24681"
+proc_wait name=ws_relay contains="WebSocket relay server listening on 127.0.0.1:24681" timeout_ms=15000
+
+both SET_STRING key=MultiplayerLobbyControlUrl value=http://127.0.0.1:24670/lobby
+both SET_RELAY_SERVER server=-
+both SET_WS_RELAY_URL url=ws://127.0.0.1:24681/relay
+both SET_TCP_RELAY_SERVER server=-
+both SET_BOOL key=MultiplayerEnableDirect value=0
+both SET_BOOL key=MultiplayerEnableUdpRelay value=0
+both SET_BOOL key=MultiplayerEnableWebSocketRelay value=1
+both SET_BOOL key=MultiplayerEnableTcpRelay value=0
+
+host INTERNET_CREATE_ROOM server=127.0.0.1:24670 code=ABCD session=91 seed=13 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii
+wait_next role=host contains="OK cmd=INTERNET_CREATE_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+client INTERNET_JOIN_ROOM server=127.0.0.1:24670 code=ABCD
+wait_next role=client contains="OK cmd=INTERNET_JOIN_ROOM server=127.0.0.1:24670 code=ABCD host_ip=127.0.0.1 player_count=2 peer_count=2" timeout_ms=3000
+host INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD timeout_ms=3000 expect_started=0
+wait_next role=host contains="OK cmd=INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD started=0 player_count=2 peer_count=2" timeout_ms=3000
+host INTERNET_START_ROOM server=127.0.0.1:24670 code=ABCD session=91 seed=13 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii
+wait_next role=host contains="OK cmd=INTERNET_START_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+client INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD timeout_ms=3000 expect_started=1
+wait_next role=client contains="OK cmd=INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD started=1 player_count=2 peer_count=2" timeout_ms=3000
+
+host START_HOST session=91 seed=13 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii host_id=mptest-host
+client START_CLIENT session=91 seed=13 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii host_ip=127.0.0.1 host_id=mptest-host
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+both STREAM_STATE interval_ms=100
+wait_state_value role=host field=mp_direct equals=0 timeout_ms=5000
+wait_state_value role=host field=mp_udp equals=0 timeout_ms=5000
+wait_state_value role=host field=mp_tcp equals=1 timeout_ms=5000
+wait_state_value role=client field=mp_transport equals=3 timeout_ms=5000
+
+host LOAD_LEVEL level_id="enigma_vii/ais05_1"
+sleep 500
+both START_GAME
+wait_state_value role=host field=mp_phase equals=3 timeout_ms=5000
+wait_state_value role=client field=mp_phase equals=3 timeout_ms=5000
+
+host HOLD_MOUSE_FORCE player=0 ticks=20 fx=1.0 fy=0.0
+client HOLD_MOUSE_FORCE player=1 ticks=20 fx=-1.0 fy=0.0
+wait_state_change role=host field=p0_x min_abs_delta=0.005 timeout_ms=5000
+wait_state_change role=client field=p1_x min_abs_delta=0.005 timeout_ms=5000
+
+client INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD
+wait_next role=client contains="OK cmd=INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+host INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD
+wait_next role=host contains="OK cmd=INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+
+both QUIT
+proc_stop name=ws_relay
+proc_stop name=internet_lobby

@@ -145,8 +145,9 @@ unsigned world_state_streak_threshold() {
 }
 
 bool has_remote_peers() {
-    return !g_session.peer_players.empty() || !g_session.relay_players.empty() ||
-           !g_session.tcp_relay_players.empty();
+    return !g_session.peer_players.empty() ||
+           relay_route_count(g_session, HostSource::UDP_RELAY) != 0 ||
+           relay_route_count(g_session, HostSource::TCP_RELAY) != 0;
 }
 
 bool SessionHasRemotePeers() {
@@ -158,8 +159,9 @@ bool SessionHasRemotePeers() {
 unsigned SessionConnectedRemotePlayers() {
     if (!g_session.active || !g_session.host)
         return 0;
-    return static_cast<unsigned>(g_session.peer_players.size() + g_session.relay_players.size() +
-                                 g_session.tcp_relay_players.size());
+    return static_cast<unsigned>(g_session.peer_players.size() +
+                                 relay_route_count(g_session, HostSource::UDP_RELAY) +
+                                 relay_route_count(g_session, HostSource::TCP_RELAY));
 }
 
 namespace {
@@ -455,7 +457,7 @@ void host_send_current_load_to_remote(HostSource source, ENetPeer *peer, Uint32 
                       static_cast<unsigned>(msg.load_id),
                       msg.level_id.c_str(),
                       static_cast<unsigned>(relay_client_id));
-        g_transport.HostSendTcpRelay(relay_client_id, buf);
+        g_transport.HostSendStreamRelay(relay_client_id, buf);
         break;
     default:
         break;
@@ -535,22 +537,8 @@ void release_remote_player_id(unsigned player_id) {
 
 bool lookup_remote_player(HostSource source, ENetPeer *peer, Uint32 relay_client_id,
                           unsigned &player_id) {
-    if (source == HostSource::UDP_RELAY) {
-        auto it = g_session.relay_players.find(relay_client_id);
-        if (it != g_session.relay_players.end()) {
-            player_id = it->second;
-            return true;
-        }
-        return false;
-    }
-    if (source == HostSource::TCP_RELAY) {
-        auto it = g_session.tcp_relay_players.find(relay_client_id);
-        if (it != g_session.tcp_relay_players.end()) {
-            player_id = it->second;
-            return true;
-        }
-        return false;
-    }
+    if (host_source_is_relay(source))
+        return lookup_relay_player(g_session, source, relay_client_id, player_id);
     auto it = g_session.peer_players.find(peer);
     if (it != g_session.peer_players.end()) {
         player_id = it->second;
@@ -560,10 +548,8 @@ bool lookup_remote_player(HostSource source, ENetPeer *peer, Uint32 relay_client
 }
 
 void mark_remote_ready(HostSource source, ENetPeer *peer, Uint32 relay_client_id) {
-    if (source == HostSource::UDP_RELAY)
-        g_session.relay_ready[relay_client_id] = true;
-    else if (source == HostSource::TCP_RELAY)
-        g_session.tcp_relay_ready[relay_client_id] = true;
+    if (host_source_is_relay(source))
+        set_relay_route_ready(g_session, source, relay_client_id, true);
     else
         g_session.peer_ready[peer] = true;
 }
@@ -589,10 +575,10 @@ void broadcast_input(const protocol::InputPacket &pkt, ENetPeer *exclude, Uint32
     }
     ecl::Buffer buf;
     protocol::encode_input(buf, pkt);
-    if (!g_session.relay_players.empty())
+    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
         g_transport.HostBroadcastUdpRelay(buf, exclude_udp_relay);
-    if (!g_session.tcp_relay_players.empty())
-        g_transport.HostBroadcastTcpRelay(buf, exclude_tcp_relay);
+    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+        g_transport.HostBroadcastStreamRelay(buf, exclude_tcp_relay);
 }
 
 void broadcast_input_bundle(const protocol::InputBundlePacket &pkt, ENetPeer *exclude,
@@ -605,10 +591,10 @@ void broadcast_input_bundle(const protocol::InputBundlePacket &pkt, ENetPeer *ex
     ecl::Buffer buf;
     protocol::encode_input_bundle(buf, pkt);
     // Relay forwarding is currently reliable on the host->relay hop; payload redundancy still helps.
-    if (!g_session.relay_players.empty())
+    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
         g_transport.HostBroadcastUdpRelay(buf, exclude_udp_relay);
-    if (!g_session.tcp_relay_players.empty())
-        g_transport.HostBroadcastTcpRelay(buf, exclude_tcp_relay);
+    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+        g_transport.HostBroadcastStreamRelay(buf, exclude_tcp_relay);
 }
 
 bool handle_host_input_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
@@ -848,12 +834,8 @@ bool handle_host_ready_packet(const char *data, size_t len, ENetPeer *peer, Host
     unsigned player_id = 0;
     if (lookup_remote_player(source, peer, relay_client_id, player_id)) {
         bool already_ready = false;
-        if (source == HostSource::UDP_RELAY) {
-            auto it = g_session.relay_ready.find(relay_client_id);
-            already_ready = (it != g_session.relay_ready.end() && it->second);
-        } else if (source == HostSource::TCP_RELAY) {
-            auto it = g_session.tcp_relay_ready.find(relay_client_id);
-            already_ready = (it != g_session.tcp_relay_ready.end() && it->second);
+        if (host_source_is_relay(source)) {
+            already_ready = relay_route_ready(g_session, source, relay_client_id);
         } else {
             auto it = g_session.peer_ready.find(peer);
             already_ready = (it != g_session.peer_ready.end() && it->second);
@@ -1015,7 +997,7 @@ bool handle_host_ping_packet(const char *data, size_t len, ENetPeer *peer, HostS
         return true;
     }
     if (source == HostSource::TCP_RELAY) {
-        g_transport.HostSendTcpRelay(relay_client_id, out);
+        g_transport.HostSendStreamRelay(relay_client_id, out);
         return true;
     }
     return true;
@@ -1066,10 +1048,10 @@ void broadcast_owner_actor_state(const protocol::OwnerActorStatePacket &pkt,
     }
     ecl::Buffer out;
     protocol::encode_owner_actor_state(out, pkt);
-    if (!g_session.relay_players.empty())
+    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
         g_transport.HostBroadcastUdpRelay(out, exclude_udp_relay);
-    if (!g_session.tcp_relay_players.empty())
-        g_transport.HostBroadcastTcpRelay(out, exclude_tcp_relay);
+    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+        g_transport.HostBroadcastStreamRelay(out, exclude_tcp_relay);
 }
 
 bool handle_host_owner_actor_state_packet(const char *data, size_t len, ENetPeer *peer, HostSource source,
@@ -2186,8 +2168,7 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
                              static_cast<Uint16>(g_session.tick_ms));
 
     if (source == HostSource::UDP_RELAY) {
-        g_session.relay_players[client_id] = player_id;
-        g_session.relay_ready[client_id] = false;
+        upsert_relay_route(g_session, source, client_id, player_id, false);
         debug_log("mp host: relay client -> player %u", player_id);
         g_transport.HostSendUdpRelay(client_id, welcome);
         host_broadcast_debug_options();
@@ -2197,10 +2178,11 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
     }
 
     if (source == HostSource::TCP_RELAY) {
-        g_session.tcp_relay_players[client_id] = player_id;
-        g_session.tcp_relay_ready[client_id] = false;
-        debug_log("mp host: tcp relay client -> player %u", player_id);
-        g_transport.HostSendTcpRelay(client_id, welcome);
+        upsert_relay_route(g_session, source, client_id, player_id, false);
+        debug_log("mp host: %s client -> player %u",
+                  stream_relay_is_websocket(g_session.stream_relay) ? "ws relay" : "tcp relay",
+                  player_id);
+        g_transport.HostSendStreamRelay(client_id, welcome);
         host_broadcast_debug_options();
         send_existing_placements_to_tcp_relay(client_id);
         host_send_current_load_to_remote(HostSource::TCP_RELAY, nullptr, client_id);
@@ -2211,21 +2193,12 @@ bool host_register_relay_client(Uint32 client_id, HostSource source) {
 }
 
 bool host_unregister_relay_client(Uint32 client_id, HostSource source) {
-    if (source == HostSource::UDP_RELAY) {
-        auto it = g_session.relay_players.find(client_id);
-        if (it != g_session.relay_players.end())
-            release_remote_player_id(it->second);
-        g_session.relay_players.erase(client_id);
-        g_session.relay_ready.erase(client_id);
-    } else if (source == HostSource::TCP_RELAY) {
-        auto it = g_session.tcp_relay_players.find(client_id);
-        if (it != g_session.tcp_relay_players.end())
-            release_remote_player_id(it->second);
-        g_session.tcp_relay_players.erase(client_id);
-        g_session.tcp_relay_ready.erase(client_id);
-    } else {
+    if (!host_source_is_relay(source)) {
         return true;
     }
+    unsigned player_id = 0;
+    if (remove_relay_route(g_session, source, client_id, &player_id))
+        release_remote_player_id(player_id);
     if (g_session.active)
         return abort_session_with_message("Player disconnected. Ending session.");
     return true;
@@ -2321,7 +2294,7 @@ bool handle_relay_payload_as_host(const char *data, size_t len, HostSource sourc
     size_t payload_len = 0;
     if (!decode_relay_header(data, len, type, session_id, client_id, payload, payload_len)) {
         if (close_on_decode_error)
-            tcp_close(g_session.tcp_relay_socket);
+            stream_relay_reset(g_session.stream_relay);
         return true;
     }
     if (session_id != g_session.session_id)
@@ -2347,7 +2320,7 @@ bool handle_udp_relay_payload(const char *data, size_t len) {
 
 bool handle_tcp_relay_payload(const char *data, size_t len) {
     if (!g_session.host) {
-        if (g_session.active_transport == TransportKind::TCP_RELAY)
+        if (transport_uses_stream_relay(g_session.active_transport))
             handle_client_payload(data, len);
         // The client can receive a session-ending message (e.g. NET_ABORT) via relay.
         // If that happens, stop polling immediately because SessionShutdown may have
@@ -2378,19 +2351,25 @@ void process_network_events() {
             if (source == HostSource::UDP_RELAY) {
                 if (g_session.relay_peer == peer) {
                     g_session.relay_peer = nullptr;
-                    if (!g_session.relay_players.empty())
+                    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
                         return abort_session_with_message("Relay disconnected. Ending session.");
                 }
                 return true;
             }
             if (source == HostSource::TCP_RELAY) {
                 if (g_session.host) {
-                    if (!g_session.tcp_relay_players.empty())
-                        return abort_session_with_message("TCP relay disconnected. Ending session.");
+                    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+                        return abort_session_with_message(
+                            stream_relay_is_websocket(g_session.stream_relay) ?
+                                "WebSocket relay disconnected. Ending session." :
+                                "TCP relay disconnected. Ending session.");
                     return true;
                 }
-                if (g_session.active_transport == TransportKind::TCP_RELAY)
-                    return abort_session_with_message("Disconnected from TCP relay.");
+                if (transport_uses_stream_relay(g_session.active_transport))
+                    return abort_session_with_message(
+                        g_session.active_transport == TransportKind::WS_RELAY ?
+                            "Disconnected from WebSocket relay." :
+                            "Disconnected from TCP relay.");
                 return true;
             }
             return handle_direct_disconnect_event(peer);
@@ -2410,7 +2389,7 @@ void process_network_events() {
         bool handle_direct_payload(ENetPeer *peer, const char *data, size_t len) {
             if (g_session.host)
                 return handle_host_packet(data, len, peer, HostSource::DIRECT, 0);
-            if (g_session.active_transport != TransportKind::TCP_RELAY)
+            if (!transport_uses_stream_relay(g_session.active_transport))
                 handle_client_payload(data, len);
             if (!g_session.active)
                 return false;
@@ -2539,8 +2518,8 @@ void send_local_inputs() {
         if (!has_remote_peers())
             return;
     } else if (!g_session.server_peer) {
-        if (!(g_session.active_transport == TransportKind::TCP_RELAY &&
-              tcp_socket_valid(g_session.tcp_relay_socket))) {
+        if (!(transport_uses_stream_relay(g_session.active_transport) &&
+              stream_relay_connected(g_session.stream_relay))) {
             return;
         }
     }
@@ -2549,6 +2528,7 @@ void send_local_inputs() {
         switch (g_session.active_transport) {
         case TransportKind::UDP_RELAY:
             return kInputBundleBackTicksUdpRelay;
+        case TransportKind::WS_RELAY:
         case TransportKind::TCP_RELAY:
             return kInputBundleBackTicksTcpRelay;
         case TransportKind::DIRECT:
@@ -2560,6 +2540,7 @@ void send_local_inputs() {
         switch (g_session.active_transport) {
         case TransportKind::UDP_RELAY:
             return kInputBundleMaxCountUdpRelay;
+        case TransportKind::WS_RELAY:
         case TransportKind::TCP_RELAY:
             return kInputBundleMaxCountTcpRelay;
         case TransportKind::DIRECT:

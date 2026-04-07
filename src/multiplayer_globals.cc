@@ -35,6 +35,7 @@ LobbyState g_lobby;
 SessionState g_session;
 std::string g_relay_server;
 std::string g_tcp_relay_server;
+std::string g_websocket_relay_url;
 
 }  // namespace internal
 }  // namespace multiplayer

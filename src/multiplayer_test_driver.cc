@@ -259,6 +259,87 @@ static bool parse_f32(const std::map<std::string, std::string> &kv, const char *
     return true;
 }
 
+static void send_evt(const std::string &name, const std::string &extra);
+
+static bool parse_lobby_start_fields(const std::map<std::string, std::string> &kv,
+                                     protocol::LobbyStart &start,
+                                     std::string &err) {
+    start = protocol::LobbyStart();
+    start.host_id = "mptest-host";
+    start.filter_optimized = 0;
+
+    uint32_t session_id = 0;
+    uint32_t seed = 0;
+    Uint8 expected = 0;
+    Uint16 port = 0;
+    if (!parse_u32(kv, "session", session_id) ||
+        !parse_u32(kv, "seed", seed) ||
+        !parse_u8(kv, "expected", expected) ||
+        !parse_u16(kv, "port", port)) {
+        err = "missing_fields";
+        return false;
+    }
+
+    start.session_id = session_id;
+    start.seed = seed;
+    start.expected_players = expected;
+    start.host_port = port;
+
+    {
+        std::map<std::string, std::string>::const_iterator it = kv.find("host_id");
+        if (it != kv.end())
+            start.host_id = it->second;
+    }
+    {
+        std::map<std::string, std::string>::const_iterator it = kv.find("filter");
+        if (it != kv.end())
+            start.filter_optimized = static_cast<Uint8>(std::atoi(it->second.c_str()) ? 1 : 0);
+    }
+    {
+        std::map<std::string, std::string>::const_iterator it = kv.find("level_id");
+        if (it != kv.end())
+            start.level_id = it->second;
+    }
+    {
+        std::map<std::string, std::string>::const_iterator it = kv.find("pack");
+        if (it != kv.end())
+            start.pack_name = it->second;
+    }
+
+    err.clear();
+    return true;
+}
+
+static std::string format_lobby_start_fields(const protocol::LobbyStart &start) {
+    std::ostringstream os;
+    os << "session=" << static_cast<unsigned>(start.session_id)
+       << " seed=" << static_cast<unsigned>(start.seed)
+       << " expected=" << static_cast<unsigned>(start.expected_players)
+       << " port=" << static_cast<unsigned>(start.host_port)
+       << " filter=" << static_cast<unsigned>(start.filter_optimized)
+       << " level_id=" << start.level_id
+       << " host_id=" << start.host_id;
+    if (!start.pack_name.empty())
+        os << " pack=" << start.pack_name;
+    return os.str();
+}
+
+static void emit_lobby_peers(const std::vector<multiplayer::LobbyPeer> &peers) {
+    for (size_t i = 0; i < peers.size(); ++i) {
+        const multiplayer::LobbyPeer &peer = peers[i];
+        std::ostringstream os;
+        os << "idx=" << static_cast<unsigned>(i)
+           << " id=" << peer.id
+           << " name=" << peer.name
+           << " self=" << (peer.is_self ? 1 : 0);
+        if (!peer.level_id.empty())
+            os << " level_id=" << peer.level_id;
+        if (!peer.address.empty())
+            os << " address=" << peer.address;
+        send_evt("INTERNET_PEER", os.str());
+    }
+}
+
 static bool resolve_driver_tick(const std::map<std::string, std::string> &kv, uint32_t &tick,
                                 std::string &err) {
     tick = 0;
@@ -737,20 +818,13 @@ static void emit_state_snapshot() {
         if (kv.second)
             direct_ready += 1;
     }
-    unsigned udp_ready = 0;
-    for (const auto &kv : s.relay_ready) {
-        if (kv.second)
-            udp_ready += 1;
-    }
-    unsigned tcp_ready = 0;
-    for (const auto &kv : s.tcp_relay_ready) {
-        if (kv.second)
-            tcp_ready += 1;
-    }
+    const unsigned udp_ready = internal::relay_ready_count(s, internal::HostSource::UDP_RELAY);
+    const unsigned tcp_ready = internal::relay_ready_count(s, internal::HostSource::TCP_RELAY);
     std::ostringstream os;
     os << "tick=" << tick
        << " mp_active=" << (multiplayer::IsActive() ? 1 : 0)
        << " mp_host=" << (multiplayer::IsHost() ? 1 : 0)
+       << " mp_transport=" << static_cast<int>(multiplayer::ActiveTransport())
        << " expected=" << multiplayer::ExpectedPlayers()
        << " local=" << multiplayer::LocalPlayer()
        << " mp_defer=" << (multiplayer::ShouldDeferStart() ? 1 : 0)
@@ -760,9 +834,9 @@ static void emit_state_snapshot() {
        << " mp_last_load=" << static_cast<unsigned>(s.last_load_id)
        << " mp_direct=" << static_cast<unsigned>(s.peer_players.size())
        << " mp_direct_ready=" << direct_ready
-       << " mp_udp=" << static_cast<unsigned>(s.relay_players.size())
+       << " mp_udp=" << internal::relay_route_count(s, internal::HostSource::UDP_RELAY)
        << " mp_udp_ready=" << udp_ready
-       << " mp_tcp=" << static_cast<unsigned>(s.tcp_relay_players.size())
+       << " mp_tcp=" << internal::relay_route_count(s, internal::HostSource::TCP_RELAY)
        << " mp_tcp_ready=" << tcp_ready
        << " mp_local_ready_sent=" << (s.local_ready_sent ? 1 : 0)
        << " mp_paused=" << (s.paused ? 1 : 0)
@@ -2483,43 +2557,10 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "START_HOST") {
         protocol::LobbyStart start;
-        start.host_id = "mptest-host";
-        start.filter_optimized = 0;
-
-        uint32_t session_id = 0;
-        uint32_t seed = 0;
-        Uint8 expected = 0;
-        Uint16 port = 0;
-        if (!parse_u32(kv, "session", session_id) ||
-            !parse_u32(kv, "seed", seed) ||
-            !parse_u8(kv, "expected", expected) ||
-            !parse_u16(kv, "port", port)) {
-            send_err("START_HOST", "missing_fields");
+        std::string err;
+        if (!parse_lobby_start_fields(kv, start, err)) {
+            send_err("START_HOST", err);
             return true;
-        }
-        start.session_id = session_id;
-        start.seed = seed;
-        start.expected_players = expected;
-        start.host_port = port;
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("host_id");
-            if (it != kv.end())
-                start.host_id = it->second;
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("filter");
-            if (it != kv.end())
-                start.filter_optimized = static_cast<Uint8>(std::atoi(it->second.c_str()) ? 1 : 0);
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("level_id");
-            if (it != kv.end())
-                start.level_id = it->second;
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("pack");
-            if (it != kv.end())
-                start.pack_name = it->second;
         }
 
         bool ok = multiplayer::StartHostSession(start);
@@ -2533,18 +2574,9 @@ static bool handle_command(const std::string &line) {
 
     if (cmd == "START_CLIENT") {
         protocol::LobbyStart start;
-        start.host_id = "mptest-host";
-        start.filter_optimized = 0;
-
-        uint32_t session_id = 0;
-        uint32_t seed = 0;
-        Uint8 expected = 0;
-        Uint16 port = 0;
-        if (!parse_u32(kv, "session", session_id) ||
-            !parse_u32(kv, "seed", seed) ||
-            !parse_u8(kv, "expected", expected) ||
-            !parse_u16(kv, "port", port)) {
-            send_err("START_CLIENT", "missing_fields");
+        std::string err;
+        if (!parse_lobby_start_fields(kv, start, err)) {
+            send_err("START_CLIENT", err);
             return true;
         }
         std::string host_ip;
@@ -2557,30 +2589,6 @@ static bool handle_command(const std::string &line) {
             send_err("START_CLIENT", "missing_host_ip");
             return true;
         }
-        start.session_id = session_id;
-        start.seed = seed;
-        start.expected_players = expected;
-        start.host_port = port;
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("host_id");
-            if (it != kv.end())
-                start.host_id = it->second;
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("filter");
-            if (it != kv.end())
-                start.filter_optimized = static_cast<Uint8>(std::atoi(it->second.c_str()) ? 1 : 0);
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("level_id");
-            if (it != kv.end())
-                start.level_id = it->second;
-        }
-        {
-            std::map<std::string, std::string>::const_iterator it = kv.find("pack");
-            if (it != kv.end())
-                start.pack_name = it->second;
-        }
 
         bool ok = multiplayer::BeginClientJoin(start, host_ip);
         if (!ok) {
@@ -2589,6 +2597,213 @@ static bool handle_command(const std::string &line) {
         }
         g_drv.join_active = true;
         send_ok("START_CLIENT");
+        return true;
+    }
+
+    if (cmd == "INTERNET_CREATE_ROOM") {
+        protocol::LobbyStart start;
+        std::string err;
+        if (!parse_lobby_start_fields(kv, start, err)) {
+            send_err("INTERNET_CREATE_ROOM", err);
+            return true;
+        }
+
+        std::string server;
+        std::string room_code;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("code");
+            if (it != kv.end())
+                room_code = it->second;
+        }
+        if (server.empty() || room_code.empty()) {
+            send_err("INTERNET_CREATE_ROOM", "missing_server_or_code");
+            return true;
+        }
+
+        if (!multiplayer::InternetCreateRoom(server, room_code, start, err)) {
+            send_err("INTERNET_CREATE_ROOM", err.empty() ? std::string("create_failed") : err);
+            return true;
+        }
+        send_ok("INTERNET_CREATE_ROOM",
+                "server=" + server + " code=" + room_code + " " + format_lobby_start_fields(start));
+        return true;
+    }
+
+    if (cmd == "INTERNET_JOIN_ROOM") {
+        std::string server;
+        std::string room_code;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("code");
+            if (it != kv.end())
+                room_code = it->second;
+        }
+        if (server.empty() || room_code.empty()) {
+            send_err("INTERNET_JOIN_ROOM", "missing_server_or_code");
+            return true;
+        }
+
+        protocol::LobbyStart start;
+        std::string host_ip;
+        unsigned player_count = 0;
+        std::vector<multiplayer::LobbyPeer> peers;
+        std::string err;
+        if (!multiplayer::InternetJoinRoom(server, room_code, start, host_ip,
+                                           player_count, peers, err)) {
+            send_err("INTERNET_JOIN_ROOM", err.empty() ? std::string("join_failed") : err);
+            return true;
+        }
+        emit_lobby_peers(peers);
+        std::ostringstream os;
+        os << "server=" << server
+           << " code=" << room_code
+           << " host_ip=" << host_ip
+           << " player_count=" << static_cast<unsigned>(player_count)
+           << " peer_count=" << static_cast<unsigned>(peers.size())
+           << " " << format_lobby_start_fields(start);
+        send_ok("INTERNET_JOIN_ROOM", os.str());
+        return true;
+    }
+
+    if (cmd == "INTERNET_START_ROOM") {
+        protocol::LobbyStart start;
+        std::string err;
+        if (!parse_lobby_start_fields(kv, start, err)) {
+            send_err("INTERNET_START_ROOM", err);
+            return true;
+        }
+
+        std::string server;
+        std::string room_code;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("code");
+            if (it != kv.end())
+                room_code = it->second;
+        }
+        if (server.empty() || room_code.empty()) {
+            send_err("INTERNET_START_ROOM", "missing_server_or_code");
+            return true;
+        }
+
+        if (!multiplayer::InternetStartRoom(server, room_code, start, err)) {
+            send_err("INTERNET_START_ROOM", err.empty() ? std::string("start_failed") : err);
+            return true;
+        }
+        send_ok("INTERNET_START_ROOM",
+                "server=" + server + " code=" + room_code + " " + format_lobby_start_fields(start));
+        return true;
+    }
+
+    if (cmd == "INTERNET_POLL_ROOM") {
+        std::string server;
+        std::string room_code;
+        int timeout_ms = 3000;
+        int poll_sleep_ms = 25;
+        int expect_started = -1;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("code");
+            if (it != kv.end())
+                room_code = it->second;
+        }
+        parse_i32(kv, "timeout_ms", timeout_ms);
+        parse_i32(kv, "poll_sleep_ms", poll_sleep_ms);
+        parse_i32(kv, "expect_started", expect_started);
+        if (timeout_ms <= 0)
+            timeout_ms = 3000;
+        if (poll_sleep_ms < 0)
+            poll_sleep_ms = 0;
+        if (expect_started < 0 || expect_started > 1)
+            expect_started = -1;
+        if (server.empty() || room_code.empty()) {
+            send_err("INTERNET_POLL_ROOM", "missing_server_or_code");
+            return true;
+        }
+
+        protocol::LobbyStart start;
+        std::string host_ip;
+        bool started = false;
+        unsigned player_count = 0;
+        std::vector<multiplayer::LobbyPeer> peers;
+        std::string err;
+        const Uint32 deadline = SDL_GetTicks() + static_cast<Uint32>(timeout_ms);
+        while (true) {
+            if (multiplayer::InternetPollRoom(server, room_code, start, host_ip,
+                                              started, player_count, peers, err)) {
+                if (expect_started < 0 || started == (expect_started != 0))
+                    break;
+                err.clear();
+            }
+            if (!err.empty() && err != "waiting") {
+                send_err("INTERNET_POLL_ROOM", err);
+                return true;
+            }
+            const Uint32 now = SDL_GetTicks();
+            if (now >= deadline) {
+                send_err("INTERNET_POLL_ROOM", "timeout");
+                return true;
+            }
+            if (poll_sleep_ms > 0)
+                SDL_Delay(static_cast<Uint32>(poll_sleep_ms));
+        }
+
+        emit_lobby_peers(peers);
+        std::ostringstream os;
+        os << "server=" << server
+           << " code=" << room_code
+           << " started=" << (started ? 1 : 0)
+           << " player_count=" << static_cast<unsigned>(player_count)
+           << " peer_count=" << static_cast<unsigned>(peers.size());
+        if (started) {
+            os << " host_ip=" << host_ip
+               << " " << format_lobby_start_fields(start);
+        }
+        send_ok("INTERNET_POLL_ROOM", os.str());
+        return true;
+    }
+
+    if (cmd == "INTERNET_LEAVE_ROOM") {
+        std::string server;
+        std::string room_code;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("code");
+            if (it != kv.end())
+                room_code = it->second;
+        }
+        if (server.empty() || room_code.empty()) {
+            send_err("INTERNET_LEAVE_ROOM", "missing_server_or_code");
+            return true;
+        }
+
+        std::string err;
+        if (!multiplayer::InternetLeaveRoom(server, room_code, err)) {
+            send_err("INTERNET_LEAVE_ROOM", err.empty() ? std::string("leave_failed") : err);
+            return true;
+        }
+        send_ok("INTERNET_LEAVE_ROOM", "server=" + server + " code=" + room_code);
         return true;
     }
 
@@ -2906,6 +3121,70 @@ static bool handle_command(const std::string &line) {
         }
         options::SetOption(key.c_str(), value ? 1.0 : 0.0);
         send_ok("SET_BOOL");
+        return true;
+    }
+
+    if (cmd == "SET_STRING") {
+        std::string key;
+        std::string value;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("key");
+            if (it != kv.end())
+                key = it->second;
+        }
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("value");
+            if (it != kv.end())
+                value = it->second;
+        }
+        if (key.empty()) {
+            send_err("SET_STRING", "missing_key");
+            return true;
+        }
+        options::SetOption(key.c_str(), value);
+        send_ok("SET_STRING");
+        return true;
+    }
+
+    if (cmd == "SET_RELAY_SERVER") {
+        std::string server;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        if (server == "-" || server == "none")
+            server.clear();
+        multiplayer::SetRelayServer(server);
+        send_ok("SET_RELAY_SERVER", "server=" + (server.empty() ? std::string("-") : server));
+        return true;
+    }
+
+    if (cmd == "SET_TCP_RELAY_SERVER") {
+        std::string server;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("server");
+            if (it != kv.end())
+                server = it->second;
+        }
+        if (server == "-" || server == "none")
+            server.clear();
+        multiplayer::SetTcpRelayServer(server);
+        send_ok("SET_TCP_RELAY_SERVER", "server=" + (server.empty() ? std::string("-") : server));
+        return true;
+    }
+
+    if (cmd == "SET_WS_RELAY_URL") {
+        std::string url;
+        {
+            std::map<std::string, std::string>::const_iterator it = kv.find("url");
+            if (it != kv.end())
+                url = it->second;
+        }
+        if (url == "-" || url == "none")
+            url.clear();
+        multiplayer::SetWebSocketRelayUrl(url);
+        send_ok("SET_WS_RELAY_URL", "url=" + (url.empty() ? std::string("-") : url));
         return true;
     }
 

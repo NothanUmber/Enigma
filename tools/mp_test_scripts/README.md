@@ -21,6 +21,9 @@ Supported operations:
 - `host <CMD...>`: send a command to the host instance.
 - `client <CMD...>`: send a command to the client instance.
 - `both <CMD...>`: send a command to both instances.
+- `proc_start name=<id> cmd="<argv...>" [cwd="<dir>"]`: start a helper process and capture its combined stdout/stderr into `proc-<id>.log` inside the test workdir.
+- `proc_wait name=<id> contains="<substring>" timeout_ms=<ms>`: wait until a helper-process log contains the requested substring.
+- `proc_stop name=<id>`: stop a previously started helper process.
 - `sleep <ms>` or `sleep ms=<ms>`: wait.
 - `wait role=<host|client|any> contains="<substring>" timeout_ms=<ms>`: search received output for a matching frame.
 - `wait_next role=<host|client|any> contains="<substring>" timeout_ms=<ms>`: wait for a future matching frame after the current script point.
@@ -50,10 +53,27 @@ These are sent via `host ...` / `client ...` / `both ...` lines in scripts:
 - `SIM_SNAPSHOT_SAVE` / `SIM_SNAPSHOT_LOAD`: capture and restore the full in-process simulation snapshot.
 - `GET_CLIENT_DESYNC_HOLD` / `SET_CLIENT_DESYNC_HOLD enabled=<0|1>`: inspect or toggle client-side desync hold for intentional divergence probes.
 - `GET_TIMERGADGET_STATE` / `GET_PUZZLESTONE_STATE`: inspect timer-backed semantic objects, including `alarm_left` and absolute `alarm_tick`.
+- `SET_INT key=<option> value=<n>` / `SET_BOOL key=<option> value=<0|1>` / `SET_STRING key=<option> value=<text>`: override persisted options inside the current test instance.
+- `SET_RELAY_SERVER server=<host:port|-|none>` / `SET_WS_RELAY_URL url=<ws://...|-|none>` / `SET_TCP_RELAY_SERVER server=<host:port|-|none>`: set the in-memory relay endpoints used by session-start fallback logic.
+- `INTERNET_CREATE_ROOM server=<host:port> code=<room> session=<id> seed=<seed> expected=<n> port=<host_port> level_id=<id> [host_id=<id>] [pack=<pack>] [filter=<0|1>]`: create an Internet-lobby room with the provided start payload.
+- `INTERNET_JOIN_ROOM server=<host:port> code=<room>`: join an Internet-lobby room, emit `EVT name=INTERNET_PEER` snapshots for the returned member list, and return the decoded start payload in `OK`.
+- `INTERNET_START_ROOM server=<host:port> code=<room> session=<id> seed=<seed> expected=<n> port=<host_port> level_id=<id> [host_id=<id>] [pack=<pack>] [filter=<0|1>]`: mark an Internet-lobby room as started with the provided start payload.
+- `INTERNET_POLL_ROOM server=<host:port> code=<room> [timeout_ms=<ms>] [poll_sleep_ms=<ms>] [expect_started=<0|1>]`: poll until a room-state reply arrives. If `expect_started` is set, keep polling until the room reaches that started state. Emit `EVT name=INTERNET_PEER` member snapshots for the final reply and return `started=0|1` plus room state in `OK`.
+- `INTERNET_LEAVE_ROOM server=<host:port> code=<room>`: leave a tracked Internet-lobby room.
 
 ## Notes
 
 - Prefer `wait_next` after a command that emits a line you want to assert on more than once. It avoids accidentally matching an older identical sample.
 - `wait_state_stable` is useful for counters like semantic-apply telemetry where you need to prove a repair stopped churning without hard-coding the final counter value.
+- Helper-process lifecycle is managed by `mp_test_env.py`; any still-running `proc_start` processes are terminated during cleanup.
 - `SET_ACTOR_POS`, `SET_STONE`, `SET_ITEM`, `MOVE_STONE`, `CLEAR_MOVABLE_STONES`, and `SETUP_*` are the main deterministic setup helpers added for branch-local regression work.
 - A typical desync-hold flow is: query the current hold state, enable it on the client, drive local input while the host stays authoritative, then disable it and wait for the peers to converge again.
+
+Useful transport/lobby regression scripts:
+
+- `tools/mp_test_scripts/basic_join_and_move.txt`: direct-connect gameplay baseline
+- `tools/mp_test_scripts/udp_relay_join_and_move.txt`: UDP-relay gameplay baseline
+- `tools/mp_test_scripts/ws_relay_join_and_move.txt`: WebSocket-relay gameplay baseline
+- `tools/mp_test_scripts/internet_lobby_room_flow.txt`: UDP Internet-lobby room flow
+- `tools/mp_test_scripts/internet_lobby_http_room_flow.txt`: HTTP lobby-control fallback room flow
+- `tools/mp_test_scripts/internet_http_ws_fallback_join_and_move.txt`: full proxy-style fallback chain (HTTP lobby control + WebSocket gameplay relay)

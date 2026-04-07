@@ -64,7 +64,7 @@ void MultiplayerMenu::leave_current_internet_room() {
     lan_join_in_progress = false;
 
     std::string server = mp_menu::multiplayer_server_host_from_options();
-    mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
+    mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
     std::string error;
     std::string room = !internet_room_code.empty() ? internet_room_code : current_room_code();
     if (!multiplayer::InternetLeaveRoom(mp_menu::resolved_lobby_server(server, servers),
@@ -80,6 +80,9 @@ void MultiplayerMenu::leave_current_internet_room() {
 
 void MultiplayerMenu::show_transport_info(int transport_kind) {
     switch (static_cast<multiplayer::TransportKind>(transport_kind)) {
+    case multiplayer::TransportKind::WS_RELAY:
+        show_info(_("Using WebSocket relay (higher latency)."));
+        break;
     case multiplayer::TransportKind::TCP_RELAY:
         show_info(_("Using TCP relay (higher latency)."));
         break;
@@ -315,7 +318,7 @@ void MultiplayerMenu::tick_internet_mode(double dtime) {
     std::string room = !internet_room_code.empty()
                            ? internet_room_code
                            : (room_field ? room_field->getText() : "");
-    mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
+    mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
     multiplayer::protocol::LobbyStart start;
     std::string host_ip;
     std::string error;

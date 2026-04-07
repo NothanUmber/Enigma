@@ -47,6 +47,39 @@ struct RelaySession {
     std::unordered_map<uint32_t, ENetPeer *> clients;
 };
 
+const char *role_name(PeerInfo::Role role) {
+    switch (role) {
+    case PeerInfo::UNKNOWN:
+        return "unknown";
+    case PeerInfo::HOST:
+        return "host";
+    case PeerInfo::CLIENT:
+        return "client";
+    }
+    return "invalid";
+}
+
+const char *relay_type_name(uint8_t type) {
+    switch (type) {
+    case RELAY_HELLO_HOST:
+        return "HELLO_HOST";
+    case RELAY_HELLO_CLIENT:
+        return "HELLO_CLIENT";
+    case RELAY_CLIENT_CONNECT:
+        return "CLIENT_CONNECT";
+    case RELAY_CLIENT_DISCONNECT:
+        return "CLIENT_DISCONNECT";
+    case RELAY_SEND:
+        return "SEND";
+    case RELAY_DATA:
+        return "DATA";
+    case RELAY_ERROR:
+        return "ERROR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 bool read_u8(const uint8_t *data, size_t size, size_t &offset, uint8_t &out) {
     if (offset + 1 > size)
         return false;
@@ -158,6 +191,13 @@ int main(int argc, char **argv) {
             switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT: {
                 peers[event.peer] = PeerInfo();
+                std::printf("relay: connect peer=%p remote=%u.%u.%u.%u:%u\n",
+                            static_cast<void *>(event.peer),
+                            static_cast<unsigned>((event.peer->address.host >> 0) & 0xFF),
+                            static_cast<unsigned>((event.peer->address.host >> 8) & 0xFF),
+                            static_cast<unsigned>((event.peer->address.host >> 16) & 0xFF),
+                            static_cast<unsigned>((event.peer->address.host >> 24) & 0xFF),
+                            static_cast<unsigned>(event.peer->address.port));
                 break;
             }
             case ENET_EVENT_TYPE_RECEIVE: {
@@ -170,10 +210,15 @@ int main(int argc, char **argv) {
                 if (info.role == PeerInfo::UNKNOWN) {
                     RelayHeader header;
                     if (!parse_relay_header(event.packet, header, nullptr, nullptr)) {
+                        std::printf("relay: bad header from peer=%p\n", static_cast<void *>(event.peer));
                         enet_peer_disconnect(event.peer, 0);
                         enet_packet_destroy(event.packet);
                         break;
                     }
+                    std::printf("relay: handshake peer=%p type=%s session=%u client=%u\n",
+                                static_cast<void *>(event.peer), relay_type_name(header.type),
+                                static_cast<unsigned>(header.session_id),
+                                static_cast<unsigned>(header.client_id));
                     if (header.type == RELAY_HELLO_HOST) {
                         info.role = PeerInfo::HOST;
                         info.session_id = header.session_id;
@@ -181,6 +226,10 @@ int main(int argc, char **argv) {
                         if (session.host && session.host != event.peer)
                             enet_peer_disconnect(session.host, 0);
                         session.host = event.peer;
+                        std::printf("relay: host session=%u peer=%p clients=%zu\n",
+                                    static_cast<unsigned>(header.session_id),
+                                    static_cast<void *>(event.peer),
+                                    session.clients.size());
                         for (const auto &entry : session.clients) {
                             ENetPacket *packet = make_relay_packet(RELAY_CLIENT_CONNECT,
                                                                    header.session_id,
@@ -195,6 +244,12 @@ int main(int argc, char **argv) {
                         uint32_t client_id = session.next_client_id++;
                         info.client_id = client_id;
                         session.clients[client_id] = event.peer;
+                        std::printf("relay: client session=%u peer=%p client_id=%u host=%p total_clients=%zu\n",
+                                    static_cast<unsigned>(header.session_id),
+                                    static_cast<void *>(event.peer),
+                                    static_cast<unsigned>(client_id),
+                                    static_cast<void *>(session.host),
+                                    session.clients.size());
                         if (session.host) {
                             ENetPacket *packet = make_relay_packet(RELAY_CLIENT_CONNECT,
                                                                    header.session_id,
@@ -252,6 +307,10 @@ int main(int argc, char **argv) {
                 if (info_it == peers.end())
                     break;
                 PeerInfo info = info_it->second;
+                std::printf("relay: disconnect peer=%p role=%s session=%u client=%u\n",
+                            static_cast<void *>(event.peer), role_name(info.role),
+                            static_cast<unsigned>(info.session_id),
+                            static_cast<unsigned>(info.client_id));
                 peers.erase(info_it);
                 if (info.role == PeerInfo::HOST) {
                     auto session_it = sessions.find(info.session_id);

@@ -55,6 +55,8 @@ const char *transport_kind_name(TransportKind kind) {
         return "direct";
     case TransportKind::UDP_RELAY:
         return "udp-relay";
+    case TransportKind::WS_RELAY:
+        return "ws-relay";
     case TransportKind::TCP_RELAY:
         return "tcp-relay";
     default:

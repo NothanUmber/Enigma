@@ -47,7 +47,7 @@ public:
 // This centralizes polling/sending across:
 // - direct ENet client<->host (LAN)
 // - UDP ENet relay host<->relay and client<->relay
-// - TCP relay framing for both host and clients
+// - stream-relay framing for both host and clients (raw TCP or WebSocket)
 //
 // Session logic provides an ITransportSink and stays agnostic to the underlying transport.
 class Transport {
@@ -62,13 +62,13 @@ public:
     void HostSendDirect(ENetPeer *peer, const ecl::Buffer &payload);
     void HostSendDirectUnreliable(ENetPeer *peer, const ecl::Buffer &payload);
     void HostSendUdpRelay(Uint32 client_id, const ecl::Buffer &payload);
-    void HostSendTcpRelay(Uint32 client_id, const ecl::Buffer &payload);
+    void HostSendStreamRelay(Uint32 client_id, const ecl::Buffer &payload);
 
     // Host side: broadcast raw game payload to all remotes.
     void HostBroadcast(const ecl::Buffer &payload);
     void HostBroadcastUnreliable(const ecl::Buffer &payload);
     void HostBroadcastUdpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id);
-    void HostBroadcastTcpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id);
+    void HostBroadcastStreamRelay(const ecl::Buffer &payload, Uint32 exclude_client_id);
 
     // Flush ENet outbound queues (safe to call even if not connected).
     void Flush();

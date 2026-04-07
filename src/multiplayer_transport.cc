@@ -197,8 +197,8 @@ void deliver_pending_send(const PendingSend &p, bool &need_flush_host, bool &nee
         }
         break;
     case PendingKind::CLIENT_TCP:
-        if (tcp_socket_valid(g_session.tcp_relay_socket) && !p.payload.empty())
-            tcp_send_frame(g_session.tcp_relay_socket, p.payload.data(), p.payload.size());
+        if (stream_relay_connected(g_session.stream_relay) && !p.payload.empty())
+            stream_relay_send_frame(g_session.stream_relay, p.payload.data(), p.payload.size());
         break;
     case PendingKind::HOST_DIRECT:
         if (p.peer && g_session.peer_players.find(p.peer) != g_session.peer_players.end()) {
@@ -217,12 +217,9 @@ void deliver_pending_send(const PendingSend &p, bool &need_flush_host, bool &nee
         }
         break;
     case PendingKind::HOST_TCP_RELAY:
-        if (tcp_socket_valid(g_session.tcp_relay_socket) && !p.payload.empty()) {
-            ecl::Buffer buf;
-            encode_relay_header(buf, RELAY_SEND, g_session.session_id, p.client_id);
-            buf.write(p.payload.data(), p.payload.size());
-            tcp_send_frame(g_session.tcp_relay_socket, buf.data(), buf.size());
-        }
+        if (stream_relay_connected(g_session.stream_relay) && !p.payload.empty())
+            stream_relay_send_payload(g_session.stream_relay, g_session.session_id,
+                                      p.client_id, p.payload);
         break;
     case PendingKind::HOST_BROADCAST:
         if (g_session.host_handle) {
@@ -395,6 +392,11 @@ bool poll_direct_enet(ITransportSink &sink) {
     // Direct ENet sessions (host or client). TCP-relay-only clients don't have a host_handle.
     if (g_session.host_handle == nullptr)
         return true;
+    // During async client join the join state machine owns the ENet socket and
+    // must see CONNECT / WELCOME before generic transport polling drains them.
+    if (!g_session.host && g_session.active && !g_session.local_player_known &&
+        g_session.server_peer != nullptr && g_session.active_transport == TransportKind::NONE)
+        return true;
 
     if (!netsim_deliver_due_recvs(sink, HostSource::DIRECT))
         return false;
@@ -457,21 +459,21 @@ bool poll_udp_relay(ITransportSink &sink) {
     return netsim_deliver_due_recvs(sink, HostSource::UDP_RELAY);
 }
 
-bool poll_tcp_relay(ITransportSink &sink) {
-    if (!tcp_socket_valid(g_session.tcp_relay_socket))
+bool poll_stream_relay(ITransportSink &sink) {
+    if (!stream_relay_connected(g_session.stream_relay))
         return true;
 
     if (!netsim_deliver_due_recvs(sink, HostSource::TCP_RELAY))
         return false;
 
-    if (!tcp_pump_recv(g_session.tcp_relay_socket, g_session.tcp_relay_rx)) {
-        tcp_close(g_session.tcp_relay_socket);
+    if (!stream_relay_pump(g_session.stream_relay)) {
+        stream_relay_reset(g_session.stream_relay);
         return sink.OnDisconnect(HostSource::TCP_RELAY, nullptr);
     }
 
     std::vector<uint8_t> frame;
-    while (tcp_socket_valid(g_session.tcp_relay_socket) &&
-           tcp_try_extract_frame(g_session.tcp_relay_rx, g_session.tcp_relay_frame_len, frame)) {
+    while (stream_relay_connected(g_session.stream_relay) &&
+           stream_relay_next_frame(g_session.stream_relay, frame)) {
         const uint8_t *data = frame.empty() ? nullptr : frame.data();
         if (!netsim_maybe_delay_recv(sink, HostSource::TCP_RELAY, nullptr, data, frame.size()))
             return false;
@@ -487,7 +489,7 @@ bool Transport::Poll(ITransportSink &sink) {
         return false;
     if (!poll_udp_relay(sink))
         return false;
-    return poll_tcp_relay(sink);
+    return poll_stream_relay(sink);
 }
 
 bool Transport::ClientSend(const ecl::Buffer &payload) {
@@ -502,13 +504,17 @@ bool Transport::ClientSend(const ecl::Buffer &payload) {
         Flush();
         return true;
     }
-    if (g_session.active_transport == TransportKind::TCP_RELAY &&
-        tcp_socket_valid(g_session.tcp_relay_socket)) {
+    if (transport_uses_stream_relay(g_session.active_transport) &&
+        stream_relay_connected(g_session.stream_relay)) {
         if (netsim_send_or_queue(PendingKind::CLIENT_TCP, nullptr, 0, payload, true))
             return true;
-        bool ok = tcp_send_frame(g_session.tcp_relay_socket, payload.data(), payload.size());
+        bool ok = stream_relay_send_frame(g_session.stream_relay, payload.data(), payload.size());
         if (!ok && debug_enabled())
-            debug_log("mp client: tcp relay send failed (len=%u)", (unsigned)payload.size());
+            debug_log("mp client: %s send failed (len=%u)",
+                      stream_relay_transport_kind(g_session.stream_relay) == TransportKind::WS_RELAY ?
+                          "ws relay" :
+                          "tcp relay",
+                      (unsigned)payload.size());
         return ok;
     }
     return false;
@@ -525,14 +531,18 @@ bool Transport::ClientSendUnreliable(const ecl::Buffer &payload) {
         Flush();
         return true;
     }
-    if (g_session.active_transport == TransportKind::TCP_RELAY &&
-        tcp_socket_valid(g_session.tcp_relay_socket)) {
+    if (transport_uses_stream_relay(g_session.active_transport) &&
+        stream_relay_connected(g_session.stream_relay)) {
         if (netsim_send_or_queue(PendingKind::CLIENT_TCP, nullptr, 0, payload, true))
             return true;
         // TCP relay is inherently reliable; still accept the call for API symmetry.
-        bool ok = tcp_send_frame(g_session.tcp_relay_socket, payload.data(), payload.size());
+        bool ok = stream_relay_send_frame(g_session.stream_relay, payload.data(), payload.size());
         if (!ok && debug_enabled())
-            debug_log("mp client: tcp relay send failed (len=%u)", (unsigned)payload.size());
+            debug_log("mp client: %s send failed (len=%u)",
+                      stream_relay_transport_kind(g_session.stream_relay) == TransportKind::WS_RELAY ?
+                          "ws relay" :
+                          "tcp relay",
+                      (unsigned)payload.size());
         return ok;
     }
     return false;
@@ -570,38 +580,36 @@ void Transport::HostSendUdpRelay(Uint32 client_id, const ecl::Buffer &payload) {
         enet_host_flush(g_session.relay_handle);
 }
 
-void Transport::HostSendTcpRelay(Uint32 client_id, const ecl::Buffer &payload) {
-    if (!tcp_socket_valid(g_session.tcp_relay_socket))
+void Transport::HostSendStreamRelay(Uint32 client_id, const ecl::Buffer &payload) {
+    if (!stream_relay_connected(g_session.stream_relay))
         return;
     if (netsim_send_or_queue(PendingKind::HOST_TCP_RELAY, nullptr, client_id, payload, true))
         return;
-    ecl::Buffer buf;
-    encode_relay_header(buf, RELAY_SEND, g_session.session_id, client_id);
-    buf.write(payload.data(), payload.size());
-    tcp_send_frame(g_session.tcp_relay_socket, buf.data(), buf.size());
+    stream_relay_send_payload(g_session.stream_relay, g_session.session_id, client_id, payload);
 }
 
 void Transport::HostBroadcastUdpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id) {
-    for (const auto &entry : g_session.relay_players) {
-        if (entry.first == exclude_client_id)
-            continue;
-        HostSendUdpRelay(entry.first, payload);
-    }
+    for_each_relay_route(g_session, HostSource::UDP_RELAY, [&](const RelayRemoteRoute &route) {
+        if (route.client_id == exclude_client_id)
+            return;
+        HostSendUdpRelay(route.client_id, payload);
+    });
 }
 
-void Transport::HostBroadcastTcpRelay(const ecl::Buffer &payload, Uint32 exclude_client_id) {
-    for (const auto &entry : g_session.tcp_relay_players) {
-        if (entry.first == exclude_client_id)
-            continue;
-        HostSendTcpRelay(entry.first, payload);
-    }
+void Transport::HostBroadcastStreamRelay(const ecl::Buffer &payload, Uint32 exclude_client_id) {
+    for_each_relay_route(g_session, HostSource::TCP_RELAY, [&](const RelayRemoteRoute &route) {
+        if (route.client_id == exclude_client_id)
+            return;
+        HostSendStreamRelay(route.client_id, payload);
+    });
 }
 
 void Transport::HostBroadcast(const ecl::Buffer &payload) {
     if (!g_session.host)
         return;
-    if (g_session.peer_players.empty() && g_session.relay_players.empty() &&
-        g_session.tcp_relay_players.empty()) {
+    if (g_session.peer_players.empty() &&
+        relay_route_count(g_session, HostSource::UDP_RELAY) == 0 &&
+        relay_route_count(g_session, HostSource::TCP_RELAY) == 0) {
         return;
     }
     if (!g_session.peer_players.empty()) {
@@ -610,17 +618,18 @@ void Transport::HostBroadcast(const ecl::Buffer &payload) {
         ENetPacket *packet = enet_packet_create(payload.data(), payload.size(), ENET_PACKET_FLAG_RELIABLE);
         enet_host_broadcast(g_session.host_handle, 0, packet);
     }
-    if (!g_session.relay_players.empty())
+    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
         HostBroadcastUdpRelay(payload, 0);
-    if (!g_session.tcp_relay_players.empty())
-        HostBroadcastTcpRelay(payload, 0);
+    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+        HostBroadcastStreamRelay(payload, 0);
 }
 
 void Transport::HostBroadcastUnreliable(const ecl::Buffer &payload) {
     if (!g_session.host)
         return;
-    if (g_session.peer_players.empty() && g_session.relay_players.empty() &&
-        g_session.tcp_relay_players.empty()) {
+    if (g_session.peer_players.empty() &&
+        relay_route_count(g_session, HostSource::UDP_RELAY) == 0 &&
+        relay_route_count(g_session, HostSource::TCP_RELAY) == 0) {
         return;
     }
     if (!g_session.peer_players.empty()) {
@@ -631,10 +640,10 @@ void Transport::HostBroadcastUnreliable(const ecl::Buffer &payload) {
     }
     // Relay forwarding currently uses ENet/TCP on the host side. For simplicity,
     // keep relayed broadcasts reliable (the redundancy in the payload still helps).
-    if (!g_session.relay_players.empty())
+    if (relay_route_count(g_session, HostSource::UDP_RELAY) != 0)
         HostBroadcastUdpRelay(payload, 0);
-    if (!g_session.tcp_relay_players.empty())
-        HostBroadcastTcpRelay(payload, 0);
+    if (relay_route_count(g_session, HostSource::TCP_RELAY) != 0)
+        HostBroadcastStreamRelay(payload, 0);
 }
 
 void Transport::Flush() {

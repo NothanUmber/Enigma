@@ -80,6 +80,8 @@ namespace enigma { namespace gui {
         gui::TextField *userImagePathTF;
         gui::TextField *localizationPathTF;
         gui::TextField *multiplayerLobbyTF;
+        gui::TextField *multiplayerLobbyControlUrlTF;
+        gui::TextField *multiplayerWebSocketRelayUrlTF;
         gui::TextField *multiplayerLobbyPortTF;
 	        gui::TextField *multiplayerUdpRelayPortTF;
 	        gui::TextField *multiplayerTcpRelayPortTF;

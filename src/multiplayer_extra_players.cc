@@ -368,7 +368,7 @@ void send_existing_placements_to_tcp_relay(Uint32 client_id) {
     for_each_existing_placement([client_id](const protocol::PlacementPacket &msg) {
         ecl::Buffer buf;
         protocol::encode_place(buf, msg);
-        g_transport.HostSendTcpRelay(client_id, buf);
+        g_transport.HostSendStreamRelay(client_id, buf);
     });
 }
 

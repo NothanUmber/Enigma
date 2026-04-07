@@ -107,6 +107,8 @@ enigma_SOURCES = 		\
 			multiplayer_state.hh	\
 			multiplayer_transport.cc \
 			multiplayer_transport.hh \
+			multiplayer_remote_route.cc \
+			multiplayer_stream_relay.cc \
 			multiplayer_tcp_socket.cc \
 			multiplayer_test_driver.cc \
 			multiplayer_test_driver.hh \

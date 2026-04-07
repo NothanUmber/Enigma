@@ -13,9 +13,12 @@
     <property key="StereoSeparation" value="10.0"/>
     <property key="RatingsAutoUpdate" value="0"/>
     <property key="MultiplayerLobbyServer" value="CHANGEME"/>
+    <property key="MultiplayerLobbyControlUrl" value=""/>
     <property key="MultiplayerEnableDirect" value="1"/>
     <property key="MultiplayerEnableUdpRelay" value="1"/>
+    <property key="MultiplayerEnableWebSocketRelay" value="1"/>
     <property key="MultiplayerEnableTcpRelay" value="1"/>
+    <property key="MultiplayerWebSocketRelayUrl" value=""/>
     <property key="MultiplayerAutoDetectConnectivity" value="1"/>
     <property key="MultiplayerDebugVisualPrediction" value="0"/>
     <property key="MultiplayerInternetLobbyPort" value="12347"/>

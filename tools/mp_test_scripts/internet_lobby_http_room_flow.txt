@@ -1,0 +1,36 @@
+# Internet-lobby HTTP-fallback regression script:
+# - start a local lobby server with HTTP enabled and UDP disabled
+# - configure the client-side HTTP control fallback URL
+# - keep the public server argument on host:port so the code must fall back
+# - verify create/join/start/poll/leave all still preserve room semantics
+
+proc_start name=internet_lobby cmd="python3 -u tools/internet_lobby_server.py --host 127.0.0.1 --port 24670 --disable-udp"
+proc_wait name=internet_lobby contains="Lobby HTTP server listening on 127.0.0.1:24670/lobby" timeout_ms=15000
+
+both SET_STRING key=MultiplayerLobbyControlUrl value=http://127.0.0.1:24670/lobby
+
+host INTERNET_CREATE_ROOM server=127.0.0.1:24670 code=ABCD session=77 seed=11 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii
+host INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD timeout_ms=3000 expect_started=0
+wait role=host contains="OK cmd=INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD started=0 player_count=1 peer_count=1" timeout_ms=3000
+wait role=host contains="EVT name=INTERNET_PEER idx=0 id=" timeout_ms=3000
+
+client INTERNET_JOIN_ROOM server=127.0.0.1:24670 code=ABCD
+wait role=client contains="OK cmd=INTERNET_JOIN_ROOM server=127.0.0.1:24670 code=ABCD host_ip=127.0.0.1 player_count=2 peer_count=2 session=77 seed=11 expected=2 port=24567 filter=0 level_id=enigma_vii/ais05_1 host_id=mptest-host pack=enigma_vii" timeout_ms=3000
+wait role=client contains="EVT name=INTERNET_PEER idx=1 id=" timeout_ms=3000
+wait role=client contains="self=1" timeout_ms=3000
+
+host INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD timeout_ms=3000 expect_started=0
+wait role=host contains="OK cmd=INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD started=0 player_count=2 peer_count=2" timeout_ms=3000
+wait role=host contains="EVT name=INTERNET_PEER idx=1 id=" timeout_ms=3000
+
+host INTERNET_START_ROOM server=127.0.0.1:24670 code=ABCD session=77 seed=11 expected=2 port=24567 level_id="enigma_vii/ais05_1" pack=enigma_vii
+client INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD timeout_ms=3000 expect_started=1
+wait role=client contains="OK cmd=INTERNET_POLL_ROOM server=127.0.0.1:24670 code=ABCD started=1 player_count=2 peer_count=2 host_ip=127.0.0.1 session=77 seed=11 expected=2 port=24567 filter=0 level_id=enigma_vii/ais05_1 host_id=mptest-host pack=enigma_vii" timeout_ms=3000
+
+client INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD
+wait_next role=client contains="OK cmd=INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+host INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD
+wait_next role=host contains="OK cmd=INTERNET_LEAVE_ROOM server=127.0.0.1:24670 code=ABCD" timeout_ms=3000
+
+both QUIT
+proc_stop name=internet_lobby

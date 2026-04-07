@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import http.server
 import random
 import socket
 import struct
+import threading
 import time
 
 MAGIC = 0x52494E45  # "ENIR" little-endian
@@ -61,6 +63,15 @@ def write_u32(value):
 def write_str(value):
     raw = value.encode("utf-8")
     return write_u16(len(raw)) + raw
+
+
+def build_error(message):
+    return (
+        write_u32(MAGIC)
+        + write_u8(VERSION)
+        + write_u8(INET_ERROR)
+        + write_str(message)
+    )
 
 
 def make_code():
@@ -122,7 +133,6 @@ def parse_start(payload):
         _type, offset = read_u8(payload, offset)
     else:
         offset = 0
-        magic = None
 
     session_id, offset = read_u32(payload, offset)
     level_id, offset = read_str(payload, offset)
@@ -193,7 +203,7 @@ def encode_members(room):
     return payload
 
 
-def handle_request(data, addr, rooms, ttl):
+def handle_request_locked(data, remote_host, rooms, ttl):
     offset = 0
     magic, offset = read_u32(data, offset)
     version, offset = read_u8(data, offset)
@@ -204,49 +214,34 @@ def handle_request(data, addr, rooms, ttl):
     if msg_type == INET_CREATE:
         code, offset = read_str(data, offset)
         if not code:
-            return (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("please choose room code")
-            )
+            return build_error("please choose room code")
         if code in rooms and not rooms[code].expired(ttl):
-            return (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("room code is already used")
-            )
+            return build_error("room code is already used")
         start = parse_start(data[offset:])
         host_name = normalize_member_name(start.get("host_name"))
-        rooms[code] = Room(code, addr[0], start["host_port"], start, start["host_id"], host_name)
-        resp = (
+        rooms[code] = Room(code, remote_host, start["host_port"], start,
+                           start["host_id"], host_name)
+        return (
             write_u32(MAGIC)
             + write_u8(VERSION)
             + write_u8(INET_CREATE_OK)
             + write_str(code)
-            + write_str(addr[0])
+            + write_str(remote_host)
         )
-        return resp
 
     if msg_type == INET_JOIN:
         code, offset = read_str(data, offset)
-        _client_id, offset = read_str(data, offset)
+        client_id, offset = read_str(data, offset)
         client_name = "Player"
         if offset < len(data):
             client_name, offset = read_str(data, offset)
         room = rooms.get(code)
         if not room or room.expired(ttl):
             rooms.pop(code, None)
-            return (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("Room not found.")
-            )
-        room.members[_client_id] = normalize_member_name(client_name)
+            return build_error("Room not found.")
+        room.members[client_id] = normalize_member_name(client_name)
         room.last_seen = time.time()
-        resp = (
+        return (
             write_u32(MAGIC)
             + write_u8(VERSION)
             + write_u8(INET_JOIN_OK)
@@ -256,19 +251,13 @@ def handle_request(data, addr, rooms, ttl):
             + write_str(room.start.get("pack_name", ""))
             + encode_members(room)
         )
-        return resp
 
     if msg_type == INET_START:
         code, offset = read_str(data, offset)
         room = rooms.get(code)
         if not room or room.expired(ttl):
             rooms.pop(code, None)
-            return (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("Room not found.")
-            )
+            return build_error("Room not found.")
         start = parse_start(data[offset:])
         room.start = start
         host_name = start.get("host_name")
@@ -276,27 +265,18 @@ def handle_request(data, addr, rooms, ttl):
             room.members[start["host_id"]] = normalize_member_name(host_name)
         elif start["host_id"] not in room.members:
             room.members[start["host_id"]] = "Player"
-        room.host_ip = addr[0]
+        room.host_ip = remote_host
         room.host_port = start["host_port"]
         room.started = True
         room.last_seen = time.time()
-        return (
-            write_u32(MAGIC)
-            + write_u8(VERSION)
-            + write_u8(INET_START_OK)
-        )
+        return write_u32(MAGIC) + write_u8(VERSION) + write_u8(INET_START_OK)
 
     if msg_type == INET_POLL:
         code, offset = read_str(data, offset)
         room = rooms.get(code)
         if not room or room.expired(ttl):
             rooms.pop(code, None)
-            return (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("Room not found.")
-            )
+            return build_error("Room not found.")
         room.last_seen = time.time()
         if not room.started:
             return (
@@ -326,9 +306,6 @@ def handle_request(data, addr, rooms, ttl):
         if room:
             host_id = room.start.get("host_id", "")
             if client_id == host_id:
-                # Host owns the room. If host leaves, close the room for everyone
-                # so the code can be reused immediately and no one remains in a
-                # stale, unstartable room.
                 rooms.pop(code, None)
             else:
                 room.members.pop(client_id, None)
@@ -346,39 +323,131 @@ def handle_request(data, addr, rooms, ttl):
     return None
 
 
+class RoomStore:
+    def __init__(self, ttl):
+        self.ttl = ttl
+        self.rooms = {}
+        self.lock = threading.Lock()
+
+    def cleanup_expired_locked(self):
+        expired = [code for code, room in self.rooms.items() if room.expired(self.ttl)]
+        for code in expired:
+            self.rooms.pop(code, None)
+
+    def cleanup(self):
+        with self.lock:
+            self.cleanup_expired_locked()
+
+    def handle_request(self, data, remote_host):
+        with self.lock:
+            self.cleanup_expired_locked()
+            try:
+                response = handle_request_locked(data, remote_host, self.rooms, self.ttl)
+            except Exception:
+                response = build_error("Bad request.")
+            return response
+
+
+def forwarded_remote_host(handler):
+    forwarded = handler.headers.get("X-Forwarded-For", "").strip()
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    real_ip = handler.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        return real_ip
+    return handler.client_address[0]
+
+
+def make_http_handler(store, expected_path):
+    class LobbyHttpHandler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path != expected_path:
+                self.send_error(404)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            data = self.rfile.read(length)
+            response = store.handle_request(data, forwarded_remote_host(self))
+            if response is None:
+                self.send_error(400)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+        def log_message(self, fmt, *args):
+            return
+
+    return LobbyHttpHandler
+
+
+def start_http_server(host, port, path, store):
+    server = http.server.ThreadingHTTPServer((host, port), make_http_handler(store, path))
+    thread = threading.Thread(target=server.serve_forever, name="lobby-http", daemon=True)
+    thread.start()
+    print(f"Lobby HTTP server listening on {host}:{port}{path}", flush=True)
+    return server
+
+
+def run_udp_server(host, port, store):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((host, port))
+    sock.settimeout(1.0)
+    print(f"Lobby server listening on {host}:{port}", flush=True)
+    while True:
+        try:
+            data, addr = sock.recvfrom(2048)
+        except socket.timeout:
+            store.cleanup()
+            continue
+        response = store.handle_request(data, addr[0])
+        if response:
+            sock.sendto(response, addr)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=12347)
     parser.add_argument("--ttl", type=int, default=1800, help="room TTL in seconds")
+    parser.add_argument("--disable-udp", action="store_true")
+    parser.add_argument("--disable-http", action="store_true")
+    parser.add_argument("--http-host", default="")
+    parser.add_argument("--http-port", type=int, default=0)
+    parser.add_argument("--http-path", default="/lobby")
     args = parser.parse_args()
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((args.host, args.port))
-    sock.settimeout(1.0)
+    if args.disable_udp and args.disable_http:
+        raise SystemExit("At least one of UDP or HTTP must be enabled.")
 
-    rooms = {}
-    print(f"Lobby server listening on {args.host}:{args.port}")
-    while True:
-        try:
-            data, addr = sock.recvfrom(2048)
-        except socket.timeout:
-            # cleanup
-            expired = [code for code, room in rooms.items() if room.expired(args.ttl)]
-            for code in expired:
-                rooms.pop(code, None)
-            continue
-        try:
-            response = handle_request(data, addr, rooms, args.ttl)
-        except Exception:
-            response = (
-                write_u32(MAGIC)
-                + write_u8(VERSION)
-                + write_u8(INET_ERROR)
-                + write_str("Bad request.")
-            )
-        if response:
-            sock.sendto(response, addr)
+    if not args.http_path.startswith("/"):
+        args.http_path = "/" + args.http_path
+
+    store = RoomStore(args.ttl)
+    http_server = None
+    if not args.disable_http:
+        http_host = args.http_host or args.host
+        http_port = args.http_port or args.port
+        http_server = start_http_server(http_host, http_port, args.http_path, store)
+
+    try:
+        if not args.disable_udp:
+            run_udp_server(args.host, args.port, store)
+            return
+
+        while True:
+            time.sleep(1.0)
+            store.cleanup()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if http_server is not None:
+            http_server.shutdown()
+            http_server.server_close()
 
 
 if __name__ == "__main__":

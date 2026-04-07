@@ -70,10 +70,10 @@ lev::Index *find_pack_for_level_id(const std::string &level_id, lev::Index *lobb
     return nullptr;
 }
 
-InternetServers resolve_internet_servers(const std::string &server) {
+InternetEndpoints resolve_internet_servers(const std::string &server) {
     static_cast<void>(server);
     multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-    return multiplayer::ResolveInternetServers(cfg);
+    return multiplayer::ResolveInternetEndpoints(cfg);
 }
 
 std::string multiplayer_server_host_from_options() {
@@ -108,8 +108,12 @@ std::string no_level_message(unsigned min_players, unsigned desired_players) {
                      desired_players);
 }
 
-std::string resolved_lobby_server(const std::string &server, const InternetServers &servers) {
-    return servers.lobby.empty() ? server : servers.lobby;
+std::string resolved_lobby_server(const std::string &server, const InternetEndpoints &servers) {
+    if (servers.lobby.is_valid())
+        return servers.lobby.server;
+    if (servers.lobby_control.is_valid())
+        return servers.lobby_control.url;
+    return server;
 }
 
 }  // namespace mp_menu

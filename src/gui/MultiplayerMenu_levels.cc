@@ -270,8 +270,8 @@ void MultiplayerMenu::update_internet_layout() {
                                current_info == waiting_host);
     if (!internet_in_room) {
         std::string server = mp_menu::multiplayer_server_host_from_options();
-        mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
-        if (servers.lobby.empty()) {
+        mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
+        if (!servers.lobby.is_valid() && !servers.lobby_control.is_valid()) {
             info_label->set_text(server_warning);
             info_ttl = -1.0;
         } else if (current_info == server_warning) {

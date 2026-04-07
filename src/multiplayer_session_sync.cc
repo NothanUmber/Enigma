@@ -56,6 +56,8 @@ const char *transport_name(TransportKind t) {
         return "direct";
     case TransportKind::UDP_RELAY:
         return "udp-relay";
+    case TransportKind::WS_RELAY:
+        return "ws-relay";
     case TransportKind::TCP_RELAY:
         return "tcp-relay";
     default:
@@ -70,7 +72,7 @@ const char *host_source_name(HostSource s) {
     case HostSource::UDP_RELAY:
         return "udp-relay";
     case HostSource::TCP_RELAY:
-        return "tcp-relay";
+        return stream_relay_is_websocket(g_session.stream_relay) ? "ws-relay" : "tcp-relay";
     default:
         return "unknown";
     }
@@ -806,13 +808,13 @@ void send_resync_state_to_relay(Uint32 client_id) {
 }
 
 void send_resync_state_to_tcp_relay(Uint32 client_id) {
-    if (!tcp_socket_valid(g_session.tcp_relay_socket))
+    if (!stream_relay_connected(g_session.stream_relay))
         return;
     dump_actor_digest_once("host_send_resync_state_tcp_relay", input::CurrentTick(), nullptr);
     protocol::ResyncState state = build_resync_state_snapshot();
     ecl::Buffer buf;
     protocol::encode_resync_state(buf, state);
-    g_transport.HostSendTcpRelay(client_id, buf);
+    g_transport.HostSendStreamRelay(client_id, buf);
 }
 
 void apply_resync_state(const protocol::ResyncState &state) {
@@ -1269,8 +1271,9 @@ bool host_ready_to_start() {
         return false;
     if (g_session.expected_players <= 1)
         return true;
-    if (g_session.peer_players.size() + g_session.relay_players.size() +
-            g_session.tcp_relay_players.size() + 1 <
+    if (g_session.peer_players.size() +
+            relay_route_count(g_session, HostSource::UDP_RELAY) +
+            relay_route_count(g_session, HostSource::TCP_RELAY) + 1 <
         g_session.expected_players) {
         return false;
     }
@@ -1279,16 +1282,19 @@ bool host_ready_to_start() {
         if (it == g_session.peer_ready.end() || !it->second)
             return false;
     }
-    for (const auto &entry : g_session.relay_players) {
-        auto it = g_session.relay_ready.find(entry.first);
-        if (it == g_session.relay_ready.end() || !it->second)
-            return false;
-    }
-    for (const auto &entry : g_session.tcp_relay_players) {
-        auto it = g_session.tcp_relay_ready.find(entry.first);
-        if (it == g_session.tcp_relay_ready.end() || !it->second)
-            return false;
-    }
+    bool ready = true;
+    for_each_relay_route(g_session, HostSource::UDP_RELAY, [&ready](const RelayRemoteRoute &route) {
+        if (!route.ready)
+            ready = false;
+    });
+    if (!ready)
+        return false;
+    for_each_relay_route(g_session, HostSource::TCP_RELAY, [&ready](const RelayRemoteRoute &route) {
+        if (!route.ready)
+            ready = false;
+    });
+    if (!ready)
+        return false;
     if (g_session.expected_players > g_session.level_players && g_session.level_players > 0) {
         if (g_session.placement_received.size() < g_session.expected_players)
             return false;

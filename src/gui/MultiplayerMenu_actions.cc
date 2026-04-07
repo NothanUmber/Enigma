@@ -64,7 +64,7 @@ void MultiplayerMenu::handle_level_activated() {
         std::string server = mp_menu::multiplayer_server_host_from_options();
         // Use the tracked room code for network calls; the text field may be stale.
         std::string room = !internet_room_code.empty() ? internet_room_code : current_room_code();
-        mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
+        mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
         if (!multiplayer::InternetStartRoom(mp_menu::resolved_lobby_server(server, servers),
                                             room, start, error)) {
             show_info(error.empty() ? _("Failed to start room.") : error);
@@ -148,19 +148,20 @@ void MultiplayerMenu::handle_create_room() {
     unsigned players = desired_players();
     std::string server = mp_menu::multiplayer_server_host_from_options();
     std::string room_code = current_room_code();
-    mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
-    if (servers.lobby.empty()) {
+    mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
+    if (!servers.lobby.is_valid() && !servers.lobby_control.is_valid()) {
         show_info(server_warning);
         return;
     }
-    multiplayer::SetRelayServer(servers.udp_relay);
-    multiplayer::SetTcpRelayServer(servers.tcp_relay);
+    multiplayer::SetRelayServer(servers.udp_relay.server);
+    multiplayer::SetWebSocketRelayUrl(servers.websocket_relay.url);
+    multiplayer::SetTcpRelayServer(servers.tcp_relay.server);
     if (selected_pack_name.empty())
         select_pack_for_level(selected_level_id);
     multiplayer::protocol::LobbyStart start = multiplayer::BuildStartMessage(
         selected_level_id, players, selected_pack_name, filter_min_players);
     std::string error;
-    if (!multiplayer::InternetCreateRoom(servers.lobby, room_code, start, error)) {
+    if (!multiplayer::InternetCreateRoom(servers.lobby.server, room_code, start, error)) {
         show_info(error.empty() ? _("Failed to create room.") : error);
         return;
     }
@@ -192,19 +193,20 @@ void MultiplayerMenu::handle_join_room() {
         show_info(_("please choose room code"));
         return;
     }
-    mp_menu::InternetServers servers = mp_menu::resolve_internet_servers(server);
-    if (servers.lobby.empty()) {
+    mp_menu::InternetEndpoints servers = mp_menu::resolve_internet_servers(server);
+    if (!servers.lobby.is_valid() && !servers.lobby_control.is_valid()) {
         show_info(server_warning);
         return;
     }
-    multiplayer::SetRelayServer(servers.udp_relay);
-    multiplayer::SetTcpRelayServer(servers.tcp_relay);
+    multiplayer::SetRelayServer(servers.udp_relay.server);
+    multiplayer::SetWebSocketRelayUrl(servers.websocket_relay.url);
+    multiplayer::SetTcpRelayServer(servers.tcp_relay.server);
     multiplayer::protocol::LobbyStart start;
     std::string host_ip;
     std::string error;
     unsigned player_count = 0;
     std::vector<multiplayer::LobbyPeer> peers;
-    if (!multiplayer::InternetJoinRoom(servers.lobby, room, start, host_ip, player_count,
+    if (!multiplayer::InternetJoinRoom(servers.lobby.server, room, start, host_ip, player_count,
                                        peers, error)) {
         show_info(error.empty() ? _("Failed to join room.") : error);
         return;

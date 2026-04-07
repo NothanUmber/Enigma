@@ -42,7 +42,7 @@ class VolatileIndex;
 namespace enigma {
 namespace gui {
 namespace mp_menu {
-using InternetServers = enigma::multiplayer::InternetServers;
+using InternetEndpoints = enigma::multiplayer::ResolvedInternetServers;
 
 // Lazily-created synthetic index used for the "Multiplayer Lobby" view.
 lev::VolatileIndex *ensure_lobby_index();
@@ -50,7 +50,7 @@ lev::VolatileIndex *ensure_lobby_index();
 // Used for syncing level-pack choice by looking up which index owns a level id.
 lev::Index *find_pack_for_level_id(const std::string &level_id, lev::Index *lobby_index);
 
-InternetServers resolve_internet_servers(const std::string &server);
+InternetEndpoints resolve_internet_servers(const std::string &server);
 std::string multiplayer_server_host_from_options();
 
 // Loads level metadata and returns the designed player count and whether the map is
@@ -58,7 +58,7 @@ std::string multiplayer_server_host_from_options();
 bool proxy_player_info(lev::Proxy *proxy, unsigned &players, bool &optimized);
 
 std::string no_level_message(unsigned min_players, unsigned desired_players);
-std::string resolved_lobby_server(const std::string &server, const InternetServers &servers);
+std::string resolved_lobby_server(const std::string &server, const InternetEndpoints &servers);
 
 }  // namespace mp_menu
 }  // namespace gui

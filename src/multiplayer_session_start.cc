@@ -101,7 +101,7 @@ void configure_input_session(unsigned expected_players) {
     // duration is configurable, keep the UX stable by interpreting the values
     // as "legacy ticks" and converting to current ticks.
     uint32_t legacy_delay =
-        (g_session.active_transport == TransportKind::TCP_RELAY) ? kInputDelayTcpRelay : kInputDelay;
+        transport_uses_stream_relay(g_session.active_transport) ? kInputDelayTcpRelay : kInputDelay;
     int delay_override = options::GetInt("MultiplayerDebugInputDelayTicks");
     if (delay_override > 0) {
         if (delay_override > static_cast<int>(kMaxInputDelayLegacyTicks))
@@ -209,17 +209,19 @@ Uint32 join_welcome_timeout_ms() {
 }
 
 struct ConnectStrategy {
+    TransportKind kind;
     bool enabled;
     const char *disabled_log;
-    bool (*attempt)(const protocol::LobbyStart &, const std::string &);
 };
 
 enum class JoinPhase {
     IDLE = 0,
     CONNECTING = 1,
     WAIT_WELCOME = 2,
-    TCP_CONNECTING = 3,
-    TCP_WAIT_WELCOME = 4
+    WS_CONNECTING = 3,
+    WS_WAIT_WELCOME = 4,
+    TCP_CONNECTING = 5,
+    TCP_WAIT_WELCOME = 6
 };
 
 struct ClientJoinState {
@@ -228,6 +230,7 @@ struct ClientJoinState {
     // Candidate IPs for direct-connect attempts (multi-homed hosts, VMs).
     std::vector<std::string> host_ips;
     MultiplayerConfig cfg;
+    ResolvedInternetServers internet_servers;
 
     // Ordered list of strategies to try (filtered by cfg).
     std::vector<TransportKind> strategies;
@@ -252,6 +255,19 @@ struct ClientJoinState {
 };
 
 ClientJoinState g_join;
+
+ResolvedInternetServers resolve_runtime_internet_servers(const MultiplayerConfig &cfg) {
+    ResolvedInternetServers servers = multiplayer::ResolveInternetEndpoints(cfg);
+    if (!g_relay_server.empty())
+        servers.udp_relay = multiplayer::ResolveInternetEndpoint(g_relay_server,
+                                                                 cfg.udp_relay_port);
+    if (!g_websocket_relay_url.empty())
+        servers.websocket_relay = multiplayer::ResolveWebSocketRelayUrl(g_websocket_relay_url);
+    if (!g_tcp_relay_server.empty())
+        servers.tcp_relay = multiplayer::ResolveInternetEndpoint(g_tcp_relay_server,
+                                                                 cfg.tcp_relay_port);
+    return servers;
+}
 
 bool is_numeric_private_ipv4(const std::string &host) {
     unsigned a = 0, b = 0, c = 0, d = 0;
@@ -351,9 +367,7 @@ void join_clear_network_state() {
         g_session.relay_handle = nullptr;
     }
     g_session.relay_peer = nullptr;
-    tcp_close(g_session.tcp_relay_socket);
-    g_session.tcp_relay_rx.clear();
-    g_session.tcp_relay_frame_len = 0;
+    stream_relay_reset(g_session.stream_relay);
 
     if (g_join.tcp_addrs) {
         freeaddrinfo(g_join.tcp_addrs);
@@ -433,7 +447,7 @@ bool join_begin_enet_attempt(const std::string &host, Uint16 port, bool relay_co
     return true;
 }
 
-bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
+bool join_begin_stream_relay_attempt(const std::string &host, Uint16 port) {
     join_clear_network_state();
     g_join.relay_connect = false;
     g_join.target_host = host;
@@ -474,7 +488,7 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
         int rc = ::connect(s, ai->ai_addr, static_cast<int>(ai->ai_addrlen));
 #ifdef WIN32
         if (rc == 0) {
-            g_session.tcp_relay_socket = s;
+            stream_relay_adopt_socket(g_session.stream_relay, s);
             g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
         } else {
             int err = WSAGetLastError();
@@ -482,29 +496,28 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
                 tcp_close(s);
                 continue;
             }
-            g_session.tcp_relay_socket = s;
+            stream_relay_adopt_socket(g_session.stream_relay, s);
             g_join.phase = JoinPhase::TCP_CONNECTING;
         }
 #else
         if (rc == 0) {
-            g_session.tcp_relay_socket = s;
+            stream_relay_adopt_socket(g_session.stream_relay, s);
             g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
         } else {
             if (errno != EINPROGRESS) {
                 tcp_close(s);
                 continue;
             }
-            g_session.tcp_relay_socket = s;
+            stream_relay_adopt_socket(g_session.stream_relay, s);
             g_join.phase = JoinPhase::TCP_CONNECTING;
         }
 #endif
 
         // If we're already connected, send the HELLO immediately.
         if (g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
-            ecl::Buffer hello;
-            encode_relay_header(hello, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
-            if (!tcp_send_frame(g_session.tcp_relay_socket, hello.data(), hello.size())) {
-                tcp_close(g_session.tcp_relay_socket);
+            if (!stream_relay_send_client_hello(g_session.stream_relay,
+                                                g_join.start.session_id)) {
+                stream_relay_reset(g_session.stream_relay);
                 continue;
             }
         }
@@ -513,6 +526,32 @@ bool join_begin_tcp_relay_attempt(const std::string &host, Uint16 port) {
 
     join_clear_network_state();
     return false;
+}
+
+bool join_begin_websocket_relay_attempt(
+    const ResolvedInternetUrl &relay_url) {
+    join_clear_network_state();
+    g_join.relay_connect = false;
+    g_join.target_host = relay_url.url;
+    g_join.target_port = relay_url.port;
+
+    if (!relay_url.is_valid())
+        return false;
+    if (!stream_relay_connect_websocket_timeout(relay_url.url, 3000,
+                                                g_session.stream_relay)) {
+        return false;
+    }
+
+    Uint32 now = SDL_GetTicks();
+    g_join.phase = JoinPhase::WS_WAIT_WELCOME;
+    g_join.connect_deadline = now;
+    g_join.welcome_deadline = now + join_welcome_timeout_ms();
+    if (!stream_relay_send_client_hello(g_session.stream_relay, g_join.start.session_id)) {
+        stream_relay_reset(g_session.stream_relay);
+        join_clear_network_state();
+        return false;
+    }
+    return true;
 }
 
 bool join_begin_next_attempt() {
@@ -577,30 +616,36 @@ bool join_begin_next_attempt() {
         }
         if (kind == TransportKind::UDP_RELAY) {
             g_join.strategy_index++;
-            if (g_relay_server.empty())
+            const ResolvedInternetEndpoint &relay_endpoint = g_join.internet_servers.udp_relay;
+            if (!relay_endpoint.is_valid())
                 continue;
             if (debug_enabled())
-                debug_log("mp client: relay server=%s", g_relay_server.c_str());
-            std::string relay_host;
-            Uint16 relay_port = 0;
-            if (!parse_host_port(g_relay_server, relay_host, relay_port))
-                continue;
-            if (join_begin_enet_attempt(relay_host, relay_port, true, 2000, welcome_timeout_ms)) {
+                debug_log("mp client: relay server=%s", relay_endpoint.server.c_str());
+            if (join_begin_enet_attempt(relay_endpoint.host, relay_endpoint.port, true, 2000,
+                                        welcome_timeout_ms)) {
                 return true;
             }
             continue;
         }
-        if (kind == TransportKind::TCP_RELAY) {
+        if (kind == TransportKind::WS_RELAY) {
             g_join.strategy_index++;
-            if (g_tcp_relay_server.empty())
+            const auto &relay_url = g_join.internet_servers.websocket_relay;
+            if (!relay_url.is_valid())
                 continue;
             if (debug_enabled())
-                debug_log("mp client: tcp relay server=%s", g_tcp_relay_server.c_str());
-            std::string relay_host;
-            Uint16 relay_port = 0;
-            if (!parse_host_port(g_tcp_relay_server, relay_host, relay_port))
+                debug_log("mp client: ws relay url=%s", relay_url.url.c_str());
+            if (join_begin_websocket_relay_attempt(relay_url))
+                return true;
+            continue;
+        }
+        if (kind == TransportKind::TCP_RELAY) {
+            g_join.strategy_index++;
+            const ResolvedInternetEndpoint &relay_endpoint = g_join.internet_servers.tcp_relay;
+            if (!relay_endpoint.is_valid())
                 continue;
-            if (join_begin_tcp_relay_attempt(relay_host, relay_port)) {
+            if (debug_enabled())
+                debug_log("mp client: tcp relay server=%s", relay_endpoint.server.c_str());
+            if (join_begin_stream_relay_attempt(relay_endpoint.host, relay_endpoint.port)) {
                 return true;
             }
             continue;
@@ -613,6 +658,8 @@ void join_build_strategy_list() {
     g_join.strategies.clear();
     const bool enable_direct = g_join.cfg.enable_direct;
     const bool enable_udp_relay = g_join.cfg.enable_udp_relay;
+    const bool enable_websocket_relay =
+        g_join.cfg.enable_websocket_relay && g_join.internet_servers.websocket_relay.is_valid();
     const bool enable_tcp_relay = g_join.cfg.enable_tcp_relay;
     const bool force_relay = g_join.cfg.force_relay;
 
@@ -620,6 +667,8 @@ void join_build_strategy_list() {
         g_join.strategies.push_back(TransportKind::DIRECT);
     if (enable_udp_relay)
         g_join.strategies.push_back(TransportKind::UDP_RELAY);
+    if (enable_websocket_relay)
+        g_join.strategies.push_back(TransportKind::WS_RELAY);
     if (enable_tcp_relay)
         g_join.strategies.push_back(TransportKind::TCP_RELAY);
 
@@ -630,6 +679,8 @@ void join_build_strategy_list() {
             debug_log("mp client: force relay enabled");
         if (!enable_udp_relay)
             debug_log("mp client: udp relay disabled");
+        if (!enable_websocket_relay)
+            debug_log("mp client: websocket relay disabled");
         if (!enable_tcp_relay)
             debug_log("mp client: tcp relay disabled");
     }
@@ -649,7 +700,7 @@ void reset_session_bootstrap(const protocol::LobbyStart &start, unsigned expecte
     }
     g_session.server_peer = nullptr;
     g_session.relay_peer = nullptr;
-    tcp_close(g_session.tcp_relay_socket);
+    stream_relay_reset(g_session.stream_relay);
 
     g_session = SessionState();
     g_session.active = true;
@@ -707,17 +758,11 @@ bool host_open_direct_listener(Uint16 port, unsigned expected_players) {
     return true;
 }
 
-void host_try_connect_udp_relay() {
-    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-    if (!cfg.enable_udp_relay || g_relay_server.empty())
+void host_try_connect_udp_relay(const ResolvedInternetEndpoint &relay_endpoint) {
+    if (!relay_endpoint.is_valid())
         return;
     if (debug_enabled())
-        debug_log("mp host: relay server=%s", g_relay_server.c_str());
-
-    std::string relay_host;
-    Uint16 relay_port = 0;
-    if (!parse_host_port(g_relay_server, relay_host, relay_port))
-        return;
+        debug_log("mp host: relay server=%s", relay_endpoint.server.c_str());
 
     if (g_session.relay_handle)
         enet_host_destroy(g_session.relay_handle);
@@ -730,8 +775,8 @@ void host_try_connect_udp_relay() {
         return;
 
     ENetAddress relay_addr;
-    enet_address_set_host(&relay_addr, relay_host.c_str());
-    relay_addr.port = relay_port;
+    enet_address_set_host(&relay_addr, relay_endpoint.host.c_str());
+    relay_addr.port = relay_endpoint.port;
     g_session.relay_peer = enet_host_connect(g_session.relay_handle, &relay_addr, 2
 #ifdef ENET_VER_EQ_GT_13
                                              ,
@@ -739,8 +784,8 @@ void host_try_connect_udp_relay() {
 #endif
     );
     if (!g_session.relay_peer) {
-        debug_log("mp host: relay connect failed %s:%u", relay_host.c_str(),
-                  static_cast<unsigned>(relay_port));
+        debug_log("mp host: relay connect failed %s:%u", relay_endpoint.host.c_str(),
+                  static_cast<unsigned>(relay_endpoint.port));
         enet_host_destroy(g_session.relay_handle);
         g_session.relay_handle = nullptr;
         return;
@@ -761,49 +806,62 @@ void host_try_connect_udp_relay() {
                                                 ENET_PACKET_FLAG_RELIABLE);
         enet_peer_send(g_session.relay_peer, 0, packet);
         enet_host_flush(g_session.relay_handle);
-        debug_log("mp host: connected to relay %s:%u", relay_host.c_str(),
-                  static_cast<unsigned>(relay_port));
+        debug_log("mp host: connected to relay %s:%u", relay_endpoint.host.c_str(),
+                  static_cast<unsigned>(relay_endpoint.port));
         return;
     }
 
-    debug_log("mp host: relay connect timeout %s:%u", relay_host.c_str(),
-              static_cast<unsigned>(relay_port));
+    debug_log("mp host: relay connect timeout %s:%u", relay_endpoint.host.c_str(),
+              static_cast<unsigned>(relay_endpoint.port));
     enet_host_destroy(g_session.relay_handle);
     g_session.relay_handle = nullptr;
     g_session.relay_peer = nullptr;
 }
 
-void host_try_connect_tcp_relay() {
-    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
-    if (!cfg.enable_tcp_relay || g_tcp_relay_server.empty())
-        return;
+bool host_try_connect_stream_relay(const ResolvedInternetEndpoint &relay_endpoint) {
+    if (!relay_endpoint.is_valid())
+        return false;
     if (debug_enabled())
-        debug_log("mp host: tcp relay server=%s", g_tcp_relay_server.c_str());
+        debug_log("mp host: tcp relay server=%s", relay_endpoint.server.c_str());
 
-    std::string relay_host;
-    Uint16 relay_port = 0;
-    if (!parse_host_port(g_tcp_relay_server, relay_host, relay_port))
-        return;
-
-    TcpSocket sock;
-    if (!tcp_connect_timeout(relay_host, relay_port, 3000, sock)) {
-        debug_log("mp host: tcp relay connect failed %s:%u", relay_host.c_str(),
-                  static_cast<unsigned>(relay_port));
-        return;
+    if (!stream_relay_connect_timeout(relay_endpoint.host, relay_endpoint.port, 3000,
+                                      g_session.stream_relay)) {
+        debug_log("mp host: tcp relay connect failed %s:%u", relay_endpoint.host.c_str(),
+                  static_cast<unsigned>(relay_endpoint.port));
+        return false;
     }
 
-    g_session.tcp_relay_socket = sock;
-    ecl::Buffer buf;
-    encode_relay_header(buf, RELAY_HELLO_HOST, g_session.session_id, 0);
-    if (tcp_send_frame(g_session.tcp_relay_socket, buf.data(), buf.size())) {
-        debug_log("mp host: connected to tcp relay %s:%u", relay_host.c_str(),
-                  static_cast<unsigned>(relay_port));
-        return;
+    if (stream_relay_send_host_hello(g_session.stream_relay, g_session.session_id)) {
+        debug_log("mp host: connected to tcp relay %s:%u", relay_endpoint.host.c_str(),
+                  static_cast<unsigned>(relay_endpoint.port));
+        return true;
     }
 
-    debug_log("mp host: tcp relay hello failed %s:%u", relay_host.c_str(),
-              static_cast<unsigned>(relay_port));
-    tcp_close(g_session.tcp_relay_socket);
+    debug_log("mp host: tcp relay hello failed %s:%u", relay_endpoint.host.c_str(),
+              static_cast<unsigned>(relay_endpoint.port));
+    stream_relay_reset(g_session.stream_relay);
+    return false;
+}
+
+bool host_try_connect_websocket_relay(
+    const ResolvedInternetUrl &relay_url) {
+    if (!relay_url.is_valid())
+        return false;
+    if (debug_enabled())
+        debug_log("mp host: ws relay url=%s", relay_url.url.c_str());
+
+    if (!stream_relay_connect_websocket_timeout(relay_url.url, 3000, g_session.stream_relay)) {
+        debug_log("mp host: ws relay connect failed %s", relay_url.url.c_str());
+        return false;
+    }
+    if (stream_relay_send_host_hello(g_session.stream_relay, g_session.session_id)) {
+        debug_log("mp host: connected to ws relay %s", relay_url.url.c_str());
+        return true;
+    }
+
+    debug_log("mp host: ws relay hello failed %s", relay_url.url.c_str());
+    stream_relay_reset(g_session.stream_relay);
+    return false;
 }
 
 bool client_connect_and_wait_enet(const std::string &target_host, Uint16 target_port,
@@ -954,32 +1012,101 @@ bool client_try_connect_direct(const protocol::LobbyStart &start, const std::str
                                         kJoinTimeoutMs, start.session_id);
 }
 
-bool client_try_connect_udp_relay(Uint32 session_id) {
-    if (!g_relay_server.empty()) {
-        if (debug_enabled())
-            debug_log("mp client: relay server=%s", g_relay_server.c_str());
-        std::string relay_host;
-        Uint16 relay_port = 0;
-        if (parse_host_port(g_relay_server, relay_host, relay_port)) {
-            if (client_connect_and_wait_enet(relay_host, relay_port, true, 2000, kJoinTimeoutMs,
-                                             session_id)) {
+bool client_try_connect_udp_relay(const ResolvedInternetEndpoint &relay_endpoint,
+                                  Uint32 session_id) {
+    if (!relay_endpoint.is_valid())
+        return false;
+    if (debug_enabled())
+        debug_log("mp client: relay server=%s", relay_endpoint.server.c_str());
+    return client_connect_and_wait_enet(relay_endpoint.host, relay_endpoint.port, true, 2000,
+                                        kJoinTimeoutMs, session_id);
+}
+
+bool try_decode_stream_relay_welcome(const std::vector<uint8_t> &frame,
+                                     TransportKind transport_kind,
+                                     const char *transport_label) {
+    const char *data = reinterpret_cast<const char *>(frame.data());
+    ecl::Buffer buf;
+    buf.assign(const_cast<char *>(data), frame.size());
+    Uint8 player_id = 0;
+    Uint8 expected = 0;
+    Uint32 seed = 0;
+    if (!protocol::decode_welcome(buf, player_id, expected, seed))
+        return false;
+    if (debug_enabled())
+        debug_log("mp client: welcome (%s) player=%u expected=%u seed=%u",
+                  transport_label, static_cast<unsigned>(player_id),
+                  static_cast<unsigned>(expected), static_cast<unsigned>(seed));
+    g_session.local_player = player_id;
+    g_session.local_player_known = true;
+    g_session.expected_players = expected;
+    g_session.seed = seed;
+    input::SetExpectedPlayers(expected);
+    g_session.active_transport = transport_kind;
+    if (debug_enabled())
+        debug_log("mp client: transport=%s", transport_name(g_session.active_transport));
+    return true;
+}
+
+bool wait_for_stream_relay_welcome(Uint32 timeout_ms, TransportKind transport_kind,
+                                   const char *transport_label) {
+    Uint32 start_wait = SDL_GetTicks();
+    std::vector<uint8_t> frame;
+    while (SDL_GetTicks() - start_wait < timeout_ms) {
+        bool readable = false;
+        if (!stream_relay_wait_readable(g_session.stream_relay, 100, readable))
+            break;
+        if (!readable)
+            continue;
+        if (!stream_relay_pump(g_session.stream_relay)) {
+            stream_relay_reset(g_session.stream_relay);
+            break;
+        }
+        while (stream_relay_next_frame(g_session.stream_relay, frame)) {
+            if (try_decode_stream_relay_welcome(frame, transport_kind, transport_label))
                 return true;
-            }
         }
     }
     return false;
 }
 
-bool client_try_connect_udp_relay(const protocol::LobbyStart &start, const std::string &host_ip) {
-    static_cast<void>(host_ip);
-    return client_try_connect_udp_relay(start.session_id);
-}
-
-bool client_try_connect_tcp_relay(Uint32 session_id) {
-    if (g_tcp_relay_server.empty())
+bool client_try_connect_websocket_relay(
+    const ResolvedInternetUrl &relay_url, Uint32 session_id) {
+    if (!relay_url.is_valid())
         return false;
     if (debug_enabled())
-        debug_log("mp client: tcp relay server=%s", g_tcp_relay_server.c_str());
+        debug_log("mp client: ws relay url=%s", relay_url.url.c_str());
+
+    if (g_session.host_handle) {
+        enet_host_destroy(g_session.host_handle);
+        g_session.host_handle = nullptr;
+    }
+    g_session.server_peer = nullptr;
+
+    if (!stream_relay_connect_websocket_timeout(relay_url.url, 3000, g_session.stream_relay)) {
+        if (debug_enabled())
+            debug_log("mp client: connect failed %s (ws relay)", relay_url.url.c_str());
+        return false;
+    }
+    if (!stream_relay_send_client_hello(g_session.stream_relay, session_id)) {
+        stream_relay_reset(g_session.stream_relay);
+        return false;
+    }
+    if (wait_for_stream_relay_welcome(kJoinTimeoutMs, TransportKind::WS_RELAY, "ws relay"))
+        return true;
+
+    if (debug_enabled())
+        debug_log("mp client: welcome timeout %s (ws relay)", relay_url.url.c_str());
+    stream_relay_reset(g_session.stream_relay);
+    return false;
+}
+
+bool client_try_connect_stream_relay(const ResolvedInternetEndpoint &relay_endpoint,
+                                     Uint32 session_id) {
+    if (!relay_endpoint.is_valid())
+        return false;
+    if (debug_enabled())
+        debug_log("mp client: tcp relay server=%s", relay_endpoint.server.c_str());
 
     // Ensure stale ENet state from previous attempts does not interfere with
     // TCP relay operation (client_send_payload prefers server_peer if set).
@@ -989,84 +1116,28 @@ bool client_try_connect_tcp_relay(Uint32 session_id) {
     }
     g_session.server_peer = nullptr;
 
-    std::string relay_host;
-    Uint16 relay_port = 0;
-    if (!parse_host_port(g_tcp_relay_server, relay_host, relay_port))
-        return false;
-
-    TcpSocket sock;
-    if (!tcp_connect_timeout(relay_host, relay_port, 3000, sock)) {
+    if (!stream_relay_connect_timeout(relay_endpoint.host, relay_endpoint.port, 3000,
+                                      g_session.stream_relay)) {
         if (debug_enabled())
-            debug_log("mp client: connect failed %s:%u (tcp relay)", relay_host.c_str(),
-                      static_cast<unsigned>(relay_port));
-        return false;
-    }
-    g_session.tcp_relay_socket = sock;
-
-    ecl::Buffer hello;
-    encode_relay_header(hello, RELAY_HELLO_CLIENT, session_id, 0);
-    if (!tcp_send_frame(g_session.tcp_relay_socket, hello.data(), hello.size())) {
-        tcp_close(g_session.tcp_relay_socket);
+            debug_log("mp client: connect failed %s:%u (tcp relay)",
+                      relay_endpoint.host.c_str(),
+                      static_cast<unsigned>(relay_endpoint.port));
         return false;
     }
 
-    Uint32 start_wait = SDL_GetTicks();
-    std::vector<uint8_t> frame;
-    while (SDL_GetTicks() - start_wait < kJoinTimeoutMs) {
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(g_session.tcp_relay_socket, &rfds);
-        timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 100 * 1000;
-#ifdef WIN32
-        int sel = ::select(0, &rfds, nullptr, nullptr, &tv);
-#else
-        int sel = ::select(g_session.tcp_relay_socket + 1, &rfds, nullptr, nullptr, &tv);
-#endif
-        if (sel <= 0)
-            continue;
-        if (!tcp_pump_recv(g_session.tcp_relay_socket, g_session.tcp_relay_rx)) {
-            tcp_close(g_session.tcp_relay_socket);
-            break;
-        }
-        while (tcp_try_extract_frame(g_session.tcp_relay_rx, g_session.tcp_relay_frame_len,
-                                     frame)) {
-            const char *data = reinterpret_cast<const char *>(frame.data());
-            ecl::Buffer buf;
-            buf.assign(const_cast<char *>(data), frame.size());
-            Uint8 player_id = 0;
-            Uint8 expected = 0;
-            Uint32 seed = 0;
-            if (protocol::decode_welcome(buf, player_id, expected, seed)) {
-                if (debug_enabled())
-                    debug_log("mp client: welcome (tcp relay) player=%u expected=%u seed=%u",
-                              static_cast<unsigned>(player_id), static_cast<unsigned>(expected),
-                              static_cast<unsigned>(seed));
-                g_session.local_player = player_id;
-                g_session.local_player_known = true;
-                g_session.expected_players = expected;
-                g_session.seed = seed;
-                input::SetExpectedPlayers(expected);
-                g_session.active_transport = TransportKind::TCP_RELAY;
-                if (debug_enabled())
-                    debug_log("mp client: transport=%s",
-                              transport_name(g_session.active_transport));
-                return true;
-            }
-        }
+    if (!stream_relay_send_client_hello(g_session.stream_relay, session_id)) {
+        stream_relay_reset(g_session.stream_relay);
+        return false;
     }
+    if (wait_for_stream_relay_welcome(kJoinTimeoutMs, TransportKind::TCP_RELAY, "tcp relay"))
+        return true;
 
     if (debug_enabled())
-        debug_log("mp client: welcome timeout %s:%u (tcp relay)", relay_host.c_str(),
-                  static_cast<unsigned>(relay_port));
-    tcp_close(g_session.tcp_relay_socket);
+        debug_log("mp client: welcome timeout %s:%u (tcp relay)",
+                  relay_endpoint.host.c_str(),
+                  static_cast<unsigned>(relay_endpoint.port));
+    stream_relay_reset(g_session.stream_relay);
     return false;
-}
-
-bool client_try_connect_tcp_relay(const protocol::LobbyStart &start, const std::string &host_ip) {
-    static_cast<void>(host_ip);
-    return client_try_connect_tcp_relay(start.session_id);
 }
 
 }  // namespace
@@ -1085,8 +1156,16 @@ bool SessionStartHost(const protocol::LobbyStart &start) {
         return false;
     }
 
-    host_try_connect_udp_relay();
-    host_try_connect_tcp_relay();
+    multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+    ResolvedInternetServers internet_servers = resolve_runtime_internet_servers(cfg);
+    if (cfg.enable_udp_relay)
+        host_try_connect_udp_relay(internet_servers.udp_relay);
+    bool have_stream_fallback = false;
+    if (cfg.enable_websocket_relay && internet_servers.websocket_relay.is_valid())
+        have_stream_fallback = host_try_connect_websocket_relay(
+            internet_servers.websocket_relay);
+    if (!have_stream_fallback && cfg.enable_tcp_relay)
+        host_try_connect_stream_relay(internet_servers.tcp_relay);
     return true;
 }
 
@@ -1100,8 +1179,11 @@ bool SessionStartClient(const protocol::LobbyStart &start, const std::string &ho
         return false;
     reset_session_bootstrap(start, expected_players, false, false, 1);
     multiplayer::MultiplayerConfig cfg = multiplayer::LoadMultiplayerConfig();
+    ResolvedInternetServers internet_servers = resolve_runtime_internet_servers(cfg);
     const bool enable_direct = cfg.enable_direct;
     const bool enable_udp_relay = cfg.enable_udp_relay;
+    const bool enable_websocket_relay =
+        cfg.enable_websocket_relay && internet_servers.websocket_relay.is_valid();
     const bool enable_tcp_relay = cfg.enable_tcp_relay;
     const bool force_relay = cfg.force_relay;
     const char *direct_disabled_log =
@@ -1109,13 +1191,10 @@ bool SessionStartClient(const protocol::LobbyStart &start, const std::string &ho
                        : (force_relay ? "mp client: force relay enabled" : nullptr);
 
     const ConnectStrategy strategies[] = {
-        {enable_direct && !force_relay, direct_disabled_log, client_try_connect_direct},
-        {enable_udp_relay, "mp client: udp relay disabled",
-         static_cast<bool (*)(const protocol::LobbyStart &, const std::string &)>(
-             client_try_connect_udp_relay)},
-        {enable_tcp_relay, "mp client: tcp relay disabled",
-         static_cast<bool (*)(const protocol::LobbyStart &, const std::string &)>(
-             client_try_connect_tcp_relay)},
+        {TransportKind::DIRECT, enable_direct && !force_relay, direct_disabled_log},
+        {TransportKind::UDP_RELAY, enable_udp_relay, "mp client: udp relay disabled"},
+        {TransportKind::WS_RELAY, enable_websocket_relay, "mp client: websocket relay disabled"},
+        {TransportKind::TCP_RELAY, enable_tcp_relay, "mp client: tcp relay disabled"},
     };
 
     auto try_strategies = [&](const ConnectStrategy *begin,
@@ -1126,7 +1205,27 @@ bool SessionStartClient(const protocol::LobbyStart &start, const std::string &ho
                     debug_log("%s", it->disabled_log);
                 continue;
             }
-            if (it->attempt(start, host_ip))
+            bool connected = false;
+            switch (it->kind) {
+            case TransportKind::DIRECT:
+                connected = client_try_connect_direct(start, host_ip);
+                break;
+            case TransportKind::UDP_RELAY:
+                connected = client_try_connect_udp_relay(internet_servers.udp_relay,
+                                                         start.session_id);
+                break;
+            case TransportKind::WS_RELAY:
+                connected = client_try_connect_websocket_relay(
+                    internet_servers.websocket_relay, start.session_id);
+                break;
+            case TransportKind::TCP_RELAY:
+                connected = client_try_connect_stream_relay(internet_servers.tcp_relay,
+                                                            start.session_id);
+                break;
+            default:
+                break;
+            }
+            if (connected)
                 return true;
         }
         return false;
@@ -1163,6 +1262,7 @@ bool SessionBeginClientJoin(const protocol::LobbyStart &start,
     g_join.start = start;
     g_join.host_ips = host_ips;
     g_join.cfg = multiplayer::LoadMultiplayerConfig();
+    g_join.internet_servers = resolve_runtime_internet_servers(g_join.cfg);
     if (debug_enabled()) {
         std::string hosts;
         for (size_t i = 0; i < g_join.host_ips.size(); ++i) {
@@ -1193,36 +1293,90 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
 
     Uint32 now = SDL_GetTicks();
 
+    auto poll_stream_relay_join = [&](JoinPhase connecting_phase, JoinPhase wait_phase,
+                                      TransportKind transport_kind,
+                                      const char *transport_label) -> bool {
+        if (g_join.phase != connecting_phase && g_join.phase != wait_phase)
+            return false;
+
+        if (g_join.phase == connecting_phase) {
+            bool connected = false;
+            if (!stream_relay_poll_connect(g_session.stream_relay, 0, connected)) {
+                join_fail_current_attempt();
+            } else if (connected) {
+                if (stream_relay_send_client_hello(g_session.stream_relay,
+                                                   g_join.start.session_id)) {
+                    g_join.phase = wait_phase;
+                } else {
+                    join_fail_current_attempt();
+                }
+            }
+        }
+
+        if (g_join.phase == wait_phase) {
+            bool readable = false;
+            if (!stream_relay_wait_readable(g_session.stream_relay, 0, readable)) {
+                join_fail_current_attempt();
+            } else if (readable) {
+                if (!stream_relay_pump(g_session.stream_relay)) {
+                    join_fail_current_attempt();
+                } else {
+                    std::vector<uint8_t> frame;
+                    while (stream_relay_next_frame(g_session.stream_relay, frame)) {
+                        if (try_decode_stream_relay_welcome(frame, transport_kind, transport_label)) {
+                            g_join.active = false;
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (g_join.phase == connecting_phase && now > g_join.connect_deadline) {
+            if (debug_enabled())
+                debug_log("mp client: connect failed %s (%s)", g_join.target_host.c_str(),
+                          transport_label);
+            join_fail_current_attempt();
+        } else if (g_join.phase == wait_phase && now > g_join.welcome_deadline) {
+            if (debug_enabled())
+                debug_log("mp client: welcome timeout %s (%s)", g_join.target_host.c_str(),
+                          transport_label);
+            join_fail_current_attempt();
+        }
+
+        if (g_join.phase == JoinPhase::IDLE) {
+            if (join_begin_next_attempt())
+                return false;
+            SessionShutdown();
+            g_join = ClientJoinState();
+            return false;
+        }
+
+        return false;
+    };
+
+    if (poll_stream_relay_join(JoinPhase::WS_CONNECTING, JoinPhase::WS_WAIT_WELCOME,
+                               TransportKind::WS_RELAY, "ws relay")) {
+        return multiplayer::ClientJoinStatus::JOINED;
+    }
+
     if (g_join.phase == JoinPhase::TCP_CONNECTING || g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
-        if (tcp_socket_valid(g_session.tcp_relay_socket)) {
+        if (stream_relay_connected(g_session.stream_relay)) {
             if (g_join.phase == JoinPhase::TCP_CONNECTING) {
-                fd_set wfds;
-                FD_ZERO(&wfds);
-                FD_SET(g_session.tcp_relay_socket, &wfds);
-                timeval tv;
-                tv.tv_sec = 0;
-                tv.tv_usec = 0;
-#ifdef WIN32
-                int sel = ::select(0, nullptr, &wfds, nullptr, &tv);
-#else
-                int sel = ::select(g_session.tcp_relay_socket + 1, nullptr, &wfds, nullptr, &tv);
-#endif
-                if (sel > 0) {
-                    int err = 0;
-#ifdef WIN32
-                    int errlen = sizeof(err);
-#else
-                    socklen_t errlen = sizeof(err);
-#endif
-                    if (::getsockopt(g_session.tcp_relay_socket, SOL_SOCKET, SO_ERROR,
-                                     reinterpret_cast<char *>(&err), &errlen) == 0 &&
-                        err == 0) {
-                        ecl::Buffer hello;
-                        encode_relay_header(hello, RELAY_HELLO_CLIENT, g_join.start.session_id, 0);
-                        if (tcp_send_frame(g_session.tcp_relay_socket, hello.data(), hello.size()))
+                bool writable = false;
+                if (!stream_relay_wait_writable(g_session.stream_relay, 0, writable)) {
+                    join_fail_current_attempt();
+                } else if (writable) {
+                    bool connected = false;
+                    if (!stream_relay_finish_connect(g_session.stream_relay, connected)) {
+                        join_fail_current_attempt();
+                    } else if (connected) {
+                        if (stream_relay_send_client_hello(g_session.stream_relay,
+                                                           g_join.start.session_id)) {
                             g_join.phase = JoinPhase::TCP_WAIT_WELCOME;
-                        else
+                        } else {
                             join_fail_current_attempt();
+                        }
                     } else {
                         join_fail_current_attempt();
                     }
@@ -1230,24 +1384,15 @@ multiplayer::ClientJoinStatus SessionPollClientJoin() {
             }
 
             if (g_join.phase == JoinPhase::TCP_WAIT_WELCOME) {
-                fd_set rfds;
-                FD_ZERO(&rfds);
-                FD_SET(g_session.tcp_relay_socket, &rfds);
-                timeval tv;
-                tv.tv_sec = 0;
-                tv.tv_usec = 0;
-#ifdef WIN32
-                int sel = ::select(0, &rfds, nullptr, nullptr, &tv);
-#else
-                int sel = ::select(g_session.tcp_relay_socket + 1, &rfds, nullptr, nullptr, &tv);
-#endif
-                if (sel > 0) {
-                    if (!tcp_pump_recv(g_session.tcp_relay_socket, g_session.tcp_relay_rx)) {
+                bool readable = false;
+                if (!stream_relay_wait_readable(g_session.stream_relay, 0, readable)) {
+                    join_fail_current_attempt();
+                } else if (readable) {
+                    if (!stream_relay_pump(g_session.stream_relay)) {
                         join_fail_current_attempt();
                     } else {
                         std::vector<uint8_t> frame;
-                        while (tcp_try_extract_frame(g_session.tcp_relay_rx,
-                                                     g_session.tcp_relay_frame_len, frame)) {
+                        while (stream_relay_next_frame(g_session.stream_relay, frame)) {
                             const char *data = reinterpret_cast<const char *>(frame.data());
                             ecl::Buffer buf;
                             buf.assign(const_cast<char *>(data), frame.size());

@@ -751,8 +751,10 @@ public:
       userNameTF(NULL),
       userPathTF(NULL),
       userImagePathTF(NULL),
-      localizationPathTF(NULL),
+	      localizationPathTF(NULL),
 	      multiplayerLobbyTF(NULL),
+	      multiplayerLobbyControlUrlTF(NULL),
+	      multiplayerWebSocketRelayUrlTF(NULL),
 	      multiplayerLobbyPortTF(NULL),
 		      multiplayerUdpRelayPortTF(NULL),
 		      multiplayerTcpRelayPortTF(NULL),
@@ -1038,15 +1040,40 @@ public:
 		                    OPTIONS_NEW_LB(N_("Lobby/Relay server: "), make_locked_value(lobby_server))
 		                }
 
-		                // Transport toggles (order is still direct > UDP relay > TCP relay).
+		                // Transport toggles follow the client fallback order:
+		                // direct > UDP relay > WebSocket relay > TCP relay.
 		                OPTIONS_NEW_LB(N_("Direct connect: "),
 		                              make_toggle_or_locked("MultiplayerEnableDirect", false))
 		                OPTIONS_NEW_LB(N_("UDP relay: "),
 		                              make_toggle_or_locked("MultiplayerEnableUdpRelay", false))
+		                OPTIONS_NEW_LB(N_("WebSocket relay: "),
+		                              make_toggle_or_locked("MultiplayerEnableWebSocketRelay", false))
 		                OPTIONS_NEW_LB(N_("TCP relay: "),
 		                              make_toggle_or_locked("MultiplayerEnableTcpRelay", false))
 		                OPTIONS_NEW_LB(N_("Auto detect connectivity: "),
 		                              make_toggle_or_locked("MultiplayerAutoDetectConnectivity", true))
+
+		                if (!gameIsOngoing) {
+		                    multiplayerLobbyControlUrlTF = new TextField(cfg.lobby_control_url);
+		                    multiplayerLobbyControlUrlTF->setMaxChars(256);
+		                    OPTIONS_NEW_LB(N_("Lobby control URL: "), multiplayerLobbyControlUrlTF)
+		                } else {
+		                    OPTIONS_NEW_LB(N_("Lobby control URL: "),
+		                                  make_locked_value(cfg.lobby_control_url.empty() ?
+		                                                    std::string("-") :
+		                                                    cfg.lobby_control_url))
+		                }
+
+		                if (!gameIsOngoing) {
+		                    multiplayerWebSocketRelayUrlTF = new TextField(cfg.websocket_relay_url);
+		                    multiplayerWebSocketRelayUrlTF->setMaxChars(256);
+		                    OPTIONS_NEW_LB(N_("WebSocket relay URL: "), multiplayerWebSocketRelayUrlTF)
+		                } else {
+		                    OPTIONS_NEW_LB(N_("WebSocket relay URL: "),
+		                                  make_locked_value(cfg.websocket_relay_url.empty() ?
+		                                                    std::string("-") :
+		                                                    cfg.websocket_relay_url))
+		                }
 
 		                auto make_port_field = [](int value) -> TextField * {
 		                    TextField *tf = new TextField(std::to_string(value));
@@ -1327,6 +1354,26 @@ public:
                 lobbyServer = lobbyServer.substr(0, port_sep);
             app.prefs->setProperty("MultiplayerLobbyServer", lobbyServer);
         }
+        if (multiplayerLobbyControlUrlTF) {
+            std::string url = multiplayerLobbyControlUrlTF->getText();
+            std::string::size_type firstChar = url.find_first_not_of(" \t\r\n");
+            std::string::size_type lastChar = url.find_last_not_of(" \t\r\n");
+            if (firstChar != std::string::npos)
+                url = url.substr(firstChar, lastChar - firstChar + 1);
+            else
+                url.clear();
+            app.prefs->setProperty("MultiplayerLobbyControlUrl", url);
+        }
+        if (multiplayerWebSocketRelayUrlTF) {
+            std::string url = multiplayerWebSocketRelayUrlTF->getText();
+            std::string::size_type firstChar = url.find_first_not_of(" \t\r\n");
+            std::string::size_type lastChar = url.find_last_not_of(" \t\r\n");
+            if (firstChar != std::string::npos)
+                url = url.substr(firstChar, lastChar - firstChar + 1);
+            else
+                url.clear();
+            app.prefs->setProperty("MultiplayerWebSocketRelayUrl", url);
+        }
         auto parse_port = [](const std::string &s, int fallback) -> int {
             if (s.empty())
                 return fallback;
@@ -1480,6 +1527,8 @@ public:
         userImagePathTF = NULL;
         localizationPathTF = NULL;
         multiplayerLobbyTF = NULL;
+	        multiplayerLobbyControlUrlTF = NULL;
+	        multiplayerWebSocketRelayUrlTF = NULL;
 	        multiplayerLobbyPortTF = NULL;
 	        multiplayerUdpRelayPortTF = NULL;
 	        multiplayerTcpRelayPortTF = NULL;

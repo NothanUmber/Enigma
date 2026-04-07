@@ -1,0 +1,39 @@
+# UDP relay smoke/regression script:
+# - start a local UDP relay helper
+# - force the client onto UDP relay
+# - verify relay transport selection
+# - load a level, start gameplay, and verify both local players can move
+
+proc_start name=udp_relay cmd="tools/mp_test_start_udp_relay.sh 127.0.0.1 24680"
+proc_wait name=udp_relay contains="Relay server listening on 127.0.0.1:24680" timeout_ms=15000
+
+both SET_RELAY_SERVER server=127.0.0.1:24680
+both SET_TCP_RELAY_SERVER server=-
+both SET_BOOL key=MultiplayerEnableDirect value=0
+both SET_BOOL key=MultiplayerEnableUdpRelay value=1
+both SET_BOOL key=MultiplayerEnableTcpRelay value=0
+
+host START_HOST session=2 seed=1 expected=2 port=23457 host_id=mptest-host
+client START_CLIENT session=2 seed=1 expected=2 port=23457 host_ip=127.0.0.1 host_id=mptest-host
+
+wait role=client contains="EVT name=JOINED" timeout_ms=15000
+
+both STREAM_STATE interval_ms=100
+wait_state_value role=host field=mp_direct equals=0 timeout_ms=5000
+wait_state_value role=host field=mp_udp equals=1 timeout_ms=5000
+wait_state_value role=host field=mp_tcp equals=0 timeout_ms=5000
+wait_state_value role=client field=mp_transport equals=2 timeout_ms=5000
+
+host LOAD_LEVEL level_id="enigma_vii/ais05_1"
+sleep 500
+both START_GAME
+wait_state_value role=host field=mp_phase equals=3 timeout_ms=5000
+wait_state_value role=client field=mp_phase equals=3 timeout_ms=5000
+
+host HOLD_MOUSE_FORCE player=0 ticks=20 fx=1.0 fy=0.0
+client HOLD_MOUSE_FORCE player=1 ticks=20 fx=-1.0 fy=0.0
+wait_state_change role=host field=p0_x min_abs_delta=0.005 timeout_ms=5000
+wait_state_change role=client field=p1_x min_abs_delta=0.005 timeout_ms=5000
+
+both QUIT
+proc_stop name=udp_relay

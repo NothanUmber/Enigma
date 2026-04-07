@@ -63,16 +63,107 @@ std::string sanitize_host_only(const std::string &raw) {
     return host;
 }
 
+bool parse_server_endpoint(const std::string &value, std::string &host,
+                           std::uint16_t &port, std::uint16_t default_port) {
+    host.clear();
+    port = default_port;
+    if (value.empty())
+        return false;
+
+    std::string::size_type pos = value.rfind(':');
+    if (pos == std::string::npos) {
+        host = value;
+    } else {
+        host = value.substr(0, pos);
+        std::string port_str = value.substr(pos + 1);
+        if (!port_str.empty()) {
+            char *end = nullptr;
+            long parsed = std::strtol(port_str.c_str(), &end, 10);
+            if (end && *end == '\0' && parsed > 0 && parsed <= 65535)
+                port = static_cast<std::uint16_t>(parsed);
+        }
+    }
+
+    if (host == "localhost" || host == "::1")
+        host = "127.0.0.1";
+    return !host.empty();
+}
+
+ResolvedInternetUrl parse_internet_url(const std::string &value,
+                                       const char *scheme_a, std::uint16_t port_a,
+                                       const char *scheme_b, std::uint16_t port_b) {
+    ResolvedInternetUrl out;
+    out.url = value;
+    if (value.empty())
+        return out;
+
+    std::string::size_type scheme_pos = value.find("://");
+    if (scheme_pos == std::string::npos)
+        return out;
+    out.scheme = value.substr(0, scheme_pos);
+    if (out.scheme != scheme_a && out.scheme != scheme_b)
+        return out;
+
+    const std::string rest = value.substr(scheme_pos + 3);
+    if (rest.empty())
+        return out;
+
+    std::string::size_type path_pos = rest.find('/');
+    std::string authority = (path_pos == std::string::npos) ? rest : rest.substr(0, path_pos);
+    out.path = (path_pos == std::string::npos) ? "/" : rest.substr(path_pos);
+    if (authority.empty() || out.path.empty())
+        return out;
+
+    std::string host = authority;
+    std::uint16_t port = (out.scheme == scheme_b) ? port_b : port_a;
+    std::string::size_type colon = authority.rfind(':');
+    if (colon != std::string::npos) {
+        host = authority.substr(0, colon);
+        const std::string port_str = authority.substr(colon + 1);
+        if (host.empty() || port_str.empty())
+            return ResolvedInternetUrl();
+        char *end = nullptr;
+        long parsed = std::strtol(port_str.c_str(), &end, 10);
+        if (!end || *end != '\0' || parsed <= 0 || parsed > 65535)
+            return ResolvedInternetUrl();
+        port = static_cast<std::uint16_t>(parsed);
+    }
+
+    if (host == "localhost" || host == "::1")
+        host = "127.0.0.1";
+    if (host.empty())
+        return ResolvedInternetUrl();
+
+    out.host = host;
+    out.port = port;
+    out.url = out.scheme + "://" + out.host + ":" + std::to_string(out.port) + out.path;
+    return out;
+}
+
+ResolvedInternetEndpoint make_configured_endpoint(const std::string &host, std::uint16_t port) {
+    ResolvedInternetEndpoint endpoint;
+    std::string sanitized = sanitize_host_only(host);
+    if (sanitized.empty() || sanitized == "CHANGEME" || port == 0)
+        return endpoint;
+    endpoint.host = sanitized;
+    endpoint.port = port;
+    endpoint.server = endpoint.host + ":" + std::to_string(endpoint.port);
+    return endpoint;
+}
+
 }  // namespace
 
 MultiplayerConfig LoadMultiplayerConfig() {
     MultiplayerConfig cfg;
     cfg.server_host = sanitize_host_only(options::GetString("MultiplayerLobbyServer"));
+    cfg.lobby_control_url = options::GetString("MultiplayerLobbyControlUrl");
+    cfg.websocket_relay_url = options::GetString("MultiplayerWebSocketRelayUrl");
     cfg.lobby_port = clamp_port(options::GetInt("MultiplayerInternetLobbyPort"), 12347);
     cfg.udp_relay_port = clamp_port(options::GetInt("MultiplayerInternetUdpRelayPort"), 12348);
     cfg.tcp_relay_port = clamp_port(options::GetInt("MultiplayerInternetTcpRelayPort"), 12349);
     cfg.enable_direct = options::GetBool("MultiplayerEnableDirect");
     cfg.enable_udp_relay = options::GetBool("MultiplayerEnableUdpRelay");
+    cfg.enable_websocket_relay = options::GetBool("MultiplayerEnableWebSocketRelay");
     cfg.enable_tcp_relay = options::GetBool("MultiplayerEnableTcpRelay");
     cfg.force_relay = force_relay_enabled();
     return cfg;
@@ -80,12 +171,49 @@ MultiplayerConfig LoadMultiplayerConfig() {
 
 InternetServers ResolveInternetServers(const MultiplayerConfig &cfg) {
     InternetServers out;
-    if (cfg.server_host.empty() || cfg.server_host == "CHANGEME")
-        return out;
-    out.lobby = cfg.server_host + ":" + std::to_string(cfg.lobby_port);
-    out.udp_relay = cfg.server_host + ":" + std::to_string(cfg.udp_relay_port);
-    out.tcp_relay = cfg.server_host + ":" + std::to_string(cfg.tcp_relay_port);
+    ResolvedInternetServers resolved = ResolveInternetEndpoints(cfg);
+    out.lobby = resolved.lobby.server;
+    out.lobby_control = resolved.lobby_control.url;
+    out.udp_relay = resolved.udp_relay.server;
+    out.websocket_relay = resolved.websocket_relay.url;
+    out.tcp_relay = resolved.tcp_relay.server;
     return out;
+}
+
+ResolvedInternetServers ResolveInternetEndpoints(const MultiplayerConfig &cfg) {
+    ResolvedInternetServers out;
+    out.lobby_control = ResolveHttpUrl(cfg.lobby_control_url);
+    out.websocket_relay = ResolveWebSocketRelayUrl(cfg.websocket_relay_url);
+    if (!(cfg.server_host.empty() || cfg.server_host == "CHANGEME")) {
+        out.lobby = make_configured_endpoint(cfg.server_host, cfg.lobby_port);
+        out.udp_relay = make_configured_endpoint(cfg.server_host, cfg.udp_relay_port);
+        out.tcp_relay = make_configured_endpoint(cfg.server_host, cfg.tcp_relay_port);
+    }
+    return out;
+}
+
+ResolvedInternetEndpoint ResolveInternetEndpoint(const std::string &server,
+                                                std::uint16_t default_port) {
+    ResolvedInternetEndpoint endpoint;
+    endpoint.server = server;
+
+    std::string host;
+    std::uint16_t port = default_port;
+    if (!parse_server_endpoint(server, host, port, default_port) || port == 0)
+        return endpoint;
+
+    endpoint.host = host;
+    endpoint.port = port;
+    endpoint.server = endpoint.host + ":" + std::to_string(endpoint.port);
+    return endpoint;
+}
+
+ResolvedInternetUrl ResolveHttpUrl(const std::string &url) {
+    return parse_internet_url(url, "http", 80, "https", 443);
+}
+
+ResolvedInternetUrl ResolveWebSocketRelayUrl(const std::string &url) {
+    return parse_internet_url(url, "ws", 80, "wss", 443);
 }
 
 }  // namespace multiplayer
